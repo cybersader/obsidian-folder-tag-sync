@@ -5,7 +5,7 @@
   "minAppVersion": "0.15.0",
   "description": "Sync folders and tags bidirectionally using regex patterns and naming transformations.",
   "author": "cybersader",
-  "authorUrl": "https://github.com/cybersader/obsidian-folder-tag-sync",
+  "authorUrl": "https://github.com/cybersader",
   "fundingUrl": "https://www.buymeacoffee.com/cybersader",
   "isDesktopOnly": false
 }

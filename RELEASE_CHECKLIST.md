@@ -2,23 +2,75 @@
 
 Use this checklist before creating each GitHub release.
 
+## Automated Releases (Recommended)
+
+This plugin uses **GitHub Actions** to automate releases. When you push a tag, it automatically:
+1. Builds the plugin
+2. Creates a GitHub release
+3. Attaches `main.js`, `manifest.json`, and `styles.css`
+
+### How to Release (Automated)
+
+```bash
+# 1. Update version in manifest.json and versions.json
+# Edit manifest.json: "version": "0.1.1"
+# Edit versions.json: add "0.1.1": "0.15.0"
+
+# 2. Commit the version bump
+git add manifest.json versions.json
+git commit -m "Bump version to 0.1.1"
+
+# 3. Create and push the tag (this triggers the release)
+git tag 0.1.1
+git push origin main
+git push origin 0.1.1
+```
+
+That's it! GitHub Actions handles the rest. Check the "Actions" tab on GitHub to monitor progress.
+
+### GitHub Actions Workflow
+
+The workflow file is at `.github/workflows/release.yml`. It:
+- Triggers on any tag push
+- Sets up Node.js and Bun
+- Installs dependencies
+- Builds the plugin
+- Creates a release with the required files
+
+---
+
+## Manual Releases (Fallback)
+
+If GitHub Actions fails or you need manual control:
+
+1. Go to: https://github.com/cybersader/obsidian-folder-tag-sync/releases/new
+2. Fill in:
+   - **Tag**: Select the tag you pushed (e.g., `0.1.1`)
+   - **Release title**: `0.1.1`
+   - **Description**: Release notes
+3. Attach files from your local build:
+   - `main.js` (REQUIRED)
+   - `manifest.json` (REQUIRED)
+   - `styles.css` (REQUIRED)
+4. Click "Publish release"
+
+---
+
 ## Pre-Release Checks
 
 ### Code Quality
 - [ ] All tests passing (`bun test`)
 - [ ] No TypeScript errors (`bun run build`)
 - [ ] No console.log statements in production code
-- [ ] Code is well-commented
 - [ ] No personal information in code or docs
 
 ### Documentation
 - [ ] README.md is up to date
-- [ ] CHANGELOG.md updated with changes (if exists)
 - [ ] All new features documented
 - [ ] Breaking changes clearly noted
 
 ### Version Management
-- [ ] manifest.json version bumped (e.g., 0.1.0 → 0.1.1)
+- [ ] manifest.json version bumped
 - [ ] versions.json updated with new version
 - [ ] Version follows semantic versioning
 
@@ -26,83 +78,9 @@ Use this checklist before creating each GitHub release.
 - [ ] Tested in Obsidian desktop
 - [ ] Tested in Obsidian mobile (or confirmed desktop-only)
 - [ ] Tested with clean vault
-- [ ] Tested with existing user data
 - [ ] No data loss scenarios
 
-## Build Process
-
-```bash
-# 1. Clean build
-rm -f main.js main.js.map
-bun run build
-
-# 2. Verify build succeeded
-ls -lh main.js
-
-# 3. Test the built plugin in Obsidian
-# Copy to test vault and verify it works
-```
-
-## Git Operations
-
-```bash
-# 1. Commit version bump
-git add manifest.json versions.json
-git commit -m "Bump version to 0.X.Y"
-
-# 2. Create and push tag
-git tag 0.X.Y
-git push origin main
-git push origin 0.X.Y
-```
-
-## GitHub Release
-
-1. Go to: https://github.com/cybersader/obsidian-tag-and-folder-mapper/releases/new
-
-2. Fill in:
-   - **Tag**: 0.X.Y (select the tag you just pushed)
-   - **Release title**: 0.X.Y
-   - **Description**:
-     ```markdown
-     ## What's New
-     - Feature 1
-     - Feature 2
-
-     ## Bug Fixes
-     - Fix 1
-     - Fix 2
-
-     ## Known Issues
-     - Issue 1 (if any)
-     ```
-
-3. Attach files:
-   - `main.js` (REQUIRED)
-   - `manifest.json` (REQUIRED)
-   - `styles.css` (if you have custom styles)
-
-4. **Important**:
-   - [ ] Do NOT check "Set as pre-release" for stable releases
-   - [ ] Do NOT check "Set as latest release" if this is a beta
-
-5. Click "Publish release"
-
-## Post-Release
-
-- [ ] Test installation via community plugins (after approval)
-- [ ] Monitor GitHub issues for bug reports
-- [ ] Respond to user questions
-- [ ] Update documentation based on feedback
-
-## Beta Testing (Before Official Submission)
-
-Before submitting to Obsidian community plugins:
-
-1. Release several beta versions (0.1.0, 0.1.1, etc.)
-2. Have users install via BRAT plugin
-3. Gather feedback and fix bugs
-4. Iterate until stable
+---
 
 ## Version Numbering Guide
 
@@ -114,35 +92,26 @@ Before submitting to Obsidian community plugins:
 
 ## Common Mistakes to Avoid
 
-❌ Don't commit main.js to the repo (only in releases)
-❌ Don't forget to update versions.json
-❌ Don't create releases without testing
-❌ Don't skip version numbering (0.1.0 → 0.3.0)
-❌ Don't include test vault data in releases
-
-✅ Do test thoroughly before each release
-✅ Do write clear release notes
-✅ Do respond to user issues promptly
-✅ Do keep a CHANGELOG.md (optional but recommended)
+- Don't commit main.js to the repo (only in releases)
+- Don't forget to update versions.json
+- Don't create releases without testing
+- Don't skip version numbering (0.1.0 → 0.3.0)
+- Don't include test vault data in releases
 
 ## Quick Command Reference
 
 ```bash
-# Build
+# Build locally (for testing)
 bun run build
 
-# Test
+# Run tests
 bun test
 
-# Version bump (example)
-# Edit manifest.json and versions.json manually
-
-# Git workflow
-git add .
-git commit -m "Descriptive message"
-git tag 0.X.Y
-git push && git push --tags
-
-# Clean build artifacts
-rm -f main.js main.js.map
+# Full release workflow
+git add manifest.json versions.json
+git commit -m "Bump version to X.Y.Z"
+git tag X.Y.Z
+git push origin main
+git push origin X.Y.Z
+# GitHub Actions handles the rest!
 ```

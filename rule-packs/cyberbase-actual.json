@@ -1,0 +1,446 @@
+{
+  "name": "Cyberbase Actual Structure",
+  "description": "Rule pack for actual Cyberbase vault structure with emoji-controlled sorting, Johnny Decimal OUTPUT folders, and optional entity support for testing multi-user scenarios.",
+  "version": "1.0.0",
+  "author": "Cybersader",
+  "rules": [
+    {
+      "id": "capture-clipping",
+      "name": "CAPTURE: Clipping (root)",
+      "description": "Sync ⬇️ Clipping folder to #-clip/ tags. Emoji used for sort order control.",
+      "enabled": true,
+      "priority": 1,
+      "direction": "bidirectional",
+      "folderPattern": "^⬇️ Clipping.*",
+      "folderEntryPoint": "⬇️ Clipping",
+      "folderTransforms": {
+        "caseTransform": "Title Case",
+        "emojiHandling": "keep",
+        "numberPrefixHandling": "keep"
+      },
+      "tagPattern": "^-clip/",
+      "tagEntryPoint": "-clip",
+      "tagTransforms": {
+        "caseTransform": "kebab-case",
+        "emojiHandling": "keep",
+        "numberPrefixHandling": "keep"
+      },
+      "options": {
+        "createFolders": true,
+        "addTags": true,
+        "removeOrphanedTags": true,
+        "syncOnFileCreate": true,
+        "syncOnFileMove": true,
+        "syncOnFileRename": true,
+        "onConflict": "prompt",
+        "tagSpecificity": "narrower",
+        "handleFolderNote": false,
+        "moveAttachments": true
+      }
+    },
+    {
+      "id": "capture-inbox",
+      "name": "CAPTURE: INBOX (root)",
+      "description": "Sync ⬇️ INBOX, DROPZONE to #-inbox flat tag. Quick capture location.",
+      "enabled": true,
+      "priority": 2,
+      "direction": "bidirectional",
+      "folderPattern": "^⬇️ INBOX, DROPZONE$",
+      "folderEntryPoint": "⬇️ INBOX, DROPZONE",
+      "folderTransforms": {
+        "caseTransform": "Title Case",
+        "emojiHandling": "keep"
+      },
+      "tagPattern": "^-inbox$",
+      "tagEntryPoint": "-inbox",
+      "tagTransforms": {
+        "caseTransform": "snake_case",
+        "emojiHandling": "keep"
+      },
+      "options": {
+        "createFolders": true,
+        "addTags": true,
+        "removeOrphanedTags": false,
+        "syncOnFileCreate": true,
+        "syncOnFileMove": true,
+        "syncOnFileRename": false,
+        "onConflict": "prompt",
+        "handleFolderNote": false,
+        "moveAttachments": true
+      }
+    },
+    {
+      "id": "output-johnny-decimal",
+      "name": "OUTPUT: Johnny Decimal folders (📁 01-06)",
+      "description": "Sync all Johnny Decimal OUTPUT folders. Pattern matches 📁 XX - Name format. No underscore prefix on tags - just the folder path.",
+      "enabled": true,
+      "priority": 3,
+      "direction": "bidirectional",
+      "folderPattern": "^📁 \\d+ - .*",
+      "folderEntryPoint": "",
+      "folderTransforms": {
+        "caseTransform": "Title Case",
+        "emojiHandling": "strip",
+        "numberPrefixHandling": "keep"
+      },
+      "tagPattern": "^(\\d+)-",
+      "tagEntryPoint": "",
+      "tagTransforms": {
+        "caseTransform": "snake_case",
+        "emojiHandling": "strip",
+        "numberPrefixHandling": "keep"
+      },
+      "options": {
+        "createFolders": true,
+        "addTags": true,
+        "removeOrphanedTags": true,
+        "syncOnFileCreate": true,
+        "syncOnFileMove": true,
+        "syncOnFileRename": true,
+        "onConflict": "auto-resolve",
+        "tagSpecificity": "narrower",
+        "handleFolderNote": true,
+        "moveAttachments": true
+      }
+    },
+    {
+      "id": "system-tasks",
+      "name": "SYSTEM: Tasks",
+      "description": "Sync ✅ TASKS system folder to #/tasks tag",
+      "enabled": true,
+      "priority": 4,
+      "direction": "bidirectional",
+      "folderPattern": "^✅ TASKS.*",
+      "folderEntryPoint": "✅ TASKS",
+      "folderTransforms": {
+        "caseTransform": "Title Case",
+        "emojiHandling": "keep"
+      },
+      "tagPattern": "^/tasks/",
+      "tagEntryPoint": "/tasks",
+      "tagTransforms": {
+        "caseTransform": "snake_case",
+        "emojiHandling": "strip"
+      },
+      "options": {
+        "createFolders": true,
+        "addTags": true,
+        "removeOrphanedTags": true,
+        "syncOnFileCreate": true,
+        "syncOnFileMove": true,
+        "syncOnFileRename": true,
+        "onConflict": "skip",
+        "handleFolderNote": false,
+        "moveAttachments": false
+      }
+    },
+    {
+      "id": "capture-unstructured",
+      "name": "CAPTURE/WORK: Unstructured",
+      "description": "Sync 🕸️ UNSTRUCTURED folder to #unstructured tag. Mixed CAPTURE and WORK activities.",
+      "enabled": true,
+      "priority": 5,
+      "direction": "bidirectional",
+      "folderPattern": "^🕸️ UNSTRUCTURED.*",
+      "folderEntryPoint": "🕸️ UNSTRUCTURED",
+      "folderTransforms": {
+        "caseTransform": "Title Case",
+        "emojiHandling": "keep"
+      },
+      "tagPattern": "^unstructured/",
+      "tagEntryPoint": "unstructured",
+      "tagTransforms": {
+        "caseTransform": "snake_case",
+        "emojiHandling": "strip"
+      },
+      "options": {
+        "createFolders": true,
+        "addTags": true,
+        "removeOrphanedTags": false,
+        "syncOnFileCreate": true,
+        "syncOnFileMove": true,
+        "syncOnFileRename": true,
+        "onConflict": "prompt",
+        "handleFolderNote": false,
+        "moveAttachments": true
+      }
+    },
+    {
+      "id": "capture-daily-notes",
+      "name": "CAPTURE/RELATION: Daily Notes",
+      "description": "Sync 🕸️ Daily Notes folder. Mixed CAPTURE and RELATION for time-based notes.",
+      "enabled": true,
+      "priority": 6,
+      "direction": "folder-to-tag",
+      "folderPattern": "^🕸️ Daily Notes.*",
+      "folderEntryPoint": "🕸️ Daily Notes",
+      "folderTransforms": {
+        "caseTransform": "Title Case",
+        "emojiHandling": "keep"
+      },
+      "tagEntryPoint": "daily-notes",
+      "tagTransforms": {
+        "caseTransform": "snake_case",
+        "emojiHandling": "strip"
+      },
+      "options": {
+        "createFolders": false,
+        "addTags": true,
+        "removeOrphanedTags": false,
+        "syncOnFileCreate": true,
+        "syncOnFileMove": true,
+        "syncOnFileRename": false,
+        "handleFolderNote": false,
+        "moveAttachments": false
+      }
+    },
+    {
+      "id": "entity-vaultuser1-inbox",
+      "name": "ENTITY: VaultUser1 Inbox",
+      "description": "Test entity support. Sync VaultUser1's inbox to #--vaultuser1/-inbox",
+      "enabled": true,
+      "priority": 10,
+      "direction": "bidirectional",
+      "folderPattern": "^👤 VaultUser1/⬇️ INBOX.*",
+      "folderEntryPoint": "👤 VaultUser1/⬇️ INBOX",
+      "folderTransforms": {
+        "caseTransform": "Title Case",
+        "emojiHandling": "keep"
+      },
+      "tagPattern": "^--vaultuser1/-inbox/",
+      "tagEntryPoint": "--vaultuser1/-inbox",
+      "tagTransforms": {
+        "caseTransform": "snake_case",
+        "emojiHandling": "keep"
+      },
+      "options": {
+        "createFolders": true,
+        "addTags": true,
+        "removeOrphanedTags": false,
+        "syncOnFileCreate": true,
+        "syncOnFileMove": true,
+        "syncOnFileRename": false,
+        "onConflict": "prompt",
+        "handleFolderNote": false,
+        "moveAttachments": true
+      }
+    },
+    {
+      "id": "entity-vaultuser1-output",
+      "name": "ENTITY: VaultUser1 OUTPUT",
+      "description": "Test entity support. Sync VaultUser1's Johnny Decimal folders. NOTE: Depth nuance issue - see TAG_DEPTH_NUANCE.md",
+      "enabled": true,
+      "priority": 11,
+      "direction": "bidirectional",
+      "folderPattern": "^👤 VaultUser1/📁 \\d+ - .*",
+      "folderEntryPoint": "👤 VaultUser1",
+      "folderTransforms": {
+        "caseTransform": "Title Case",
+        "emojiHandling": "strip",
+        "numberPrefixHandling": "keep"
+      },
+      "tagPattern": "^--vaultuser1/(\\d+)-",
+      "tagEntryPoint": "--vaultuser1",
+      "tagTransforms": {
+        "caseTransform": "snake_case",
+        "emojiHandling": "strip",
+        "numberPrefixHandling": "keep"
+      },
+      "options": {
+        "createFolders": true,
+        "addTags": true,
+        "removeOrphanedTags": true,
+        "syncOnFileCreate": true,
+        "syncOnFileMove": true,
+        "syncOnFileRename": true,
+        "onConflict": "auto-resolve",
+        "tagSpecificity": "narrower",
+        "handleFolderNote": true,
+        "moveAttachments": true
+      }
+    },
+    {
+      "id": "entity-vaultuser2-inbox",
+      "name": "ENTITY: VaultUser2 Inbox",
+      "description": "Test entity support. Sync VaultUser2's inbox to #--vaultuser2/-inbox",
+      "enabled": true,
+      "priority": 12,
+      "direction": "bidirectional",
+      "folderPattern": "^👤 VaultUser2/⬇️ INBOX.*",
+      "folderEntryPoint": "👤 VaultUser2/⬇️ INBOX",
+      "folderTransforms": {
+        "caseTransform": "Title Case",
+        "emojiHandling": "keep"
+      },
+      "tagPattern": "^--vaultuser2/-inbox/",
+      "tagEntryPoint": "--vaultuser2/-inbox",
+      "tagTransforms": {
+        "caseTransform": "snake_case",
+        "emojiHandling": "keep"
+      },
+      "options": {
+        "createFolders": true,
+        "addTags": true,
+        "removeOrphanedTags": false,
+        "syncOnFileCreate": true,
+        "syncOnFileMove": true,
+        "syncOnFileRename": false,
+        "onConflict": "prompt",
+        "handleFolderNote": false,
+        "moveAttachments": true
+      }
+    },
+    {
+      "id": "entity-vaultuser2-output",
+      "name": "ENTITY: VaultUser2 OUTPUT",
+      "description": "Test entity support. Sync VaultUser2's Johnny Decimal folders. NOTE: Depth nuance issue - see TAG_DEPTH_NUANCE.md",
+      "enabled": true,
+      "priority": 13,
+      "direction": "bidirectional",
+      "folderPattern": "^👤 VaultUser2/📁 \\d+ - .*",
+      "folderEntryPoint": "👤 VaultUser2",
+      "folderTransforms": {
+        "caseTransform": "Title Case",
+        "emojiHandling": "strip",
+        "numberPrefixHandling": "keep"
+      },
+      "tagPattern": "^--vaultuser2/(\\d+)-",
+      "tagEntryPoint": "--vaultuser2",
+      "tagTransforms": {
+        "caseTransform": "snake_case",
+        "emojiHandling": "strip",
+        "numberPrefixHandling": "keep"
+      },
+      "options": {
+        "createFolders": true,
+        "addTags": true,
+        "removeOrphanedTags": true,
+        "syncOnFileCreate": true,
+        "syncOnFileMove": true,
+        "syncOnFileRename": true,
+        "onConflict": "auto-resolve",
+        "tagSpecificity": "narrower",
+        "handleFolderNote": true,
+        "moveAttachments": true
+      }
+    }
+  ],
+  "options": {
+    "syncOnSave": false,
+    "syncOnFileClose": false,
+    "syncOnCreate": true,
+    "syncOnRename": true,
+    "showNotifications": true,
+    "previewChanges": false,
+    "debugMode": true,
+    "handleFolderNotes": true,
+    "moveAttachments": true,
+    "defaultFolderForUntagged": "🕸️ UNSTRUCTURED"
+  },
+  "notes": [
+    "=== Cyberbase Actual Structure ===",
+    "",
+    "This rule pack represents the ACTUAL Cyberbase vault structure:",
+    "- Emojis are used deliberately for Unicode sort order control",
+    "- Johnny Decimal folders (01-06) for OUTPUT content",
+    "- Quick capture with ⬇️ prefix (sorts at top with '-' in tags)",
+    "- Entity support for testing multi-user scenarios",
+    "",
+    "=== Root Level Structure ===",
+    "✅ TASKS (SYSTEM) → #/tasks/",
+    "⬇️ Clipping (CAPTURE) → #-clip/",
+    "⬇️ INBOX, DROPZONE (CAPTURE) → #-inbox",
+    "📁 01 - Projects (OUTPUT) → #01-projects/",
+    "📁 02 - CyberNews (OUTPUT) → #02-cybernews/",
+    "📁 03 - Curations, Stacks (OUTPUT) → #03-curations_stacks/",
+    "📁 04 - Cyber & Digital Trust (OUTPUT) → #04-cyber_digital_trust/",
+    "📁 05 - Organizational Cyber (OUTPUT) → #05-organizational_cyber/",
+    "📁 06 - Learning, Notes (OUTPUT) → #06-learning_notes/",
+    "📅 Changelog (OUTPUT) → #changelog/",
+    "🕸️ UNSTRUCTURED (CAPTURE, WORK) → #unstructured/",
+    "🕸️ Daily Notes (CAPTURE, RELATION) → #daily-notes/",
+    "",
+    "=== Entity Structure (Testing) ===",
+    "👤 VaultUser1/",
+    "  ⬇️ INBOX/ → #--vaultuser1/-inbox/",
+    "  📁 01 - Projects/ → #--vaultuser1/01-projects/",
+    "  📁 02 - CyberNews/ → #--vaultuser1/02-cybernews/",
+    "  ...",
+    "",
+    "👤 VaultUser2/",
+    "  ⬇️ INBOX/ → #--vaultuser2/-inbox/",
+    "  📁 01 - Projects/ → #--vaultuser2/01-projects/",
+    "  ...",
+    "",
+    "=== Tag Depth Nuance Issue ===",
+    "IMPORTANT: There's a design question about tag depth:",
+    "",
+    "Scenario: File at `VaultUser1/📁 01 - Projects/MyProject/note.md`",
+    "",
+    "Option A: Just the full path tag",
+    "  Tags: #--vaultuser1/01-projects/myproject",
+    "",
+    "Option B: Entity + path tags",
+    "  Tags: #--vaultuser1, #--vaultuser1/01-projects/myproject",
+    "",
+    "Option C: Entity + category + path tags",
+    "  Tags: #--vaultuser1, #01-projects/myproject, #--vaultuser1/01-projects/myproject",
+    "",
+    "This nuance needs to be:",
+    "1. Configurable per rule (option to add parent tags)",
+    "2. Documented in TAG_DEPTH_NUANCE.md",
+    "3. Testable in the test vault",
+    "",
+    "Current implementation: Option A (just full path)",
+    "Recommended: Make this configurable",
+    "",
+    "See TAG_DEPTH_NUANCE.md for full technical discussion.",
+    "",
+    "=== Transformation Preferences ===",
+    "Tags:",
+    "- snake_case",
+    "- Keep number prefixes (01, 02, etc.)",
+    "- Keep emojis for testing (may not work in Obsidian - needs verification)",
+    "",
+    "Folders:",
+    "- Title Case",
+    "- Keep emojis (for sort order control)",
+    "- Keep number prefixes",
+    "",
+    "=== Emoji Support in Tags ===",
+    "⚠️ NEEDS TESTING: Obsidian may not support emojis in tags.",
+    "If emojis don't work in tags:",
+    "- Set emojiHandling: 'strip' in tagTransforms",
+    "- Keep emojis in folderTransforms for sort control",
+    "",
+    "=== Priority Explanation ===",
+    "1-6: Root level folders (single user)",
+    "10-13: Entity folders (testing multi-user)",
+    "",
+    "Lower number = higher priority.",
+    "Root level rules process first.",
+    "Entity rules don't interfere with root rules.",
+    "",
+    "=== Future Wildcard Support ===",
+    "Once wildcard matching is implemented (Phase 4), entity rules can be consolidated:",
+    "",
+    "Instead of 2 rules per entity (inbox + output), use:",
+    "  folderPattern: \"^👤 (?<entity>[^/]+)/(?<path>.*)\"",
+    "  tagPattern: \"^--(?<entity>[^/]+)/(?<path>.*)\"",
+    "",
+    "This would automatically handle any number of entities.",
+    "See WILDCARD_MATCHING_CHALLENGE.md for details.",
+    "",
+    "=== Testing Notes ===",
+    "1. Test with debug mode enabled",
+    "2. Check if emojis work in tags",
+    "3. Test both root and entity structures",
+    "4. Verify folder notes compatibility",
+    "5. Test tag depth scenarios",
+    "",
+    "=== Related Documentation ===",
+    "- TAG_DEPTH_NUANCE.md - Tag depth design decisions",
+    "- WILDCARD_MATCHING_CHALLENGE.md - Future entity pattern matching",
+    "- RESPONSE_TO_FEEDBACK.md - User requirements and answers"
+  ]
+}

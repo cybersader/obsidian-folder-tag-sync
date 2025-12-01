@@ -1,0 +1,250 @@
+{
+  "name": "SEACOW(r) Cyberbase Structure",
+  "description": "Rule pack for SEACOW(r) framework: System, Entity, Activities (Capture, Output, Work, relation). Syncs tags to folders while preserving the knowledge organization meta-framework.",
+  "version": "1.0.0",
+  "author": "Cybersader",
+  "rules": [
+    {
+      "id": "capture-clip",
+      "name": "CAPTURE: Clip folder sync",
+      "description": "Sync -clip/ tags to Capture/Clips folder structure (max 2 levels)",
+      "enabled": true,
+      "priority": 1,
+      "direction": "tag-to-folder",
+      "tagPattern": "^-clip/",
+      "tagEntryPoint": "-clip",
+      "tagTransforms": {
+        "caseTransform": "kebab-case",
+        "emojiHandling": "keep",
+        "numberPrefixHandling": "keep"
+      },
+      "folderEntryPoint": "Capture/Clips",
+      "folderTransforms": {
+        "caseTransform": "Title Case",
+        "emojiHandling": "keep",
+        "numberPrefixHandling": "keep"
+      },
+      "options": {
+        "createFolders": true,
+        "addTags": false,
+        "removeOrphanedTags": false,
+        "syncOnFileCreate": true,
+        "syncOnFileMove": true,
+        "syncOnFileRename": true,
+        "onConflict": "prompt",
+        "tagSpecificity": "narrower",
+        "removeSourceTag": false,
+        "keepDestinationTag": true,
+        "handleFolderNote": false,
+        "moveAttachments": true
+      }
+    },
+    {
+      "id": "capture-inbox",
+      "name": "CAPTURE: Inbox flat tag",
+      "description": "Sync -inbox flat tag to Capture/Inbox folder",
+      "enabled": true,
+      "priority": 2,
+      "direction": "tag-to-folder",
+      "tagPattern": "^-inbox$",
+      "tagEntryPoint": "-inbox",
+      "tagTransforms": {
+        "caseTransform": "none"
+      },
+      "folderEntryPoint": "Capture/Inbox",
+      "folderTransforms": {
+        "caseTransform": "Title Case"
+      },
+      "options": {
+        "createFolders": true,
+        "addTags": false,
+        "removeOrphanedTags": false,
+        "syncOnFileCreate": true,
+        "syncOnFileMove": true,
+        "syncOnFileRename": false,
+        "onConflict": "prompt",
+        "removeSourceTag": false,
+        "keepDestinationTag": true,
+        "handleFolderNote": false,
+        "moveAttachments": true
+      }
+    },
+    {
+      "id": "entity-cybersader",
+      "name": "ENTITY: Cybersader work structure",
+      "description": "Sync --cybersader/ tags to Entity/Cybersader folder (Work activities)",
+      "enabled": true,
+      "priority": 3,
+      "direction": "bidirectional",
+      "tagPattern": "^--cybersader/",
+      "tagEntryPoint": "--cybersader",
+      "tagTransforms": {
+        "caseTransform": "kebab-case",
+        "emojiHandling": "keep",
+        "numberPrefixHandling": "keep"
+      },
+      "folderPattern": "^Entity/Cybersader/",
+      "folderEntryPoint": "Entity/Cybersader",
+      "folderTransforms": {
+        "caseTransform": "Title Case",
+        "emojiHandling": "keep",
+        "numberPrefixHandling": "keep"
+      },
+      "options": {
+        "createFolders": true,
+        "addTags": true,
+        "removeOrphanedTags": true,
+        "syncOnFileCreate": true,
+        "syncOnFileMove": true,
+        "syncOnFileRename": true,
+        "onConflict": "auto-resolve",
+        "tagSpecificity": "narrower",
+        "removeSourceTag": false,
+        "keepDestinationTag": true,
+        "keepRelationTags": true,
+        "handleFolderNote": true,
+        "moveAttachments": true
+      }
+    },
+    {
+      "id": "output-public-taxonomy",
+      "name": "OUTPUT: Public Taxonomy structure",
+      "description": "Sync _publicTaxonomy/ tags to Output/Public folder (deep nesting allowed)",
+      "enabled": true,
+      "priority": 4,
+      "direction": "bidirectional",
+      "tagPattern": "^_publicTaxonomy/",
+      "tagEntryPoint": "_publicTaxonomy",
+      "tagTransforms": {
+        "caseTransform": "kebab-case",
+        "emojiHandling": "keep",
+        "numberPrefixHandling": "keep"
+      },
+      "folderPattern": "^Output/Public/",
+      "folderEntryPoint": "Output/Public",
+      "folderTransforms": {
+        "caseTransform": "Title Case",
+        "emojiHandling": "keep",
+        "numberPrefixHandling": "keep"
+      },
+      "options": {
+        "createFolders": true,
+        "addTags": true,
+        "removeOrphanedTags": true,
+        "syncOnFileCreate": true,
+        "syncOnFileMove": true,
+        "syncOnFileRename": true,
+        "onConflict": "auto-resolve",
+        "tagSpecificity": "broader",
+        "removeSourceTag": false,
+        "keepDestinationTag": true,
+        "keepRelationTags": true,
+        "handleFolderNote": true,
+        "moveAttachments": true
+      }
+    },
+    {
+      "id": "output-main-public",
+      "name": "OUTPUT: Main public facing (_/)",
+      "description": "Sync _/ tags (main public taxonomy) to Output/Main folder",
+      "enabled": true,
+      "priority": 5,
+      "direction": "bidirectional",
+      "tagPattern": "^_/",
+      "tagEntryPoint": "_",
+      "tagTransforms": {
+        "caseTransform": "kebab-case",
+        "emojiHandling": "keep",
+        "numberPrefixHandling": "strip"
+      },
+      "folderPattern": "^Output/Main/",
+      "folderEntryPoint": "Output/Main",
+      "folderTransforms": {
+        "caseTransform": "Title Case",
+        "emojiHandling": "keep",
+        "numberPrefixHandling": "strip"
+      },
+      "options": {
+        "createFolders": true,
+        "addTags": true,
+        "removeOrphanedTags": true,
+        "syncOnFileCreate": true,
+        "syncOnFileMove": true,
+        "syncOnFileRename": true,
+        "onConflict": "auto-resolve",
+        "tagSpecificity": "broader",
+        "removeSourceTag": false,
+        "keepDestinationTag": true,
+        "keepRelationTags": true,
+        "handleFolderNote": true,
+        "moveAttachments": true
+      }
+    },
+    {
+      "id": "system-templates",
+      "name": "SYSTEM: Templates and config",
+      "description": "Sync /templates and /obsidian tags to System folder",
+      "enabled": true,
+      "priority": 6,
+      "direction": "bidirectional",
+      "tagPattern": "^/",
+      "tagEntryPoint": "/",
+      "tagTransforms": {
+        "caseTransform": "kebab-case"
+      },
+      "folderPattern": "^System/",
+      "folderEntryPoint": "System",
+      "folderTransforms": {
+        "caseTransform": "Title Case"
+      },
+      "options": {
+        "createFolders": true,
+        "addTags": true,
+        "removeOrphanedTags": true,
+        "syncOnFileCreate": true,
+        "syncOnFileMove": true,
+        "syncOnFileRename": true,
+        "onConflict": "skip",
+        "removeSourceTag": false,
+        "keepDestinationTag": true,
+        "handleFolderNote": false,
+        "moveAttachments": false
+      }
+    }
+  ],
+  "notes": [
+    "SEACOW(r) Framework Explanation:",
+    "- S (System): Platform/technology context",
+    "- E (Entity): Audience, user, or agent",
+    "- A (Activities): Operations on knowledge",
+    "  - C (Capture): Getting knowledge into the system (max 2-level nesting)",
+    "  - O (Output): Interfacing knowledge to external systems (deep nesting allowed)",
+    "  - W (Work): Deriving utility or processing knowledge",
+    "  - r (relation): Interlinking knowledge (flat tags for cross-linking)",
+    "",
+    "Tag Prefix Conventions:",
+    "- '-clip/' or '-inbox' = CAPTURE",
+    "- '--<entity>/' = ENTITY + WORK",
+    "- '_publicTaxonomy/' or '_/' = OUTPUT",
+    "- Plain words (e.g., #research, #idea) = RELATION (not included in these rules - they remain as flat keyword tags)",
+    "- '/<word>' = SYSTEM",
+    "",
+    "Sorting Order (ASCII):",
+    "1. #-- (double dash)",
+    "2. #- (dash)",
+    "3. #/ (slash)",
+    "4. #_ (underscore)",
+    "5. #word (letters)",
+    "6. #emoji (high Unicode)",
+    "",
+    "Priority Explanation:",
+    "- Lower priority number = higher priority",
+    "- CAPTURE tags process first (most important for quick capture workflow)",
+    "- Entity/Work tags process next (personal knowledge work)",
+    "- OUTPUT tags process after (polished, structured content)",
+    "- SYSTEM tags process last (infrastructure/meta)",
+    "",
+    "RELATION tags (plain keyword tags like #research, #idea) are intentionally NOT included in this rule pack.",
+    "They remain flat and are used for cross-linking across the vault without triggering folder moves."
+  ]
+}

@@ -1,0 +1,205 @@
+/* Dynamic Tags & Folders Plugin Styles */
+
+/* Rule Editor Modal */
+.rule-editor-section {
+	margin-bottom: 2em;
+	padding-bottom: 1em;
+	border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.rule-editor-section:last-of-type {
+	border-bottom: none;
+}
+
+.rule-editor-section h3 {
+	margin-top: 0;
+	margin-bottom: 1em;
+	color: var(--text-accent);
+}
+
+.rule-editor-section h4 {
+	margin-top: 1em;
+	margin-bottom: 0.5em;
+	font-size: 0.9em;
+	color: var(--text-muted);
+	text-transform: uppercase;
+	letter-spacing: 0.5px;
+}
+
+.transform-subsection {
+	margin-top: 1em;
+	padding-left: 1em;
+	border-left: 2px solid var(--background-modifier-border);
+}
+
+.rule-editor-warning {
+	margin-top: 1em;
+	padding: 1em;
+	background-color: var(--background-modifier-error);
+	border-left: 3px solid var(--text-error);
+	border-radius: 4px;
+}
+
+.rule-editor-warning strong {
+	color: var(--text-error);
+}
+
+.rule-editor-warning ul {
+	margin-top: 0.5em;
+	margin-bottom: 0;
+	padding-left: 1.5em;
+}
+
+.rule-test-container {
+	margin-top: 1em;
+	padding: 1em;
+	background-color: var(--background-secondary);
+	border-radius: 4px;
+}
+
+.test-folder-result,
+.test-tag-result {
+	margin-top: 0.5em;
+	margin-bottom: 1em;
+	padding: 0.5em;
+	font-family: var(--font-monospace);
+	font-size: 0.9em;
+	color: var(--text-accent);
+	background-color: var(--background-primary);
+	border-radius: 3px;
+}
+
+.rule-editor-buttons {
+	display: flex;
+	justify-content: flex-end;
+	gap: 0.5em;
+	margin-top: 2em;
+	padding-top: 1em;
+	border-top: 1px solid var(--background-modifier-border);
+}
+
+.rule-editor-buttons button {
+	padding: 0.5em 1.5em;
+}
+
+/* Settings Tab */
+.dtf-settings-header {
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+	margin-bottom: 1em;
+}
+
+.dtf-add-rule-button {
+	padding: 0.5em 1em;
+}
+
+.dtf-rule-list {
+	margin-top: 1em;
+}
+
+.dtf-rule-item {
+	padding: 1em;
+	margin-bottom: 0.5em;
+	background-color: var(--background-secondary);
+	border-radius: 4px;
+	border-left: 3px solid var(--interactive-accent);
+	cursor: pointer;
+	transition: background-color 0.2s;
+}
+
+.dtf-rule-item:hover {
+	background-color: var(--background-modifier-hover);
+}
+
+.dtf-rule-item.disabled {
+	border-left-color: var(--text-muted);
+	opacity: 0.6;
+}
+
+.dtf-rule-header {
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+	margin-bottom: 0.5em;
+}
+
+.dtf-rule-name {
+	font-weight: 600;
+	color: var(--text-normal);
+}
+
+.dtf-rule-priority {
+	font-size: 0.8em;
+	color: var(--text-muted);
+	padding: 0.2em 0.5em;
+	background-color: var(--background-primary);
+	border-radius: 3px;
+}
+
+.dtf-rule-direction {
+	font-size: 0.8em;
+	color: var(--text-muted);
+	text-transform: uppercase;
+	letter-spacing: 0.5px;
+}
+
+.dtf-rule-patterns {
+	font-size: 0.85em;
+	color: var(--text-muted);
+	font-family: var(--font-monospace);
+}
+
+.dtf-rule-description {
+	margin-top: 0.5em;
+	font-size: 0.9em;
+	color: var(--text-faint);
+	font-style: italic;
+}
+
+.dtf-no-rules {
+	text-align: center;
+	padding: 2em;
+	color: var(--text-muted);
+	font-style: italic;
+}
+
+/* Import/Export Section */
+.dtf-import-export {
+	margin-top: 2em;
+	padding-top: 2em;
+	border-top: 1px solid var(--background-modifier-border);
+}
+
+.dtf-import-export textarea {
+	width: 100%;
+	min-height: 200px;
+	font-family: var(--font-monospace);
+	font-size: 0.85em;
+}
+
+/* Drag and Drop */
+.dtf-rule-item.dragging {
+	opacity: 0.5;
+}
+
+.dtf-rule-item.drag-over {
+	border-top: 2px solid var(--interactive-accent);
+}
+
+/* Mobile Responsiveness */
+@media (max-width: 768px) {
+	.rule-editor-buttons {
+		flex-direction: column;
+	}
+
+	.rule-editor-buttons button {
+		width: 100%;
+	}
+
+	.dtf-settings-header {
+		flex-direction: column;
+		align-items: flex-start;
+		gap: 1em;
+	}
+}

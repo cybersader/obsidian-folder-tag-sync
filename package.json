@@ -1,0 +1,35 @@
+{
+  "name": "obsidian-dynamic-tags-folders",
+  "version": "0.1.0",
+  "description": "Bidirectional mapping between folder paths and tags using regex patterns and transformation rules",
+  "main": "main.js",
+  "scripts": {
+    "dev": "bun run esbuild.config.mjs",
+    "build": "bun x tsc -noEmit -skipLibCheck && bun run esbuild.config.mjs production",
+    "version": "bun run version-bump.mjs && git add manifest.json versions.json",
+    "test": "bun test",
+    "test:watch": "bun test --watch",
+    "lint": "eslint src --ext .ts"
+  },
+  "keywords": [
+    "obsidian",
+    "obsidian-plugin",
+    "tags",
+    "folders",
+    "organization",
+    "automation"
+  ],
+  "author": "cybersader",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/bun": "latest",
+    "@types/node": "^20.10.0",
+    "@typescript-eslint/eslint-plugin": "^6.13.0",
+    "@typescript-eslint/parser": "^6.13.0",
+    "builtin-modules": "^3.3.0",
+    "esbuild": "^0.19.8",
+    "eslint": "^8.54.0",
+    "obsidian": "latest",
+    "typescript": "^5.3.2"
+  }
+}

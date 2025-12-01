@@ -1,0 +1,40 @@
+# Dependency directories
+node_modules/
+
+# Build outputs
+main.js
+main.js.map
+*.js.map
+
+# Test coverage
+coverage/
+.nyc_output/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Environment
+.env
+.env.local
+
+# Test vault data (optional - user preference)
+test-vault/.obsidian/workspace.json
+test-vault/.obsidian/workspace-mobile.json
+test-vault/.obsidian/cache/
+
+# Claude Code internal documentation (not for public repo)
+.claude/

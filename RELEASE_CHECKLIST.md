@@ -37,6 +37,12 @@ The workflow file is at `.github/workflows/release.yml`. It:
 - Builds the plugin
 - Creates a release with the required files
 
+**Important:** You must enable workflow permissions first:
+1. Go to: https://github.com/cybersader/obsidian-folder-tag-sync/settings/actions
+2. Scroll to **"Workflow permissions"**
+3. Select **"Read and write permissions"**
+4. Click **Save**
+
 ---
 
 ## Manual Releases (Fallback)

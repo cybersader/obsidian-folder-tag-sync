@@ -406,6 +406,98 @@ onDirectionChange(direction: RuleDirection) {
 
 ---
 
+## Technical Implementation Notes: Modular Content in Obsidian Plugins
+
+### The Challenge
+Everything ships in `main.js` - no external files. How do we handle rule packs?
+
+### Approaches (from simplest to most complex)
+
+#### 1. **Bundle JSON into main.js** (Recommended for Built-in Packs)
+esbuild automatically bundles imported JSON files:
+
+```typescript
+// In your code
+import seacowPack from './rule-packs/seacow-cyberbase.json';
+import paraPack from './rule-packs/para-method.json';
+
+const BUILT_IN_PACKS = [seacowPack, paraPack];
+```
+
+Ensure `tsconfig.json` has:
+```json
+{ "compilerOptions": { "resolveJsonModule": true } }
+```
+
+**Pros**: Simple, works out of box, no external dependencies
+**Cons**: Built-in packs only, can't add community packs without rebuilding
+
+#### 2. **User-imported JSON files** (For Custom Packs)
+Users import JSON files from their vault:
+
+```typescript
+// Use Obsidian's Vault API
+const file = this.app.vault.getAbstractFileByPath('my-pack.json');
+if (file instanceof TFile) {
+  const content = await this.app.vault.read(file);
+  const pack = JSON.parse(content);
+}
+```
+
+**Pros**: Users can add custom packs, share via files
+**Cons**: User must manage files in vault
+
+#### 3. **Fetch from URL** (For Community Marketplace)
+```typescript
+const response = await requestUrl({
+  url: 'https://raw.githubusercontent.com/user/repo/pack.json'
+});
+const pack = response.json;
+```
+
+**Pros**: Dynamic community packs, auto-updates possible
+**Cons**: Requires network, security concerns, URL maintenance
+
+#### 4. **Store in plugin data.json** (Hybrid Approach)
+Import once, store in settings:
+
+```typescript
+// On import
+this.settings.installedPacks.push(importedPack);
+await this.saveSettings();
+
+// On load
+const allPacks = [...BUILT_IN_PACKS, ...this.settings.installedPacks];
+```
+
+**Pros**: Persist user-imported packs, works offline after import
+**Cons**: Settings file can grow large
+
+### Recommended Strategy for This Plugin
+
+1. **Phase 1**: Bundle 3-5 built-in packs directly in main.js (SEACOW, PARA, Zettelkasten, etc.)
+2. **Phase 2**: Allow users to import custom packs from JSON files in their vault
+3. **Phase 3** (optional): Community pack browser fetching from GitHub repo
+
+### Obsidian Plugin Limitations to Consider
+
+- **No external assets**: Everything must be in main.js, manifest.json, or styles.css
+- **No server-side**: Plugins run client-side only
+- **Sandboxed**: Limited file system access (vault only via API)
+- **Mobile compatibility**: Network requests may behave differently
+- **Auto-updates**: Only through new plugin releases (version bump)
+
+### How Tasks Plugin Handles Presets
+
+The Tasks plugin bundles "Status Collections" (presets) directly in the code. Users click a button in settings to import them into their configuration. This is the same approach we should use - bundle built-in packs, let users import to their settings.
+
+**Sources:**
+- [Obsidian Forum: Support for assets in plugins](https://forum.obsidian.md/t/support-for-assets-in-plugins/25837)
+- [esbuild-plugin-obsidian](https://github.com/eth-p/esbuild-plugin-obsidian)
+- [Tasks Plugin User Guide](https://publish.obsidian.md/tasks/Introduction)
+
+---
+
 ## Community Contributions
 
 To contribute:

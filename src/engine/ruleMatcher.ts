@@ -257,7 +257,8 @@ export function validateRule(rule: MappingRule): {
 		try {
 			patternToRegex(rule.folderPattern);
 		} catch (error) {
-			errors.push(`Invalid folder pattern: ${error}`);
+			const message = error instanceof Error ? error.message : String(error);
+			errors.push(`Invalid folder pattern: ${message}`);
 		}
 	}
 
@@ -265,7 +266,8 @@ export function validateRule(rule: MappingRule): {
 		try {
 			patternToRegex(rule.tagPattern);
 		} catch (error) {
-			errors.push(`Invalid tag pattern: ${error}`);
+			const message = error instanceof Error ? error.message : String(error);
+			errors.push(`Invalid tag pattern: ${message}`);
 		}
 	}
 

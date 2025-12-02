@@ -1,4 +1,4 @@
-import { App, TFile, Notice, MetadataCache } from 'obsidian';
+import { App, TFile, Notice } from 'obsidian';
 import type { DynamicTagsFoldersSettings, MappingRule } from '../types/settings';
 import { DebugLogger } from '../utils/debug';
 import { findMatchingRules } from '../engine/ruleMatcher';

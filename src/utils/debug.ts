@@ -41,7 +41,13 @@ export class DebugLogger {
     }
 
     // Also log to console for immediate visibility
-    console[level](message, data);
+    if (level === 'info') {
+      console.debug(message, data);
+    } else if (level === 'warn') {
+      console.warn(message, data);
+    } else {
+      console.error(message, data);
+    }
   }
 
   /**

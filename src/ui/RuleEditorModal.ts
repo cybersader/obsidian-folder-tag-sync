@@ -5,7 +5,7 @@
  */
 
 import { App, Modal, Setting, Notice } from 'obsidian';
-import { MappingRule, TransformConfig, CaseTransformType, RuleDirection } from '../types/settings';
+import { MappingRule, CaseTransformType, RuleDirection } from '../types/settings';
 import { validateRule } from '../engine/ruleMatcher';
 import { folderToTag, tagToFolder, isTransformReversible } from '../transformers/pipeline';
 
@@ -54,7 +54,9 @@ export class RuleEditorModal extends Modal {
 		const { contentEl } = this;
 		contentEl.empty();
 
-		contentEl.createEl('h2', { text: this.isNew ? 'Create New Rule' : 'Edit Rule' });
+		new Setting(contentEl)
+			.setName(this.isNew ? 'Create new rule' : 'Edit rule')
+			.setHeading();
 
 		// Basic Information Section
 		this.buildBasicInfoSection(contentEl);
@@ -80,7 +82,7 @@ export class RuleEditorModal extends Modal {
 
 	private buildBasicInfoSection(containerEl: HTMLElement) {
 		const section = containerEl.createDiv({ cls: 'rule-editor-section' });
-		section.createEl('h3', { text: 'Basic Information' });
+		new Setting(section).setName('Basic information').setHeading();
 
 		new Setting(section)
 			.setName('Rule name')
@@ -131,7 +133,7 @@ export class RuleEditorModal extends Modal {
 
 	private buildDirectionSection(containerEl: HTMLElement) {
 		const section = containerEl.createDiv({ cls: 'rule-editor-section' });
-		section.createEl('h3', { text: 'Sync Direction' });
+		new Setting(section).setName('Sync direction').setHeading();
 
 		new Setting(section)
 			.setName('Direction')
@@ -151,7 +153,7 @@ export class RuleEditorModal extends Modal {
 
 	private buildPatternSection(containerEl: HTMLElement) {
 		const section = containerEl.createDiv({ cls: 'rule-editor-section' });
-		section.createEl('h3', { text: 'Patterns' });
+		new Setting(section).setName('Patterns').setHeading();
 
 		const needsFolderPattern = this.rule.direction === 'folder-to-tag' || this.rule.direction === 'bidirectional';
 		const needsTagPattern = this.rule.direction === 'tag-to-folder' || this.rule.direction === 'bidirectional';
@@ -207,11 +209,11 @@ export class RuleEditorModal extends Modal {
 
 	private buildTransformationSection(containerEl: HTMLElement) {
 		const section = containerEl.createDiv({ cls: 'rule-editor-section' });
-		section.createEl('h3', { text: 'Transformations' });
+		new Setting(section).setName('Transformations').setHeading();
 
 		// Folder transformations
 		const folderSection = section.createDiv({ cls: 'transform-subsection' });
-		folderSection.createEl('h4', { text: 'Folder → Tag Transformations' });
+		new Setting(folderSection).setName('Folder to tag transformations').setHeading();
 
 		if (!this.rule.folderTransforms) {
 			this.rule.folderTransforms = {};
@@ -264,7 +266,7 @@ export class RuleEditorModal extends Modal {
 
 		// Tag transformations
 		const tagSection = section.createDiv({ cls: 'transform-subsection' });
-		tagSection.createEl('h4', { text: 'Tag → Folder Transformations' });
+		new Setting(tagSection).setName('Tag to folder transformations').setHeading();
 
 		if (!this.rule.tagTransforms) {
 			this.rule.tagTransforms = {};
@@ -305,7 +307,7 @@ export class RuleEditorModal extends Modal {
 
 	private buildOptionsSection(containerEl: HTMLElement) {
 		const section = containerEl.createDiv({ cls: 'rule-editor-section' });
-		section.createEl('h3', { text: 'Sync Options' });
+		new Setting(section).setName('Sync options').setHeading();
 
 		new Setting(section)
 			.setName('Create folders')
@@ -370,7 +372,7 @@ export class RuleEditorModal extends Modal {
 
 	private buildPreviewSection(containerEl: HTMLElement) {
 		const section = containerEl.createDiv({ cls: 'rule-editor-section' });
-		section.createEl('h3', { text: 'Test & Preview' });
+		new Setting(section).setName('Test and preview').setHeading();
 
 		const testContainer = section.createDiv({ cls: 'rule-test-container' });
 
@@ -379,7 +381,7 @@ export class RuleEditorModal extends Modal {
 			.setDesc('Enter a folder path to test transformation')
 			.addText(text => text
 				.setPlaceholder('Projects/My Project')
-				.onChange(async (value) => {
+				.onChange((value) => {
 					if (value && this.rule.folderTransforms) {
 						const result = folderToTag(value, this.rule.folderTransforms);
 						const resultEl = testContainer.querySelector('.test-folder-result');
@@ -397,7 +399,7 @@ export class RuleEditorModal extends Modal {
 			.setDesc('Enter a tag to test transformation')
 			.addText(text => text
 				.setPlaceholder('my_project')
-				.onChange(async (value) => {
+				.onChange((value) => {
 					if (value && this.rule.tagTransforms) {
 						const result = tagToFolder(value, this.rule.tagTransforms);
 						const resultEl = testContainer.querySelector('.test-tag-result');
@@ -445,17 +447,16 @@ export class RuleEditorModal extends Modal {
 		// Delete button (only for existing rules)
 		if (!this.isNew) {
 			const deleteButton = buttonContainer.createEl('button', {
-				text: 'Delete Rule',
+				text: 'Delete rule',
 				cls: 'mod-warning'
 			});
 
 			deleteButton.addEventListener('click', () => {
-				if (confirm(`Are you sure you want to delete "${this.rule.name}"?`)) {
-					// Signal deletion by passing null
-					this.onSave(null as any);
-					new Notice(`Rule "${this.rule.name}" deleted`);
-					this.close();
-				}
+				// Signal deletion by passing null - the callback handles this
+				// Cast is safe here as the callback checks for null
+				this.onSave(null as unknown as MappingRule);
+				new Notice(`Rule "${this.rule.name}" deleted`);
+				this.close();
 			});
 		}
 	}

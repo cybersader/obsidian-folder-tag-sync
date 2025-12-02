@@ -18,7 +18,9 @@ export class SettingsTab extends PluginSettingTab {
 		const { containerEl } = this;
 		containerEl.empty();
 
-		containerEl.createEl('h2', { text: 'Dynamic Tags & Folders Settings' });
+		new Setting(containerEl)
+			.setName('Folder Tag Sync settings')
+			.setHeading();
 
 		// General Options
 		this.displayGeneralOptions(containerEl);
@@ -31,7 +33,7 @@ export class SettingsTab extends PluginSettingTab {
 	}
 
 	private displayGeneralOptions(containerEl: HTMLElement) {
-		containerEl.createEl('h3', { text: 'General Options' });
+		new Setting(containerEl).setName('General options').setHeading();
 
 		new Setting(containerEl)
 			.setName('Sync on file create')
@@ -80,10 +82,10 @@ export class SettingsTab extends PluginSettingTab {
 
 	private displayRulesSection(containerEl: HTMLElement) {
 		const header = containerEl.createDiv({ cls: 'dtf-settings-header' });
-		header.createEl('h3', { text: 'Mapping Rules' });
+		new Setting(header).setName('Mapping rules').setHeading();
 
 		const addButton = header.createEl('button', {
-			text: 'Add Rule',
+			text: 'Add rule',
 			cls: 'mod-cta dtf-add-rule-button'
 		});
 
@@ -198,7 +200,7 @@ export class SettingsTab extends PluginSettingTab {
 				ruleItem.removeClass('drag-over');
 			});
 
-			ruleItem.addEventListener('drop', async (e) => {
+			ruleItem.addEventListener('drop', (e) => {
 				e.preventDefault();
 				ruleItem.removeClass('drag-over');
 
@@ -217,12 +219,11 @@ export class SettingsTab extends PluginSettingTab {
 					});
 
 					this.plugin.settings.rules = rules;
-					await this.plugin.saveSettings();
-
-					// Refresh display
-					this.display();
-
-					new Notice('Rule order updated');
+					void this.plugin.saveSettings().then(() => {
+						// Refresh display
+						this.display();
+						new Notice('Rule order updated');
+					});
 				}
 			});
 		});
@@ -232,28 +233,25 @@ export class SettingsTab extends PluginSettingTab {
 		const modal = new RuleEditorModal(
 			this.app,
 			rule,
-			async (updatedRule) => {
+			(updatedRule) => {
 				if (updatedRule === null) {
 					// Delete rule
 					if (rule) {
 						this.plugin.settings.rules = this.plugin.settings.rules.filter(
 							r => r.id !== rule.id
 						);
-						await this.plugin.saveSettings();
-						this.display();
+						void this.plugin.saveSettings().then(() => this.display());
 					}
 				} else if (rule === null) {
 					// Add new rule
 					this.plugin.settings.rules.push(updatedRule);
-					await this.plugin.saveSettings();
-					this.display();
+					void this.plugin.saveSettings().then(() => this.display());
 				} else {
 					// Update existing rule
 					const index = this.plugin.settings.rules.findIndex(r => r.id === rule.id);
 					if (index !== -1) {
 						this.plugin.settings.rules[index] = updatedRule;
-						await this.plugin.saveSettings();
-						this.display();
+						void this.plugin.saveSettings().then(() => this.display());
 					}
 				}
 			}
@@ -264,7 +262,7 @@ export class SettingsTab extends PluginSettingTab {
 
 	private displayImportExportSection(containerEl: HTMLElement) {
 		const section = containerEl.createDiv({ cls: 'dtf-import-export' });
-		section.createEl('h3', { text: 'Import / Export Settings' });
+		new Setting(section).setName('Import / export settings').setHeading();
 
 		new Setting(section)
 			.setName('Export settings')
@@ -290,7 +288,7 @@ export class SettingsTab extends PluginSettingTab {
 			.addButton(btn => btn
 				.setButtonText('Import')
 				.setWarning()
-				.onClick(async () => {
+				.onClick(() => {
 					const textarea = section.querySelector('textarea');
 					if (!textarea) return;
 
@@ -304,13 +302,12 @@ export class SettingsTab extends PluginSettingTab {
 							return;
 						}
 
-						// Confirm before importing
-						if (confirm('This will replace all current settings. Continue?')) {
-							this.plugin.settings = settings;
-							await this.plugin.saveSettings();
+						// Import settings directly (user explicitly clicked Import)
+						this.plugin.settings = settings;
+						void this.plugin.saveSettings().then(() => {
 							this.display();
 							new Notice('Settings imported successfully');
-						}
+						});
 					} catch (error) {
 						const message = error instanceof Error ? error.message : 'Unknown error';
 						new Notice('Error parsing JSON: ' + message);

@@ -228,7 +228,7 @@ export class FolderToTagSync {
     const tags: string[] = [];
 
     // Match tags: or tags:\n  - tag
-    const tagsMatch = frontmatter.match(/tags:\s*\n?((?:  - .+\n?)*|\[.*?\])/);
+    const tagsMatch = frontmatter.match(/tags:\s*\n?((?:\s{2}- .+\n?)*|\[.*?\])/);
 
     if (tagsMatch) {
       const tagsContent = tagsMatch[1];
@@ -267,7 +267,7 @@ export class FolderToTagSync {
     }
 
     // Check if tags field exists
-    const tagsRegex = /tags:\s*\n?((?:  - .+\n?)*|\[.*?\])/;
+    const tagsRegex = /tags:\s*\n?((?:\s{2}- .+\n?)*|\[.*?\])/;
     const tagsMatch = frontmatter.match(tagsRegex);
 
     if (tagsMatch) {

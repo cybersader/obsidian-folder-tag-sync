@@ -13,7 +13,7 @@ export function toSnakeCase(input: string): string {
 		// Handle camelCase and PascalCase
 		.replace(/([A-Z])/g, '_$1')
 		// Replace spaces and hyphens with underscores
-		.replace(/[\s\-]+/g, '_')
+		.replace(/[\s-]+/g, '_')
 		// Convert to lowercase
 		.toLowerCase()
 		// Remove leading underscore
@@ -29,7 +29,7 @@ export function toSnakeCase(input: string): string {
 export function toTitleCase(input: string): string {
 	return input
 		// Replace underscores and hyphens with spaces
-		.replace(/[_\-]+/g, ' ')
+		.replace(/[_-]+/g, ' ')
 		// Capitalize first letter of each word
 		.replace(/\b\w/g, (char) => char.toUpperCase())
 		// Clean up multiple spaces
@@ -56,7 +56,7 @@ export function toKebabCase(input: string): string {
  */
 export function toCamelCase(input: string): string {
 	return input
-		.replace(/[\s_\-]+(.)/g, (_, char) => char.toUpperCase())
+		.replace(/[\s_-]+(.)/g, (_, char) => char.toUpperCase())
 		.replace(/^(.)/, (char) => char.toLowerCase());
 }
 
@@ -66,7 +66,7 @@ export function toCamelCase(input: string): string {
  */
 export function toPascalCase(input: string): string {
 	return input
-		.replace(/[\s_\-]+(.)/g, (_, char) => char.toUpperCase())
+		.replace(/[\s_-]+(.)/g, (_, char) => char.toUpperCase())
 		.replace(/^(.)/, (char) => char.toUpperCase());
 }
 

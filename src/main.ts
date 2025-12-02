@@ -16,7 +16,7 @@ export default class DynamicTagsFoldersPlugin extends Plugin {
 	debugLogger!: DebugLogger;
 
 	async onload() {
-		console.log('Loading Dynamic Tags & Folders plugin');
+		console.debug('Loading Dynamic Tags & Folders plugin');
 
 		// Load settings
 		await this.loadSettings();
@@ -70,9 +70,9 @@ export default class DynamicTagsFoldersPlugin extends Plugin {
 		// );
 	}
 
-	async onunload() {
-		console.log('Unloading Dynamic Tags & Folders plugin');
-		await this.debugLogger.info('Plugin unloaded');
+	onunload(): void {
+		console.debug('Unloading Dynamic Tags & Folders plugin');
+		void this.debugLogger.info('Plugin unloaded');
 	}
 
 	async loadSettings() {
@@ -87,7 +87,7 @@ export default class DynamicTagsFoldersPlugin extends Plugin {
 	 * Sync folder path to tags for a file
 	 */
 	async syncFolderToTags(file: TFile) {
-		console.log('Syncing folder to tags:', file.path);
+		console.debug('Syncing folder to tags:', file.path);
 		await this.debugLogger.info('Sync folder to tags started', {
 			file: file.path,
 			folder: file.parent?.path
@@ -127,7 +127,7 @@ export default class DynamicTagsFoldersPlugin extends Plugin {
 	 * Sync tags to folder location for a file
 	 */
 	async syncTagsToFolder(file: TFile) {
-		console.log('Syncing tags to folder:', file.path);
+		console.debug('Syncing tags to folder:', file.path);
 		await this.debugLogger.info('Sync tags to folder started', {
 			file: file.path
 		});

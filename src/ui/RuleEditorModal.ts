@@ -88,7 +88,7 @@ export class RuleEditorModal extends Modal {
 			.setName('Rule name')
 			.setDesc('A descriptive name for this rule')
 			.addText(text => text
-				.setPlaceholder('e.g., Project Folders to Tags')
+				.setPlaceholder('e.g., Project folders to tags')
 				.setValue(this.rule.name)
 				.onChange(value => {
 					this.rule.name = value;
@@ -140,8 +140,8 @@ export class RuleEditorModal extends Modal {
 			.setDesc('Choose when this rule should apply')
 			.addDropdown(dropdown => dropdown
 				.addOption('bidirectional', 'Bidirectional (both directions)')
-				.addOption('folder-to-tag', 'Folder → Tag (folder changes update tags)')
-				.addOption('tag-to-folder', 'Tag → Folder (tag changes move files)')
+				.addOption('folder-to-tag', 'Folder → tag (folder changes update tags)')
+				.addOption('tag-to-folder', 'Tag → folder (tag changes move files)')
 				.setValue(this.rule.direction)
 				.onChange((value) => {
 					this.rule.direction = value as RuleDirection;
@@ -253,7 +253,7 @@ export class RuleEditorModal extends Modal {
 
 		new Setting(folderSection)
 			.setName('Number prefix handling')
-			.setDesc('How to handle number prefixes (e.g., "01 - Projects")')
+			.setDesc('How to handle number prefixes (e.g., "01 - projects")')
 			.addDropdown(dropdown => dropdown
 				.addOption('keep', 'Keep numbers')
 				.addOption('strip', 'Strip numbers')
@@ -380,7 +380,7 @@ export class RuleEditorModal extends Modal {
 			.setName('Test folder path')
 			.setDesc('Enter a folder path to test transformation')
 			.addText(text => text
-				.setPlaceholder('Projects/My Project')
+				.setPlaceholder('Projects/my project')
 				.onChange((value) => {
 					if (value && this.rule.folderTransforms) {
 						const result = folderToTag(value, this.rule.folderTransforms);

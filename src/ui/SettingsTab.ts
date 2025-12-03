@@ -104,7 +104,7 @@ export class SettingsTab extends PluginSettingTab {
 
 		if (!this.plugin.settings.rules || this.plugin.settings.rules.length === 0) {
 			const noRules = containerEl.createDiv({ cls: 'dtf-no-rules' });
-			noRules.setText('No rules configured yet. Click "Add Rule" to create your first mapping rule.');
+			noRules.setText('No rules configured yet. Click "Add rule" to create your first mapping rule.');
 			return;
 		}
 
@@ -140,8 +140,8 @@ export class SettingsTab extends PluginSettingTab {
 
 			// Rule direction
 			const directionText = {
-				'folder-to-tag': 'Folder → Tag',
-				'tag-to-folder': 'Tag → Folder',
+				'folder-to-tag': 'Folder → tag',
+				'tag-to-folder': 'Tag → folder',
 				'bidirectional': 'Bidirectional'
 			}[rule.direction];
 

@@ -19,7 +19,7 @@ export class DebugLogger {
   /**
    * Log a message at the specified level
    */
-  async log(level: 'info' | 'warn' | 'error', message: string, data?: any) {
+  async log(level: 'info' | 'warn' | 'error', message: string, data?: Record<string, unknown>) {
     if (!this.enabled) return;
 
     const timestamp = new Date().toISOString();
@@ -66,21 +66,21 @@ export class DebugLogger {
   /**
    * Log an info-level message
    */
-  info(message: string, data?: any) {
+  info(message: string, data?: Record<string, unknown>) {
     return this.log('info', message, data);
   }
 
   /**
    * Log a warning-level message
    */
-  warn(message: string, data?: any) {
+  warn(message: string, data?: Record<string, unknown>) {
     return this.log('warn', message, data);
   }
 
   /**
    * Log an error-level message
    */
-  error(message: string, data?: any) {
+  error(message: string, data?: Record<string, unknown>) {
     return this.log('error', message, data);
   }
 

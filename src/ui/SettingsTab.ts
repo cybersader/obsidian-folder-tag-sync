@@ -18,9 +18,7 @@ export class SettingsTab extends PluginSettingTab {
 		const { containerEl } = this;
 		containerEl.empty();
 
-		new Setting(containerEl)
-			.setName('Folder Tag Sync settings')
-			.setHeading();
+		// Main heading is provided by Obsidian settings tab
 
 		// General Options
 		this.displayGeneralOptions(containerEl);
@@ -33,7 +31,7 @@ export class SettingsTab extends PluginSettingTab {
 	}
 
 	private displayGeneralOptions(containerEl: HTMLElement) {
-		new Setting(containerEl).setName('General options').setHeading();
+		new Setting(containerEl).setName('Behavior').setHeading();
 
 		new Setting(containerEl)
 			.setName('Sync on file create')
@@ -262,7 +260,7 @@ export class SettingsTab extends PluginSettingTab {
 
 	private displayImportExportSection(containerEl: HTMLElement) {
 		const section = containerEl.createDiv({ cls: 'dtf-import-export' });
-		new Setting(section).setName('Import / export settings').setHeading();
+		new Setting(section).setName('Import / export').setHeading();
 
 		new Setting(section)
 			.setName('Export settings')
@@ -271,8 +269,8 @@ export class SettingsTab extends PluginSettingTab {
 				.setButtonText('Export')
 				.onClick(() => {
 					const json = JSON.stringify(this.plugin.settings, null, 2);
-					navigator.clipboard.writeText(json);
-					new Notice('Settings copied to clipboard');
+					void navigator.clipboard.writeText(json);
+					new Notice('Copied to clipboard');
 				})
 			);
 

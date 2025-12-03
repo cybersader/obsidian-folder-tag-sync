@@ -10,7 +10,7 @@
  */
 
 import { TransformConfig } from '../types/settings';
-import { applyCaseTransform, applyCaseTransformToPath } from './caseTransformers';
+import { applyCaseTransformToPath } from './caseTransformers';
 import { applyEmojiHandling, stripInvalidTagChars } from './emojiTransformers';
 import { applyNumberHandling, stripNumberPrefix } from './numberTransformers';
 import { applyRegexTransforms } from './regexTransformers';

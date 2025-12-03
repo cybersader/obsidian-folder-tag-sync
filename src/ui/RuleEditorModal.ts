@@ -30,7 +30,7 @@ export class RuleEditorModal extends Modal {
 	private createDefaultRule(): MappingRule {
 		return {
 			id: `rule-${Date.now()}`,
-			name: 'New Rule',
+			name: 'New rule',
 			description: '',
 			enabled: true,
 			priority: 100,
@@ -418,7 +418,7 @@ export class RuleEditorModal extends Modal {
 
 		// Save button
 		const saveButton = buttonContainer.createEl('button', {
-			text: this.isNew ? 'Create Rule' : 'Save Changes',
+			text: this.isNew ? 'Create rule' : 'Save changes',
 			cls: 'mod-cta'
 		});
 

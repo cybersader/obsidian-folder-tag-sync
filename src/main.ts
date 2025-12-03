@@ -45,7 +45,7 @@ export default class DynamicTagsFoldersPlugin extends Plugin {
 			callback: () => {
 				const file = this.app.workspace.getActiveFile();
 				if (file) {
-					this.syncFolderToTags(file);
+					void this.syncFolderToTags(file);
 				}
 			}
 		});
@@ -56,7 +56,7 @@ export default class DynamicTagsFoldersPlugin extends Plugin {
 			callback: () => {
 				const file = this.app.workspace.getActiveFile();
 				if (file) {
-					this.syncTagsToFolder(file);
+					void this.syncTagsToFolder(file);
 				}
 			}
 		});

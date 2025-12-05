@@ -1,7 +1,7 @@
 {
   "id": "folder-tag-sync",
   "name": "Folder Tag Sync",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "minAppVersion": "0.15.0",
   "description": "Sync folders and tags bidirectionally using regex patterns and naming transformations.",
   "author": "cybersader",

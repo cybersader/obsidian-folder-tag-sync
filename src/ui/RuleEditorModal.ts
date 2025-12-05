@@ -226,13 +226,13 @@ export class RuleEditorModal extends Modal {
 			.setDesc('Convert folder names to tag format')
 			.addDropdown(dropdown => dropdown
 				.addOption('none', 'None (keep as-is)')
-				.addOption('snake_case', 'snake_case')
-				.addOption('kebab-case', 'kebab-case')
-				.addOption('camelCase', 'camelCase')
-				.addOption('PascalCase', 'PascalCase')
-				.addOption('Title Case', 'Title Case')
-				.addOption('lowercase', 'lowercase')
-				.addOption('UPPERCASE', 'UPPERCASE')
+				.addOption('snake_case', 'Snake case (snake_case)')
+				.addOption('kebab-case', 'Kebab case (kebab-case)')
+				.addOption('camelCase', 'Camel case (camelCase)')
+				.addOption('PascalCase', 'Pascal case (PascalCase)')
+				.addOption('Title Case', 'Title case')
+				.addOption('lowercase', 'Lowercase')
+				.addOption('UPPERCASE', 'Uppercase')
 				.setValue(folderTransforms.caseTransform || 'none')
 				.onChange((value) => {
 					this.rule.folderTransforms!.caseTransform = value as CaseTransformType;
@@ -279,13 +279,13 @@ export class RuleEditorModal extends Modal {
 			.setDesc('Convert tags to folder name format')
 			.addDropdown(dropdown => dropdown
 				.addOption('none', 'None (keep as-is)')
-				.addOption('snake_case', 'snake_case')
-				.addOption('kebab-case', 'kebab-case')
-				.addOption('camelCase', 'camelCase')
-				.addOption('PascalCase', 'PascalCase')
-				.addOption('Title Case', 'Title Case')
-				.addOption('lowercase', 'lowercase')
-				.addOption('UPPERCASE', 'UPPERCASE')
+				.addOption('snake_case', 'Snake case (snake_case)')
+				.addOption('kebab-case', 'Kebab case (kebab-case)')
+				.addOption('camelCase', 'Camel case (camelCase)')
+				.addOption('PascalCase', 'Pascal case (PascalCase)')
+				.addOption('Title Case', 'Title case')
+				.addOption('lowercase', 'Lowercase')
+				.addOption('UPPERCASE', 'Uppercase')
 				.setValue(tagTransforms.caseTransform || 'none')
 				.onChange((value) => {
 					this.rule.tagTransforms!.caseTransform = value as CaseTransformType;
@@ -296,7 +296,7 @@ export class RuleEditorModal extends Modal {
 		const reversibility = isTransformReversible(this.rule.folderTransforms);
 		if (!reversibility.reversible && reversibility.warnings.length > 0) {
 			const warningEl = section.createDiv({ cls: 'rule-editor-warning' });
-			warningEl.createEl('strong', { text: '⚠️ Warning: ' });
+			warningEl.createEl('strong', { text: '⚠️ ' });
 			warningEl.createSpan({ text: 'This transformation may not be reversible' });
 			const warningList = warningEl.createEl('ul');
 			reversibility.warnings.forEach(warning => {

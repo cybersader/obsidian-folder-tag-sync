@@ -104,7 +104,7 @@ export class SettingsTab extends PluginSettingTab {
 
 		if (!this.plugin.settings.rules || this.plugin.settings.rules.length === 0) {
 			const noRules = containerEl.createDiv({ cls: 'dtf-no-rules' });
-			noRules.setText('No rules configured yet. Click "Add rule" to create your first mapping rule.');
+			noRules.setText('No rules configured. Click the add rule button to create one.');
 			return;
 		}
 

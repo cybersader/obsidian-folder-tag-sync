@@ -187,7 +187,7 @@ export class RuleEditorModal extends Modal {
 				.setName('Tag pattern')
 				.setDesc('Regex pattern to match tags (e.g., "^projects/(.*)$")')
 				.addText(text => text
-					.setPlaceholder('projects/*')
+					.setPlaceholder('Projects/*')
 					.setValue(this.rule.tagPattern || '')
 					.onChange(value => {
 						this.rule.tagPattern = value;
@@ -198,7 +198,7 @@ export class RuleEditorModal extends Modal {
 				.setName('Tag entry point')
 				.setDesc('Tag prefix for matched tags (e.g., "projects/")')
 				.addText(text => text
-					.setPlaceholder('projects/')
+					.setPlaceholder('Projects/')
 					.setValue(this.rule.tagEntryPoint || '')
 					.onChange(value => {
 						this.rule.tagEntryPoint = value;
@@ -398,7 +398,7 @@ export class RuleEditorModal extends Modal {
 			.setName('Test tag')
 			.setDesc('Enter a tag to test transformation')
 			.addText(text => text
-				.setPlaceholder('my_project')
+				.setPlaceholder('My_project')
 				.onChange((value) => {
 					if (value && this.rule.tagTransforms) {
 						const result = tagToFolder(value, this.rule.tagTransforms);

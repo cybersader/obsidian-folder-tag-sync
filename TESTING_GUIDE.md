@@ -106,143 +106,105 @@ npx tsc -noEmit -skipLibCheck
 
 ## Testing in Obsidian
 
-### Step 1: Copy Plugin to Obsidian Vault
+### Embedded Test Vault Approach (Recommended)
 
-You have two options:
+The plugin includes an embedded test vault at `test-vault/`. Build outputs go directly there—no copying or symlinks needed.
 
-#### Option A: Symlink (Development - Recommended)
-
-**WSL:**
+**Setup (one-time):**
 ```bash
-# Create symlink from WSL
-ln -s "$(pwd)" "/mnt/c/Users/YourUsername/Documents/ObsidianVault/.obsidian/plugins/dynamic-tags-folders"
+# Build outputs to test-vault/.obsidian/plugins/dynamic-tags-folders/
+npm run build
 ```
 
-**PowerShell:**
-```powershell
-# Create symlink from PowerShell (requires admin)
-New-Item -ItemType SymbolicLink -Path "C:\Users\YourUsername\Documents\ObsidianVault\.obsidian\plugins\dynamic-tags-folders" -Target "C:\Users\YourUsername\Documents\4 VAULTS\plugin_development\dynamic-tags-folders-plugin"
-```
-
-**Benefits**: Changes are immediately available, no need to copy files
-
-#### Option B: Copy Files (Quick Test)
-
-**WSL:**
+**Development workflow:**
 ```bash
-# Copy to vault
-cp -r . "/mnt/c/Users/YourUsername/Documents/ObsidianVault/.obsidian/plugins/dynamic-tags-folders"
+# Watch mode - rebuilds automatically on changes
+npm run dev
+
+# Open test-vault/ as a vault in Obsidian
+# File → Open vault → select test-vault/
 ```
 
-**PowerShell:**
-```powershell
-# Copy to vault
-Copy-Item -Recurse -Force . "C:\Users\YourUsername\Documents\ObsidianVault\.obsidian\plugins\dynamic-tags-folders"
-```
+### Enable the Plugin
 
-**Benefits**: Isolated test, won't affect development files
-
-### Step 2: Enable the Plugin
-
-1. Open Obsidian
+1. Open Obsidian with the test-vault
 2. Go to **Settings** → **Community Plugins**
 3. Make sure **Safe Mode** is **OFF**
-4. Click **Browse** and search for "Dynamic Tags & Folders" (if it's in the list)
-5. Or click the **folder icon** to manually enable it
-6. Enable the plugin
+4. Find "Dynamic Tags & Folders" in the list
+5. Enable the plugin
 
-### Step 3: Install Hot Reload (Optional but Recommended)
+### Install Hot Reload (Optional but Recommended)
 
-For faster development iteration:
+For automatic plugin reloading during development:
 
-1. Install the [Hot Reload](https://github.com/pjeby/hot-reload) community plugin
+1. Install the [Hot Reload](https://github.com/pjeby/hot-reload) community plugin in test-vault
 2. Enable it in Obsidian
-3. Now when you run `bun run dev`, changes will auto-reload!
+3. Now when you run `npm run dev`, changes auto-reload!
 
 ---
 
-## Creating a Test Vault
+## Test Vault Structure
 
-Create a dedicated test vault with sample data to test the plugin:
+The test vault is embedded in the project at `test-vault/`. It includes sample content for testing.
 
-### Quick Setup Script
+### Initial Setup
 
-**WSL/Linux:**
+If `test-vault/` doesn't exist, create it:
+
 ```bash
-# Create test vault structure
-mkdir -p /mnt/c/Users/YourUsername/Documents/ObsidianVault-Test
-cd /mnt/c/Users/YourUsername/Documents/ObsidianVault-Test
-
-# Create sample folder structure
-mkdir -p "Projects/Web Development"
-mkdir -p "Projects/Mobile Apps"
-mkdir -p "📁 01 - Archive/Old Projects"
-mkdir -p "📁 02 - Active/Current Work"
-
-# Create sample notes
-echo "---
-tags:
-  - projects/web
----
-
-# Web Project 1" > "Projects/Web Development/Project1.md"
-
-echo "---
-tags:
-  - projects/mobile
----
-
-# Mobile App 1" > "Projects/Mobile Apps/App1.md"
-
-echo "# Untagged Note
-
-This note has no tags." > "Projects/Untagged.md"
+# From the plugin project root
+mkdir -p test-vault/.obsidian/plugins/dynamic-tags-folders
+mkdir -p "test-vault/Projects/Web Development"
+mkdir -p "test-vault/Projects/Mobile Apps"
+mkdir -p "test-vault/📁 01 - Archive/Old Projects"
+mkdir -p "test-vault/📁 02 - Active/Current Work"
 ```
 
-**PowerShell:**
-```powershell
-# Create test vault structure
-New-Item -ItemType Directory -Force -Path "C:\Users\YourUsername\Documents\ObsidianVault-Test"
-cd "C:\Users\YourUsername\Documents\ObsidianVault-Test"
+### Sample Test Notes
 
-# Create sample folders
-New-Item -ItemType Directory -Force -Path "Projects\Web Development"
-New-Item -ItemType Directory -Force -Path "Projects\Mobile Apps"
-New-Item -ItemType Directory -Force -Path "📁 01 - Archive\Old Projects"
-New-Item -ItemType Directory -Force -Path "📁 02 - Active\Current Work"
+Create sample notes in `test-vault/`:
 
-# Create sample notes
-@"
+```bash
+# Web project note
+cat > "test-vault/Projects/Web Development/Project1.md" << 'EOF'
 ---
 tags:
   - projects/web
 ---
 
 # Web Project 1
-"@ | Out-File -FilePath "Projects\Web Development\Project1.md"
+EOF
 
-@"
+# Mobile project note
+cat > "test-vault/Projects/Mobile Apps/App1.md" << 'EOF'
 ---
 tags:
   - projects/mobile
 ---
 
 # Mobile App 1
-"@ | Out-File -FilePath "Projects\Mobile Apps\App1.md"
+EOF
 
-@"
+# Untagged note
+cat > "test-vault/Projects/Untagged.md" << 'EOF'
 # Untagged Note
 
 This note has no tags.
-"@ | Out-File -FilePath "Projects\Untagged.md"
+EOF
 ```
 
 ### Test Vault Structure
 
-Your test vault should look like this:
+Your embedded test vault should look like this:
 
 ```
-ObsidianVault-Test/
+test-vault/
+├── .obsidian/
+│   └── plugins/
+│       └── dynamic-tags-folders/
+│           ├── main.js          # Build output
+│           ├── manifest.json
+│           └── styles.css
 ├── Projects/
 │   ├── Web Development/
 │   │   └── Project1.md (tags: projects/web)

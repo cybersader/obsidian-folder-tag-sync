@@ -88,7 +88,7 @@ export class RuleEditorModal extends Modal {
 			.setName('Rule name')
 			.setDesc('A descriptive name for this rule')
 			.addText(text => text
-				.setPlaceholder('e.g., Project folders to tags')
+				.setPlaceholder('My project folders rule')
 				.setValue(this.rule.name)
 				.onChange(value => {
 					this.rule.name = value;
@@ -226,10 +226,10 @@ export class RuleEditorModal extends Modal {
 			.setDesc('Convert folder names to tag format')
 			.addDropdown(dropdown => dropdown
 				.addOption('none', 'None (keep as-is)')
-				.addOption('snake_case', 'Snake case (snake_case)')
-				.addOption('kebab-case', 'Kebab case (kebab-case)')
-				.addOption('camelCase', 'Camel case (camelCase)')
-				.addOption('PascalCase', 'Pascal case (PascalCase)')
+				.addOption('snake_case', 'Snake case')
+				.addOption('kebab-case', 'Kebab case')
+				.addOption('camelCase', 'Camel case')
+				.addOption('PascalCase', 'Pascal case')
 				.addOption('Title Case', 'Title case')
 				.addOption('lowercase', 'Lowercase')
 				.addOption('UPPERCASE', 'Uppercase')
@@ -279,10 +279,10 @@ export class RuleEditorModal extends Modal {
 			.setDesc('Convert tags to folder name format')
 			.addDropdown(dropdown => dropdown
 				.addOption('none', 'None (keep as-is)')
-				.addOption('snake_case', 'Snake case (snake_case)')
-				.addOption('kebab-case', 'Kebab case (kebab-case)')
-				.addOption('camelCase', 'Camel case (camelCase)')
-				.addOption('PascalCase', 'Pascal case (PascalCase)')
+				.addOption('snake_case', 'Snake case')
+				.addOption('kebab-case', 'Kebab case')
+				.addOption('camelCase', 'Camel case')
+				.addOption('PascalCase', 'Pascal case')
 				.addOption('Title Case', 'Title case')
 				.addOption('lowercase', 'Lowercase')
 				.addOption('UPPERCASE', 'Uppercase')

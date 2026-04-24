@@ -21,7 +21,7 @@
 >
   <svg
     class="pd-svg"
-    viewBox="0 0 1200 680"
+    viewBox="0 0 1200 740"
     preserveAspectRatio="xMidYMid meet"
     role="img"
   >
@@ -62,16 +62,16 @@
         <path d="M10,1 L0,5 L10,9 Z" class="pd-arr-head" />
       </marker>
 
-      <!-- Branch → rule paths: start at branch right edge (x=290) with small vertical stagger.
-           Endpoints hit rule card left edge at card center (y=165, 345, 525 for cards at y=95/275/455 with height=140). -->
-      <path id="pd-path-b1" d="M 290,200 C 420,200 430,165 560,165" fill="none" />
-      <path id="pd-path-b2" d="M 290,210 C 420,210 430,345 560,345" fill="none" />
-      <path id="pd-path-b3" d="M 290,220 C 420,220 430,525 560,525" fill="none" />
+      <!-- Branch → rule paths: from branch right edge (x=290) to rule card left edge (x=560)
+           at each card's vertical center (y=170, 370, 570 for cards at y=85/285/485, height=170). -->
+      <path id="pd-path-b1" d="M 290,200 C 420,200 430,170 560,170" fill="none" />
+      <path id="pd-path-b2" d="M 290,210 C 420,210 430,370 560,370" fill="none" />
+      <path id="pd-path-b3" d="M 290,220 C 420,220 430,570 560,570" fill="none" />
 
-      <!-- Rule → tag paths: to tag tree vertical center (boxes are y=90..230, 260..400, 440..580). -->
-      <path id="pd-path-t1" d="M 880,165 C 915,165 925,160 960,160" fill="none" />
-      <path id="pd-path-t2" d="M 880,345 C 915,345 925,330 960,330" fill="none" />
-      <path id="pd-path-t3" d="M 880,525 C 915,525 925,510 960,510" fill="none" />
+      <!-- Rule → tag paths: from rule card right edge (x=900) to tag tree center. -->
+      <path id="pd-path-t1" d="M 900,170 C 930,170 935,160 960,160" fill="none" />
+      <path id="pd-path-t2" d="M 900,370 C 930,370 935,330 960,330" fill="none" />
+      <path id="pd-path-t3" d="M 900,570 C 930,570 935,510 960,510" fill="none" />
     </defs>
 
     <!-- ────── Section headers ────── -->
@@ -171,91 +171,109 @@
 
     <!-- ════════════════════════════ CENTER: RULE STACK ════════════════════════════ -->
     <g class="pd-rules">
+      <!--
+        Rule card layout (height 170, width 340)
+          ── top padding: 16px ──
+          y=14–46  header: priority badge + title row
+            circle cx=30 cy=30 r=18
+            title text baseline y=27
+            subtitle baseline y=42
+          y=58      header divider
+          ── 18px gap ──
+          y=80      folder row (baseline) · label at x=20, pattern at x=78
+          y=108     bidi pill (centered horizontally, 36px wide)
+          y=136     tag row (baseline)
+          ── 12px gap ──
+          y=156     transforms (baseline)
+          ── bottom padding: 14px → box bottom y=170 ──
+      -->
+
       <!-- Rule card 1 -->
-      <g class="pd-rule-card" transform="translate(560, 95)">
-        <rect class="pd-rule-bg" width="320" height="140" rx="12" />
-        <!-- Priority badge: number circle + single sub-label -->
-        <circle class="pd-prio" cx="28" cy="30" r="18" />
-        <text class="pd-prio-text" x="28" y="36" text-anchor="middle">1</text>
-        <text class="pd-prio-sub" x="55" y="28">matches first</text>
-        <text class="pd-prio-tag" x="55" y="42">priority 10</text>
-        <!-- Divider -->
-        <line class="pd-rule-divider" x1="14" x2="306" y1="62" y2="62" />
-        <!-- Folder pattern -->
-        <text class="pd-rule-label" x="20" y="82">folder</text>
-        <text class="pd-rule-pattern-fs" x="72" y="82">^Projects/(.*)$</text>
-        <!-- Bidirectional sync indicator, centered between folder and tag lines -->
-        <g class="pd-bidi" transform="translate(72, 98)">
-          <line x1="0" y1="0" x2="24" y2="0" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
-          <path d="M 0,0 L 5,-4 M 0,0 L 5,4" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" />
-          <path d="M 24,0 L 19,-4 M 24,0 L 19,4" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" />
-          <text class="pd-bidi-label" x="32" y="3">bidirectional</text>
+      <g class="pd-rule-card" transform="translate(560, 85)">
+        <rect class="pd-rule-bg" width="340" height="170" rx="12" />
+        <!-- Header -->
+        <circle class="pd-prio" cx="30" cy="30" r="18" />
+        <text class="pd-prio-text" x="30" y="36" text-anchor="middle">1</text>
+        <text class="pd-prio-sub" x="60" y="27">matches first</text>
+        <text class="pd-prio-tag" x="60" y="42">priority 10</text>
+        <line class="pd-rule-divider" x1="14" x2="326" y1="58" y2="58" />
+        <!-- Folder row -->
+        <text class="pd-rule-label" x="20" y="85">folder</text>
+        <text class="pd-rule-pattern-fs" x="78" y="85">^Projects/(.*)$</text>
+        <!-- Bidi pill: centered horizontally, visually connecting folder and tag -->
+        <g class="pd-bidi" transform="translate(170, 110)">
+          <rect class="pd-bidi-pill" x="-42" y="-10" width="84" height="20" rx="10" />
+          <line x1="-18" y1="0" x2="18" y2="0" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" />
+          <path d="M -18,0 L -12,-5 M -18,0 L -12,5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" />
+          <path d="M 18,0 L 12,-5 M 18,0 L 12,5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" />
         </g>
-        <!-- Tag pattern -->
-        <text class="pd-rule-label" x="20" y="118">tag</text>
-        <text class="pd-rule-pattern-tag" x="72" y="118">#projects/&#123;1&#125;</text>
+        <!-- Tag row -->
+        <text class="pd-rule-label" x="20" y="140">tag</text>
+        <text class="pd-rule-pattern-tag" x="78" y="140">#projects/&#123;1&#125;</text>
         <!-- Transforms -->
-        <text class="pd-rule-xform" x="20" y="130">transforms: snake_case · strip emoji</text>
+        <text class="pd-rule-xform" x="20" y="160">transforms: snake_case · strip emoji</text>
       </g>
 
       <!-- Rule card 2 -->
-      <g class="pd-rule-card" transform="translate(560, 275)">
-        <rect class="pd-rule-bg" width="320" height="140" rx="12" />
-        <circle class="pd-prio" cx="28" cy="30" r="18" />
-        <text class="pd-prio-text" x="28" y="36" text-anchor="middle">2</text>
-        <text class="pd-prio-sub" x="55" y="28">matches second</text>
-        <text class="pd-prio-tag" x="55" y="42">priority 20</text>
-        <line class="pd-rule-divider" x1="14" x2="306" y1="62" y2="62" />
-        <text class="pd-rule-label" x="20" y="82">folder</text>
-        <text class="pd-rule-pattern-fs" x="72" y="82">^Projects/Q(\d+)-(.*)$</text>
-        <g class="pd-bidi" transform="translate(72, 98)">
-          <line x1="0" y1="0" x2="24" y2="0" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
-          <path d="M 0,0 L 5,-4 M 0,0 L 5,4" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" />
-          <path d="M 24,0 L 19,-4 M 24,0 L 19,4" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" />
-          <text class="pd-bidi-label" x="32" y="3">bidirectional</text>
+      <g class="pd-rule-card" transform="translate(560, 285)">
+        <rect class="pd-rule-bg" width="340" height="170" rx="12" />
+        <circle class="pd-prio" cx="30" cy="30" r="18" />
+        <text class="pd-prio-text" x="30" y="36" text-anchor="middle">2</text>
+        <text class="pd-prio-sub" x="60" y="27">matches second</text>
+        <text class="pd-prio-tag" x="60" y="42">priority 20</text>
+        <line class="pd-rule-divider" x1="14" x2="326" y1="58" y2="58" />
+        <text class="pd-rule-label" x="20" y="85">folder</text>
+        <text class="pd-rule-pattern-fs" x="78" y="85">^Projects/Q(\d+)-(.*)$</text>
+        <g class="pd-bidi" transform="translate(170, 110)">
+          <rect class="pd-bidi-pill" x="-42" y="-10" width="84" height="20" rx="10" />
+          <line x1="-18" y1="0" x2="18" y2="0" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" />
+          <path d="M -18,0 L -12,-5 M -18,0 L -12,5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" />
+          <path d="M 18,0 L 12,-5 M 18,0 L 12,5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" />
         </g>
-        <text class="pd-rule-label" x="20" y="118">tag</text>
-        <text class="pd-rule-pattern-tag" x="72" y="118">#time/2024/q&#123;1&#125;/&#123;2&#125;</text>
-        <text class="pd-rule-xform" x="20" y="130">transforms: snake_case</text>
+        <text class="pd-rule-label" x="20" y="140">tag</text>
+        <text class="pd-rule-pattern-tag" x="78" y="140">#time/2024/q&#123;1&#125;/&#123;2&#125;</text>
+        <text class="pd-rule-xform" x="20" y="160">transforms: snake_case</text>
       </g>
 
       <!-- Rule card 3 -->
-      <g class="pd-rule-card" transform="translate(560, 455)">
-        <rect class="pd-rule-bg" width="320" height="140" rx="12" />
-        <circle class="pd-prio" cx="28" cy="30" r="18" />
-        <text class="pd-prio-text" x="28" y="36" text-anchor="middle">3</text>
-        <text class="pd-prio-sub" x="55" y="28">matches last</text>
-        <text class="pd-prio-tag" x="55" y="42">priority 30</text>
-        <line class="pd-rule-divider" x1="14" x2="306" y1="62" y2="62" />
-        <text class="pd-rule-label" x="20" y="82">folder</text>
-        <text class="pd-rule-pattern-fs" x="72" y="82">.*Roadmap.*</text>
-        <g class="pd-bidi" transform="translate(72, 98)">
-          <line x1="0" y1="0" x2="24" y2="0" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
-          <path d="M 0,0 L 5,-4 M 0,0 L 5,4" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" />
-          <path d="M 24,0 L 19,-4 M 24,0 L 19,4" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" />
-          <text class="pd-bidi-label" x="32" y="3">bidirectional</text>
+      <g class="pd-rule-card" transform="translate(560, 485)">
+        <rect class="pd-rule-bg" width="340" height="170" rx="12" />
+        <circle class="pd-prio" cx="30" cy="30" r="18" />
+        <text class="pd-prio-text" x="30" y="36" text-anchor="middle">3</text>
+        <text class="pd-prio-sub" x="60" y="27">matches last</text>
+        <text class="pd-prio-tag" x="60" y="42">priority 30</text>
+        <line class="pd-rule-divider" x1="14" x2="326" y1="58" y2="58" />
+        <text class="pd-rule-label" x="20" y="85">folder</text>
+        <text class="pd-rule-pattern-fs" x="78" y="85">.*Roadmap.*</text>
+        <g class="pd-bidi" transform="translate(170, 110)">
+          <rect class="pd-bidi-pill" x="-42" y="-10" width="84" height="20" rx="10" />
+          <line x1="-18" y1="0" x2="18" y2="0" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" />
+          <path d="M -18,0 L -12,-5 M -18,0 L -12,5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" />
+          <path d="M 18,0 L 12,-5 M 18,0 L 12,5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" />
         </g>
-        <text class="pd-rule-label" x="20" y="118">tag</text>
-        <text class="pd-rule-pattern-tag" x="72" y="118">#topics/roadmaps/q4</text>
-        <text class="pd-rule-xform" x="20" y="130">transforms: lowercase</text>
+        <text class="pd-rule-label" x="20" y="140">tag</text>
+        <text class="pd-rule-pattern-tag" x="78" y="140">#topics/roadmaps/q4</text>
+        <text class="pd-rule-xform" x="20" y="160">transforms: lowercase</text>
       </g>
     </g>
 
-    <!-- Branch → rule arrows (one-directional; bidi is indicated in the rule cards) -->
+    <!-- Branch → rule arrows: bidirectional — both ends have arrowheads.
+         Matches the reality of the plugin: folder changes propagate to tags
+         AND tag changes move the file. -->
     <use href="#pd-path-b1" class="pd-flow pd-flow-fs pd-flow-1"
-         marker-end="url(#pd-arr-head)" />
+         marker-start="url(#pd-arr-tail)" marker-end="url(#pd-arr-head)" />
     <use href="#pd-path-b2" class="pd-flow pd-flow-fs pd-flow-2"
-         marker-end="url(#pd-arr-head)" />
+         marker-start="url(#pd-arr-tail)" marker-end="url(#pd-arr-head)" />
     <use href="#pd-path-b3" class="pd-flow pd-flow-fs pd-flow-3"
-         marker-end="url(#pd-arr-head)" />
+         marker-start="url(#pd-arr-tail)" marker-end="url(#pd-arr-head)" />
 
-    <!-- Rule → tag arrows (one-directional) -->
+    <!-- Rule → tag arrows: also bidirectional. -->
     <use href="#pd-path-t1" class="pd-flow pd-flow-tag pd-flow-1"
-         marker-end="url(#pd-arr-head)" />
+         marker-start="url(#pd-arr-tail)" marker-end="url(#pd-arr-head)" />
     <use href="#pd-path-t2" class="pd-flow pd-flow-tag pd-flow-2"
-         marker-end="url(#pd-arr-head)" />
+         marker-start="url(#pd-arr-tail)" marker-end="url(#pd-arr-head)" />
     <use href="#pd-path-t3" class="pd-flow pd-flow-tag pd-flow-3"
-         marker-end="url(#pd-arr-head)" />
+         marker-start="url(#pd-arr-tail)" marker-end="url(#pd-arr-head)" />
 
     <!-- ════════════════════════════ RIGHT: TAG HIERARCHIES ════════════════════════════ -->
     <!--
@@ -315,11 +333,11 @@
     </g>
 
     <!-- ═════════════════════════════ CAPTION ═════════════════════════════ -->
-    <g class="pd-legend" transform="translate(30, 625)">
-      <rect class="pd-legend-bg" width="1140" height="38" rx="8" />
-      <text class="pd-legend-title" x="20" y="22">★</text>
-      <text class="pd-legend-text"  x="42" y="18">One folder branch. Three priority-ordered rules match. The same content lives in three tag hierarchies.</text>
-      <text class="pd-legend-text"  x="42" y="34">Every arrow is bidirectional — folder changes propagate to tags; tag changes move the file.</text>
+    <g class="pd-legend" transform="translate(30, 680)">
+      <rect class="pd-legend-bg" width="1140" height="46" rx="8" />
+      <text class="pd-legend-title" x="20" y="26">★</text>
+      <text class="pd-legend-text"  x="42" y="22">One folder branch. Three priority-ordered rules match. The same content lives in three tag hierarchies.</text>
+      <text class="pd-legend-text"  x="42" y="38">Every arrow is bidirectional — folder changes propagate to tags; tag changes move the file.</text>
     </g>
   </svg>
 </figure>
@@ -454,11 +472,11 @@
   .pd-bidi {
     color: var(--sl-color-accent-high);
   }
-  .pd-bidi-label {
-    font: 600 8px/1 'Space Grotesk', system-ui, sans-serif;
-    letter-spacing: 0.1em;
-    fill: var(--sl-color-gray-3);
-    text-transform: uppercase;
+  .pd-bidi-pill {
+    fill: color-mix(in srgb, var(--sl-color-accent) 22%, var(--sl-color-black));
+    stroke: var(--sl-color-accent-high);
+    stroke-width: 1;
+    stroke-opacity: 0.6;
   }
 
   /* ─── Flow arrows ─── */

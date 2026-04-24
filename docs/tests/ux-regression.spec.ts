@@ -1,82 +1,22 @@
 import { test, expect } from '@playwright/test';
 
 /**
- * UX regression tests — these guard against the specific problems that
- * bit crosswalker docs in the past:
- *   - Nova overflow bug (content clipped silently)
- *   - Content too narrow on wide screens
- *   - Sidebar too wide on wide screens
- *   - Base font too small at 1400px+
- *   - lastUpdated footer missing
+ * UX regression tests — guards against the issues most likely to regress:
+ *   - Base path sanity (internal links match astro.config base)
  *   - Console errors leaking into prod
- *   - Failed resource requests (busted base path, missing assets)
+ *   - Failed asset requests (missing favicon, broken images, etc.)
+ *   - Meta tags present for SEO
+ *   - Font-size scale at large viewports (defined in brand.css)
+ *   - lastUpdated footer (Starlight's git-based freshness indicator)
  *
- * If any of these fail on a fresh install, check brand.css wasn't lost
- * and astro.config.mjs still loads it.
+ * History: the diagram and layout used to carry a lot more tests when we
+ * were on the Nova theme (Tailwind @source, sidebar bleed, content-width
+ * clamp, sidebar width, etc.). Those are gone now that we're on Flexoki.
+ * If Flexoki-specific regressions show up, add guards here.
  */
 
 const BASE = '/obsidian-folder-tag-sync';
 const SAMPLE = `${BASE}/getting-started/installation/`;
-
-test.describe('Content width — clamp() on wide screens', () => {
-  // Browsers return the raw clamp() string when reading a CSS custom property
-  // off :root. To check the resolved value we measure the width of an element
-  // that actually consumes the variable.
-  async function measureContentPx(page) {
-    return await page.evaluate(() => {
-      const el =
-        document.querySelector('.main-pane .sl-container') ||
-        document.querySelector('main .sl-container') ||
-        document.querySelector('.sl-markdown-content')?.parentElement;
-      return el ? el.getBoundingClientRect().width : 0;
-    });
-  }
-
-  test('1920px viewport: content area is wider than the 50rem floor', async ({ page }) => {
-    await page.setViewportSize({ width: 1920, height: 1080 });
-    await page.goto(SAMPLE);
-    await page.waitForLoadState('networkidle');
-
-    const px = await measureContentPx(page);
-    // 50rem baseline at 118% scale ~ 944px. At 1920 we expect clamp to push
-    // beyond the floor. Allow wide tolerance — we care it grew, not the exact px.
-    expect(px, `content width at 1920 was ${px}px`).toBeGreaterThan(900);
-  });
-
-  test('custom property is declared on :root (brand.css loaded)', async ({ page }) => {
-    await page.setViewportSize({ width: 1920, height: 1080 });
-    await page.goto(SAMPLE);
-    await page.waitForLoadState('networkidle');
-
-    const raw = await page.evaluate(() =>
-      getComputedStyle(document.documentElement).getPropertyValue('--sl-content-width').trim()
-    );
-    // Raw value should be our clamp expression — proves brand.css applied
-    // its @media override (if it hadn't, this would be Nova's default).
-    expect(raw).toMatch(/clamp|85rem|68vw/);
-  });
-});
-
-test.describe('Sidebar width — tuned down from Nova default', () => {
-  test('wide viewport sets --sl-sidebar-width to 15rem', async ({ page }) => {
-    await page.setViewportSize({ width: 1920, height: 1080 });
-    await page.goto(SAMPLE);
-    await page.waitForLoadState('networkidle');
-
-    const sidebarWidth = await page.evaluate(() =>
-      getComputedStyle(document.documentElement).getPropertyValue('--sl-sidebar-width').trim()
-    );
-
-    const n = parseFloat(sidebarWidth);
-    if (sidebarWidth.endsWith('px')) {
-      // 15rem @ 112% = 15 * 16 * 1.12 = 268.8px. Accept 220-290.
-      expect(n, `expected sidebar 220-290px at 1920, got ${sidebarWidth}`).toBeGreaterThanOrEqual(220);
-      expect(n).toBeLessThanOrEqual(290);
-    } else if (sidebarWidth.endsWith('rem')) {
-      expect(n).toBe(15);
-    }
-  });
-});
 
 test.describe('Base font scale on big monitors', () => {
   test('1400px+ uses 112% root font-size', async ({ page }) => {
@@ -85,7 +25,6 @@ test.describe('Base font scale on big monitors', () => {
     await page.waitForLoadState('networkidle');
 
     const rootSize = await page.evaluate(() => parseFloat(getComputedStyle(document.documentElement).fontSize));
-    // 16 * 1.12 = 17.92
     expect(rootSize).toBeGreaterThanOrEqual(17);
   });
 
@@ -95,7 +34,6 @@ test.describe('Base font scale on big monitors', () => {
     await page.waitForLoadState('networkidle');
 
     const rootSize = await page.evaluate(() => parseFloat(getComputedStyle(document.documentElement).fontSize));
-    // 16 * 1.18 = 18.88
     expect(rootSize).toBeGreaterThanOrEqual(18);
   });
 
@@ -110,21 +48,33 @@ test.describe('Base font scale on big monitors', () => {
   });
 });
 
-test.describe('Nova overflow bug — div box-sizing fix', () => {
-  test('divs inside markdown content use border-box', async ({ page }) => {
-    await page.goto(SAMPLE);
+test.describe('SVG overflow safety', () => {
+  test('polyhierarchy diagram SVG does not overflow its container', async ({ page }) => {
+    await page.setViewportSize({ width: 1024, height: 900 });
+    await page.goto(`${BASE}/`);
     await page.waitForLoadState('networkidle');
 
-    const boxSizing = await page.evaluate(() => {
-      const div = document.querySelector('.sl-markdown-content div');
-      return div ? getComputedStyle(div).boxSizing : null;
+    // Find the diagram's SVG (it's inside .pd-fig, set by our component)
+    const result = await page.evaluate(() => {
+      const fig = document.querySelector('.pd-fig');
+      const svg = fig?.querySelector('svg');
+      if (!svg || !fig) return null;
+      const figRect = fig.getBoundingClientRect();
+      const svgRect = svg.getBoundingClientRect();
+      return {
+        figWidth: figRect.width,
+        svgWidth: svgRect.width,
+        svgMaxWidth: getComputedStyle(svg).maxWidth,
+      };
     });
-    expect(boxSizing).toBe('border-box');
+    expect(result, 'diagram not found on page').not.toBeNull();
+    // SVG width should fit within its figure container
+    expect(result!.svgWidth).toBeLessThanOrEqual(result!.figWidth + 2);
   });
 
-  test('page body has no horizontal scroll at 1024px (Nova overflow check)', async ({ page }) => {
+  test('homepage has no horizontal overflow at 1024px', async ({ page }) => {
     await page.setViewportSize({ width: 1024, height: 768 });
-    await page.goto(SAMPLE);
+    await page.goto(`${BASE}/`);
     await page.waitForLoadState('networkidle');
 
     const { scrollWidth, clientWidth } = await page.evaluate(() => ({
@@ -136,10 +86,7 @@ test.describe('Nova overflow bug — div box-sizing fix', () => {
 });
 
 test.describe('lastUpdated footer', () => {
-  // Starlight's `lastUpdated: true` reads git history. These tests require
-  // the docs files to be committed. They skip gracefully when no git history
-  // is available (e.g. before first commit) but will catch regressions
-  // where `lastUpdated: true` was turned off after commit.
+  // Git-dependent: passes in CI (git history exists) and locally after first commit.
   test('content page shows Last updated line (git-dependent)', async ({ page }) => {
     await page.goto(SAMPLE);
     await page.waitForLoadState('networkidle');
@@ -210,69 +157,17 @@ test.describe('Meta tags', () => {
   });
 });
 
-test.describe('Tailwind @source includes Nova — catches silent sidebar bleed', () => {
-  // Root cause of a past regression: global.css missed
-  //   @source '../../node_modules/starlight-theme-nova/src';
-  //   @source '../../node_modules/starlight-theme-nova/components';
-  // Without those, Tailwind strips Nova's utility classes (invisible, md:visible,
-  // fixed, etc.) and the mobile sidebar renders visible and overlaps the content.
-  // This test catches that by verifying the sidebar is actually hidden at mobile.
-  test('mobile: inner sidebar computes visibility:hidden', async ({ page }) => {
-    await page.setViewportSize({ width: 390, height: 844 });
-    await page.goto(`${BASE}/getting-started/installation/`);
-    await page.waitForLoadState('networkidle');
-
-    const vis = await page.evaluate(() => {
-      const el = document.getElementById('starlight__sidebar');
-      return el ? getComputedStyle(el).visibility : null;
-    });
-    expect(vis, `mobile sidebar visibility — if this is "visible", @source directives are missing from global.css`).toBe('hidden');
-  });
-
-  test('desktop: inner sidebar computes visibility:visible', async ({ page }) => {
-    await page.setViewportSize({ width: 1440, height: 900 });
-    await page.goto(`${BASE}/getting-started/installation/`);
-    await page.waitForLoadState('networkidle');
-
-    const vis = await page.evaluate(() => {
-      const el = document.getElementById('starlight__sidebar');
-      return el ? getComputedStyle(el).visibility : null;
-    });
-    expect(vis).toBe('visible');
-  });
-
-  test('mobile: sidebar does not overlap main content at top of page', async ({ page }) => {
-    await page.setViewportSize({ width: 390, height: 844 });
-    await page.goto(`${BASE}/getting-started/installation/`);
-    await page.waitForLoadState('networkidle');
-
-    // If the sidebar is visibly rendering at mobile, its text would appear
-    // at the top of the main content area. Measure the h1 position — it
-    // should be reasonably close to the top (under the navbar), not pushed
-    // far down by sidebar content.
-    const h1Top = await page.evaluate(() => {
-      const h1 = document.querySelector('main h1, .main-frame h1');
-      return h1 ? h1.getBoundingClientRect().top : null;
-    });
-    expect(h1Top).not.toBeNull();
-    // Navbar is ~56px tall; h1 should land within ~200px of viewport top.
-    expect(h1Top, `h1 pushed down to y=${h1Top}px — sidebar is likely bleeding into content`).toBeLessThan(200);
-  });
-});
-
 test.describe('Base path sanity — catches common deploy disaster', () => {
   test('all internal links include base prefix', async ({ page }) => {
     await page.goto(`${BASE}/`);
     await page.waitForLoadState('networkidle');
 
-    // Collect internal-ish links (exclude anchors, mailto, external)
     const badLinks: string[] = await page.evaluate((base) => {
       const out: string[] = [];
       for (const a of Array.from(document.querySelectorAll('a[href]'))) {
         const href = (a as HTMLAnchorElement).getAttribute('href') || '';
         if (!href) continue;
         if (href.startsWith('#') || href.startsWith('mailto:') || href.startsWith('http')) continue;
-        // Internal relative links should resolve under the base path.
         if (!href.startsWith(base) && !href.startsWith('/_astro/')) {
           out.push(href);
         }
@@ -280,8 +175,19 @@ test.describe('Base path sanity — catches common deploy disaster', () => {
       return out;
     }, BASE);
 
-    // Starlight pagefind may use /_pagefind/; that's fine (no base prefix expected).
     const filtered = badLinks.filter((h) => !h.startsWith('/_pagefind/'));
     expect(filtered, `links not under base path: ${filtered.join(' | ')}`).toHaveLength(0);
+  });
+});
+
+test.describe('Favicons — multiple sizes present', () => {
+  test('homepage declares PNG favicons alongside the SVG', async ({ page }) => {
+    await page.goto(`${BASE}/`);
+    const sizes = await page.$$eval('link[rel*="icon"]', (els) =>
+      els.map((el) => el.getAttribute('sizes') || el.getAttribute('type') || '')
+    );
+    // Should have the svg declaration plus at least a 32x32 PNG
+    expect(sizes.some((s) => s === 'image/svg+xml')).toBe(true);
+    expect(sizes.some((s) => s.includes('32x32'))).toBe(true);
   });
 });

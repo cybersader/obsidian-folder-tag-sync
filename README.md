@@ -1,17 +1,27 @@
-# Folder Tag Sync
+<p align="center">
+  <img src="assets/logo/logo.svg" alt="Folder Tag Sync" width="180">
+</p>
 
-<div align="center">
+<h1 align="center">Folder Tag Sync</h1>
 
-![Version](https://img.shields.io/badge/version-0.1.7-blue)
-![Obsidian](https://img.shields.io/badge/Obsidian-0.15.0+-purple)
-![License](https://img.shields.io/badge/license-MIT-green)
-![Status](https://img.shields.io/badge/status-beta-orange)
+<p align="center">
+  <strong>Bidirectional sync between folder paths and Obsidian tags using regex patterns and transformations</strong>
+</p>
 
-**Bidirectional synchronization between folder paths and tags using regex patterns and transformations**
+<p align="center">
+  <a href="https://github.com/cybersader/obsidian-folder-tag-sync/releases/latest"><img src="https://img.shields.io/github/v/release/cybersader/obsidian-folder-tag-sync?style=flat-square&color=7c3aed" alt="Latest Release"></a>
+  <a href="https://github.com/cybersader/obsidian-folder-tag-sync/blob/main/LICENSE"><img src="https://img.shields.io/github/license/cybersader/obsidian-folder-tag-sync?style=flat-square" alt="License"></a>
+  <a href="https://cybersader.github.io/obsidian-folder-tag-sync"><img src="https://img.shields.io/badge/docs-Starlight-blue?style=flat-square" alt="Documentation"></a>
+  <a href="https://obsidian.md/plugins?id=folder-tag-sync"><img src="https://img.shields.io/badge/Obsidian-Plugin-7c3aed?style=flat-square&logo=obsidian&logoColor=white" alt="Obsidian Plugin"></a>
+</p>
 
-[Features](#-features) • [Installation](#-installation) • [Quick Start](#-quick-start) • [Documentation](#-documentation) • [Roadmap](#-roadmap)
-
-</div>
+<p align="center">
+  <a href="#-features">Features</a> •
+  <a href="#-installation">Installation</a> •
+  <a href="#-quick-start">Quick Start</a> •
+  <a href="https://cybersader.github.io/obsidian-folder-tag-sync">Docs</a> •
+  <a href="#-roadmap">Roadmap</a>
+</p>
 
 ---
 

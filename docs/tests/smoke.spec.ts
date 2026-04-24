@@ -16,10 +16,12 @@ test.describe('Homepage', () => {
     await expect(page.locator('h1')).toContainText('Installation');
   });
 
-  test('top nav renders with Docs and GitHub links', async ({ page }) => {
+  test('top header renders with site title', async ({ page }) => {
     await page.goto(`${BASE}/`);
-    const nav = page.locator('header nav').first();
-    await expect(nav).toBeVisible();
+    const header = page.locator('header.header, header[role="banner"], starlight-page-frame header, header').first();
+    await expect(header).toBeVisible();
+    // Title text should be present somewhere in the header area
+    await expect(header).toContainText(/Folder Tag Sync/i);
   });
 
   test('search button is present', async ({ page }) => {
@@ -59,17 +61,16 @@ test.describe('Content pages — all section landings load', () => {
 
 test.describe('Sidebar', () => {
   test('sidebar DOM contains all top-level sections', async ({ page }) => {
-    // Use 1920 to force the Nova sidebar to be mounted and rendered (not mobile-collapsed).
+    // Wide viewport so the sidebar is definitely visible (not mobile-collapsed).
     await page.setViewportSize({ width: 1920, height: 1080 });
     await page.goto(`${BASE}/getting-started/installation/`);
     await page.waitForLoadState('networkidle');
 
-    const sidebar = page.locator('#nova-sidebar-nav, #starlight__sidebar');
-    await expect(sidebar.first()).toBeAttached();
+    // Starlight's canonical sidebar element id is #starlight__sidebar.
+    const sidebar = page.locator('#starlight__sidebar');
+    await expect(sidebar).toBeAttached();
 
-    // Nova hydrates the sidebar client-side; verifying text presence is more
-    // reliable than visibility (which depends on JS-driven collapse state).
-    const text = (await sidebar.first().innerText()).toLowerCase();
+    const text = (await sidebar.innerText()).toLowerCase();
     for (const label of ['getting started', 'concepts', 'features', 'reference', 'development', 'about']) {
       expect(text, `sidebar missing "${label}"`).toContain(label);
     }

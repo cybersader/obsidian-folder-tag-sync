@@ -68,10 +68,10 @@
       <path id="pd-path-b2" d="M 290,210 C 420,210 430,345 560,345" fill="none" />
       <path id="pd-path-b3" d="M 290,220 C 420,220 430,525 560,525" fill="none" />
 
-      <!-- Rule → tag paths: from rule card right edge (x=880) to tag tree left edge (x=960). -->
-      <path id="pd-path-t1" d="M 880,165 C 915,165 925,140 960,140" fill="none" />
-      <path id="pd-path-t2" d="M 880,345 C 915,345 925,320 960,320" fill="none" />
-      <path id="pd-path-t3" d="M 880,525 C 915,525 925,500 960,500" fill="none" />
+      <!-- Rule → tag paths: to tag tree vertical center (boxes are y=90..230, 260..400, 440..580). -->
+      <path id="pd-path-t1" d="M 880,165 C 915,165 925,160 960,160" fill="none" />
+      <path id="pd-path-t2" d="M 880,345 C 915,345 925,330 960,330" fill="none" />
+      <path id="pd-path-t3" d="M 880,525 C 915,525 925,510 960,510" fill="none" />
     </defs>
 
     <!-- ────── Section headers ────── -->
@@ -84,10 +84,10 @@
     <text class="pd-sec-label" x="1170" y="32" text-anchor="end">TAGS</text>
     <text class="pd-sec-sub"   x="1170" y="50" text-anchor="end">polyhierarchy · each file can have many tag parents</text>
 
-    <!-- Divider lines under section headers -->
-    <line class="pd-sec-divider" x1="30"   x2="300"  y1="64" y2="64" />
-    <line class="pd-sec-divider" x1="560"  x2="840"  y1="64" y2="64" />
-    <line class="pd-sec-divider" x1="900"  x2="1170" y1="64" y2="64" />
+    <!-- Divider lines under section headers — aligned to each column's content width -->
+    <line class="pd-sec-divider" x1="30"   x2="290"  y1="64" y2="64" />
+    <line class="pd-sec-divider" x1="560"  x2="880"  y1="64" y2="64" />
+    <line class="pd-sec-divider" x1="960"  x2="1170" y1="64" y2="64" />
 
     <!-- ════════════════════════════ LEFT: FOLDER TREE ════════════════════════════ -->
     <g class="pd-fs">
@@ -195,7 +195,7 @@
         <text class="pd-rule-label" x="20" y="118">tag</text>
         <text class="pd-rule-pattern-tag" x="72" y="118">#projects/&#123;1&#125;</text>
         <!-- Transforms -->
-        <text class="pd-rule-xform" x="20" y="134">transforms: snake_case · strip emoji</text>
+        <text class="pd-rule-xform" x="20" y="130">transforms: snake_case · strip emoji</text>
       </g>
 
       <!-- Rule card 2 -->
@@ -216,7 +216,7 @@
         </g>
         <text class="pd-rule-label" x="20" y="118">tag</text>
         <text class="pd-rule-pattern-tag" x="72" y="118">#time/2024/q&#123;1&#125;/&#123;2&#125;</text>
-        <text class="pd-rule-xform" x="20" y="134">transforms: snake_case</text>
+        <text class="pd-rule-xform" x="20" y="130">transforms: snake_case</text>
       </g>
 
       <!-- Rule card 3 -->
@@ -237,7 +237,7 @@
         </g>
         <text class="pd-rule-label" x="20" y="118">tag</text>
         <text class="pd-rule-pattern-tag" x="72" y="118">#topics/roadmaps/q4</text>
-        <text class="pd-rule-xform" x="20" y="134">transforms: lowercase</text>
+        <text class="pd-rule-xform" x="20" y="130">transforms: lowercase</text>
       </g>
     </g>
 
@@ -258,43 +258,59 @@
          marker-end="url(#pd-arr-head)" />
 
     <!-- ════════════════════════════ RIGHT: TAG HIERARCHIES ════════════════════════════ -->
+    <!--
+      All tag boxes use the same dimensions and padding:
+        height 140, width 210, rx 10
+        top pad   : 16px (icon starts at y=14)
+        header row: y=14–30 (icon + root name)
+        divider   : y=42
+        leaves    : y=64, 86, 108, 130  (22px line-height, bottom pad 10px from last leaf)
+        bot pad   : 10px below last leaf (so "compliance" sits y=130, box bottom y=140)
+      Indentation x-positions for nested leaves:
+        level 1: x=40
+        level 2: x=60
+        level 3: x=80
+    -->
     <g class="pd-tags">
       <!-- #projects/ -->
       <g class="pd-tag-tree" transform="translate(960, 90)">
-        <rect class="pd-tag-bg" width="210" height="100" rx="10" />
-        <g transform="translate(14, 12)">
+        <rect class="pd-tag-bg" width="210" height="140" rx="10" />
+        <g transform="translate(14, 14)">
           <use href="#pd-ico-hash" width="18" height="18" class="pd-ico-tag" />
           <text class="pd-tag-root" x="26" y="14">projects/</text>
         </g>
-        <text class="pd-tag-leaf pd-tag-leaf-star" x="40" y="58">└ q4_roadmap  ★</text>
-        <text class="pd-tag-leaf"                 x="40" y="78">├ launch</text>
-        <text class="pd-tag-leaf"                 x="40" y="94">└ research</text>
+        <line class="pd-tag-divider" x1="14" x2="196" y1="42" y2="42" />
+        <text class="pd-tag-leaf pd-tag-leaf-star" x="40" y="68">└ q4_roadmap  ★</text>
+        <text class="pd-tag-leaf"                  x="40" y="92">├ launch</text>
+        <text class="pd-tag-leaf"                  x="40" y="116">└ research</text>
       </g>
 
       <!-- #time/ -->
       <g class="pd-tag-tree" transform="translate(960, 260)">
-        <rect class="pd-tag-bg" width="210" height="120" rx="10" />
-        <g transform="translate(14, 12)">
+        <rect class="pd-tag-bg" width="210" height="140" rx="10" />
+        <g transform="translate(14, 14)">
           <use href="#pd-ico-hash" width="18" height="18" class="pd-ico-tag" />
           <text class="pd-tag-root" x="26" y="14">time/</text>
         </g>
-        <text class="pd-tag-leaf"                 x="40" y="55">├ 2023/</text>
-        <text class="pd-tag-leaf"                 x="40" y="75">└ 2024/</text>
-        <text class="pd-tag-leaf"                 x="60" y="95">└ q4/</text>
-        <text class="pd-tag-leaf pd-tag-leaf-star" x="80" y="115">└ roadmap  ★</text>
+        <line class="pd-tag-divider" x1="14" x2="196" y1="42" y2="42" />
+        <text class="pd-tag-leaf"                  x="40" y="66">├ 2023/</text>
+        <text class="pd-tag-leaf"                  x="40" y="86">└ 2024/</text>
+        <text class="pd-tag-leaf"                  x="60" y="106">└ q4/</text>
+        <text class="pd-tag-leaf pd-tag-leaf-star" x="80" y="126">└ roadmap  ★</text>
       </g>
 
       <!-- #topics/ -->
       <g class="pd-tag-tree" transform="translate(960, 440)">
-        <rect class="pd-tag-bg" width="210" height="120" rx="10" />
-        <g transform="translate(14, 12)">
+        <rect class="pd-tag-bg" width="210" height="140" rx="10" />
+        <g transform="translate(14, 14)">
           <use href="#pd-ico-hash" width="18" height="18" class="pd-ico-tag" />
           <text class="pd-tag-root" x="26" y="14">topics/</text>
         </g>
-        <text class="pd-tag-leaf"                 x="40" y="55">├ roadmaps/</text>
-        <text class="pd-tag-leaf pd-tag-leaf-star" x="60" y="75">└ q4  ★</text>
-        <text class="pd-tag-leaf"                 x="40" y="100">└ research/</text>
-        <text class="pd-tag-leaf"                 x="60" y="118">└ compliance</text>
+        <line class="pd-tag-divider" x1="14" x2="196" y1="42" y2="42" />
+        <text class="pd-tag-leaf"                  x="40" y="66">├ roadmaps/</text>
+        <text class="pd-tag-leaf pd-tag-leaf-star" x="60" y="86">└ q4  ★</text>
+        <text class="pd-tag-leaf"                  x="40" y="108">└ research/</text>
+        <text class="pd-tag-leaf"                  x="60" y="128">└ compliance</text>
       </g>
     </g>
 
@@ -476,6 +492,11 @@
     stroke: var(--sl-color-accent);
     stroke-width: 1;
     stroke-opacity: 0.5;
+  }
+  .pd-tag-divider {
+    stroke: var(--sl-color-accent);
+    stroke-width: 1;
+    stroke-opacity: 0.22;
   }
   .pd-tag-root {
     font: 700 13px/1 'JetBrains Mono', ui-monospace, monospace;

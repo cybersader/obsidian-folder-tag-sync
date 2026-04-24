@@ -174,6 +174,9 @@ Use command palette commands:
 
 ## 📖 Documentation
 
+> The full docs are at **[cybersader.github.io/obsidian-folder-tag-sync](https://cybersader.github.io/obsidian-folder-tag-sync)**, including the Phase 2 typed-model concepts:
+> [Philosophy](https://cybersader.github.io/obsidian-folder-tag-sync/concepts/philosophy/) · [Axes](https://cybersader.github.io/obsidian-folder-tag-sync/concepts/axes/) · [Folder classifiers](https://cybersader.github.io/obsidian-folder-tag-sync/concepts/folder-classifiers/) · [Tag vocabularies](https://cybersader.github.io/obsidian-folder-tag-sync/concepts/tag-vocabularies/) · [Transfer operations](https://cybersader.github.io/obsidian-folder-tag-sync/concepts/transfer-operations/) · [Compound cases](https://cybersader.github.io/obsidian-folder-tag-sync/concepts/compound-cases/) · [Importing rule packs](https://cybersader.github.io/obsidian-folder-tag-sync/guides/importing-rule-packs/) · [Writing a rule pack](https://cybersader.github.io/obsidian-folder-tag-sync/guides/writing-a-rule-pack/)
+
 ### Core Concepts
 
 #### Rule Directions

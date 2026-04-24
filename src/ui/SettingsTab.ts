@@ -263,6 +263,17 @@ export class SettingsTab extends PluginSettingTab {
 		new Setting(section).setName('Import / export').setHeading();
 
 		new Setting(section)
+			.setName('Browse bundled rule packs')
+			.setDesc('Pick a pre-configured rule pack (PARA, SEACOW, etc.) and import its rules into your settings.')
+			.addButton(btn => btn
+				.setButtonText('Browse')
+				.setCta()
+				.onClick(() => {
+					void this.plugin.browseRulePacks().then(() => this.display());
+				})
+			);
+
+		new Setting(section)
 			.setName('Export settings')
 			.setDesc('Copy all settings as JSON')
 			.addButton(btn => btn

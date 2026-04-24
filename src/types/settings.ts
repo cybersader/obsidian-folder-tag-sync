@@ -2,6 +2,13 @@
  * Plugin settings and rule definitions
  */
 
+import type {
+	FolderClassifier,
+	TagVocabulary,
+	TransferOp,
+	Cardinality,
+} from './typed';
+
 export interface DynamicTagsFoldersSettings {
 	rules: MappingRule[];
 	options: PluginOptions;
@@ -36,18 +43,29 @@ export interface MappingRule {
 	// Direction
 	direction: RuleDirection;
 
-	// Folder side
+	// Folder side (Layer 1 — raw regex / glob + transform pipeline)
 	folderPattern?: string; // Regex or glob pattern
 	folderEntryPoint?: string; // Base folder path
 	folderTransforms?: TransformConfig;
 
-	// Tag side
+	// Tag side (Layer 1 — raw regex + transform pipeline)
 	tagPattern?: string; // Regex pattern
 	tagEntryPoint?: string; // Tag prefix (e.g., "#projects")
 	tagTransforms?: TransformConfig;
 
 	// Behavior options
 	options: RuleOptions;
+
+	// ─── Typed model (Layer 2) — all optional, additive ──────────────────
+	// Set by deriveRule() or imported from a typed rule pack. Sync engines
+	// ignore these and consume the Layer 1 fields only. Phase 2B will use
+	// them to drive a guided rule-editor UI.
+	folder?: FolderClassifier;
+	tag?: TagVocabulary;
+	transfer?: TransferOp;
+	inverseTransfer?: TransferOp;
+	cardinality?: Cardinality;
+	bijective?: boolean;
 }
 
 export type RuleDirection = 'folder-to-tag' | 'tag-to-folder' | 'bidirectional';

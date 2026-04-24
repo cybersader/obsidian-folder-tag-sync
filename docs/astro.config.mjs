@@ -78,6 +78,7 @@ export default defineConfig({
       sidebar: [
         { label: 'Getting started', autogenerate: { directory: 'getting-started' } },
         { label: 'Concepts', autogenerate: { directory: 'concepts', collapsed: true } },
+        { label: 'Guides', autogenerate: { directory: 'guides' } },
         { label: 'Features', autogenerate: { directory: 'features' } },
         { label: 'Reference', autogenerate: { directory: 'reference', collapsed: true } },
         { label: 'Development', autogenerate: { directory: 'development', collapsed: true } },

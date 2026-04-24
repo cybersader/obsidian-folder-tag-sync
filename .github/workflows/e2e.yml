@@ -1,0 +1,61 @@
+name: e2e
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - 'docs/**'
+      - '**.md'
+  pull_request:
+    paths-ignore:
+      - 'docs/**'
+      - '**.md'
+  workflow_dispatch:
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+
+jobs:
+  wdio:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install xvfb (virtual display for Obsidian's GUI)
+        run: sudo apt-get update && sudo apt-get install -y xvfb
+
+      - name: Install deps
+        run: bun install --frozen-lockfile
+
+      - name: Build plugin
+        run: bun run build
+
+      # Cache Obsidian binaries so subsequent CI runs don't re-download ~200MB
+      - name: Cache Obsidian binaries
+        uses: actions/cache@v4
+        with:
+          path: .obsidian-cache
+          key: obsidian-${{ runner.os }}-latest
+
+      - name: Run e2e smoke
+        run: bun run test:e2e
+        env:
+          OBSIDIAN_VERSIONS: latest/latest
+
+      - name: Upload wdio logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: wdio-logs
+          path: |
+            wdio-logs/
+            .wdio/
+          retention-days: 7

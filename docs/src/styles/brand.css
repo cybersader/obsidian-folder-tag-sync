@@ -1,0 +1,59 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   UX FIXES — prevents the Nova-theme issues documented in crosswalker docs.
+   brand.css is unlayered, so it beats @layer nova without needing !important.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* Nova overflow bug: TwoColumnContent.astro adds overflow-x: hidden on
+   .main-pane, which silently clips content that exceeds container width
+   because of content-box sizing. Fix at the root: border-box on every div
+   inside markdown, so width:100% + padding never exceeds the container.
+   Reference: crosswalker/docs/agent-context/zz-log/2026-04-04-nova-theme-padding-bug */
+.sl-markdown-content div {
+  box-sizing: border-box;
+}
+
+/* Prevent SVG diagrams (mermaid, inline) from overflowing their container. */
+.sl-markdown-content svg {
+  max-width: 100%;
+  height: auto;
+}
+
+/* Elastic content width on wide screens.
+   Default Starlight: 50rem. Too narrow on 1920px+ monitors — reader's eye
+   hikes across empty space to the sidebar. Clamp to 85rem max. */
+@media (min-width: 1152px) {
+  :root {
+    --sl-content-width: clamp(50rem, 68vw, 85rem);
+  }
+}
+
+/* Narrower sidebars on desktop — Nova's default 18.75rem steals too much
+   horizontal space. 15rem matches typical doc nav width. */
+@media (min-width: 1152px) {
+  :root {
+    --sl-sidebar-width: 15rem;
+  }
+}
+
+/* Base font size scale on large monitors.
+   Default 16px reads small on 27"+ screens. Scale up gracefully. */
+@media (min-width: 1400px) {
+  :root { font-size: 112%; }
+}
+@media (min-width: 1700px) {
+  :root { font-size: 118%; }
+}
+
+/* Fix sidebar showing too early on narrow desktop (768-1151px).
+   Nova shows it at 768px, but there's not enough room for sidebar (300px)
+   + content at that width. Hide until 1152px. Hamburger still works. */
+@media (min-width: 768px) and (max-width: 1151px) {
+  #starlight__sidebar { display: none; }
+  body[data-mobile-menu-expanded] #starlight__sidebar {
+    display: block !important;
+    position: fixed !important;
+    width: 100% !important;
+    z-index: 10;
+  }
+  .main-frame { padding-inline-start: 0 !important; }
+}

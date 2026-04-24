@@ -1,0 +1,47 @@
+{
+  "name": "obsidian-folder-tag-sync-docs",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "preflight": "bun scripts/preflight.mjs",
+    "dev": "bun run preflight && astro dev",
+    "dev:host": "bun run preflight && astro dev --host 0.0.0.0",
+    "build": "bun run preflight && astro build",
+    "preview": "bun run preflight && astro preview",
+    "preview:host": "bun run preflight && astro preview --host 0.0.0.0",
+    "serve": "bun scripts/serve.mjs",
+    "serve:dev": "bun scripts/serve.mjs dev",
+    "serve:preview": "bun scripts/serve.mjs preview",
+    "serve:build": "bun scripts/serve.mjs build",
+    "serve:tailscale": "bun scripts/serve.mjs tailscale",
+    "serve:cloudflare": "bun scripts/serve.mjs cloudflare",
+    "smoke": "bun scripts/smoke.mjs",
+    "smoke:no-build": "bun scripts/smoke.mjs --no-build",
+    "visual": "bun scripts/visual.mjs",
+    "visual:no-build": "bun scripts/visual.mjs --no-build",
+    "test": "bun run preflight && playwright test",
+    "test:smoke": "bun run preflight && playwright test tests/smoke.spec.ts",
+    "test:ux": "bun run preflight && playwright test tests/ux-regression.spec.ts",
+    "test:e2e:ui": "bun run preflight && playwright test --ui",
+    "test:deploy": "playwright test tests/deployment.spec.ts",
+    "astro": "astro"
+  },
+  "dependencies": {
+    "@astrojs/starlight": "^0.38.0",
+    "@tailwindcss/vite": "^4.2.2",
+    "astro": "^6.0.0",
+    "rehype-external-links": "^3.0.0",
+    "remark-obsidian-callout": "^1.5.1",
+    "remark-wiki-link": "^2.0.1",
+    "sharp": "^0.33.0",
+    "starlight-heading-badges": "^0.7.0",
+    "starlight-image-zoom": "^0.14.1",
+    "starlight-site-graph": "^0.5.0",
+    "starlight-theme-nova": "^0.11.7",
+    "tailwindcss": "^4.2.2"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.59.1"
+  }
+}

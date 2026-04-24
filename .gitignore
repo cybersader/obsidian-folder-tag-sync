@@ -38,3 +38,11 @@ test-vault/.obsidian/cache/
 
 # Claude Code internal documentation (not for public repo)
 .claude/
+
+# Docs site build artifacts
+docs/node_modules/
+docs/dist/
+docs/.astro/
+docs/playwright-report/
+docs/test-results/
+docs/visual-reports/

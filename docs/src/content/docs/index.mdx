@@ -1,0 +1,54 @@
+---
+title: Folder Tag Sync
+description: Bidirectional sync between folder paths and Obsidian tags using regex patterns and transformation pipelines.
+hero:
+  tagline: Bridge Obsidian's rigid folders and flexible tags. Deterministic, rule-based, no AI inference.
+  actions:
+    - text: Get started
+      link: /obsidian-folder-tag-sync/getting-started/installation/
+      icon: right-arrow
+      variant: primary
+    - text: GitHub
+      link: https://github.com/cybersader/obsidian-folder-tag-sync
+      icon: external
+      variant: minimal
+---
+
+import { Card, CardGrid } from '@astrojs/starlight/components';
+
+## Why this plugin
+
+**Folders** are rigid, single-hierarchy structures required for file storage. **Tags** are flexible, overlapping hierarchies better for knowledge representation. You need both — and you need them to stay in sync without having to think about it.
+
+Folder Tag Sync bridges the two with **deterministic, rule-based transformations**. No AI inference. No surprises.
+
+<CardGrid>
+  <Card title="Folder → tag" icon="document">
+    Drop a file into a folder, and matching tags appear in frontmatter. Transform naming conventions on the way (Title Case → snake_case, strip emojis, handle Johnny Decimal prefixes).
+  </Card>
+  <Card title="Tag → folder" icon="pencil">
+    Add a tag to a note, and the file moves to the right folder. Reverse the naming transformations cleanly.
+  </Card>
+  <Card title="Regex-powered" icon="magnifier">
+    Match paths and tags with regex. Named capture groups. Multiple rules with priority ordering.
+  </Card>
+  <Card title="Transformation pipeline" icon="setting">
+    Compose case conversions, emoji handling, number-prefix stripping, and custom regex into per-rule pipelines.
+  </Card>
+</CardGrid>
+
+## How it works
+
+```
+File event → Rule matcher → Transformation pipeline → Sync executor
+```
+
+1. **Rule matcher** finds rules by priority using regex patterns
+2. **Transformation pipeline** converts between folder and tag naming conventions
+3. **Sync executors** update frontmatter tags or move files
+
+## Current status
+
+Phase 1 complete: core transformations, rule matching, both sync directions, settings UI, 156+ automated tests.
+
+See the [roadmap](/obsidian-folder-tag-sync/about/roadmap/) for what's next.

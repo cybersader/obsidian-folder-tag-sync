@@ -1,0 +1,349 @@
+---
+// Polyhierarchy diagram — illustrates the core premise of Folder Tag Sync:
+// a single file has ONE folder parent (rigid) but can have MANY tag
+// parents (polyhierarchy). The sync engine maintains this correspondence.
+//
+// Uses inline SVG folder icons (not emoji) so it renders consistently
+// across OSes/themes without depending on a color-emoji font.
+---
+
+<figure
+  class="poly-fig"
+  aria-label="A single markdown file lives in one folder but belongs to multiple tag hierarchies. Folder Tag Sync keeps both views in sync."
+>
+  <svg
+    class="poly-svg"
+    viewBox="0 0 1000 500"
+    preserveAspectRatio="xMidYMid meet"
+    role="img"
+  >
+    <defs>
+      <!-- Reusable folder icon -->
+      <symbol id="poly-ico-folder" viewBox="0 0 24 24">
+        <path
+          d="M3 6.5A2.5 2.5 0 015.5 4h4.05a2 2 0 011.4.58l1.4 1.42H18.5A2.5 2.5 0 0121 8.5V17a2 2 0 01-2 2H5a2 2 0 01-2-2V6.5z"
+          fill="currentColor" opacity="0.2"
+        />
+        <path
+          d="M3 6.5A2.5 2.5 0 015.5 4h4.05a2 2 0 011.4.58l1.4 1.42H18.5A2.5 2.5 0 0121 8.5V17a2 2 0 01-2 2H5a2 2 0 01-2-2V6.5z"
+          fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"
+        />
+      </symbol>
+
+      <!-- Reusable file icon -->
+      <symbol id="poly-ico-file" viewBox="0 0 24 24">
+        <path
+          d="M7 3h7l4 4v12a2 2 0 01-2 2H7a2 2 0 01-2-2V5a2 2 0 012-2z"
+          fill="currentColor" opacity="0.15"
+        />
+        <path
+          d="M7 3h7l4 4v12a2 2 0 01-2 2H7a2 2 0 01-2-2V5a2 2 0 012-2z M14 3v4h4"
+          fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"
+        />
+      </symbol>
+
+      <!-- Hash/tag icon -->
+      <symbol id="poly-ico-hash" viewBox="0 0 24 24">
+        <path
+          d="M9 3l-1.5 18M16.5 3L15 21M4 9h17M3 15h17"
+          fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"
+        />
+      </symbol>
+
+      <filter id="poly-glow" x="-30%" y="-30%" width="160%" height="160%">
+        <feGaussianBlur stdDeviation="4" result="b" />
+        <feMerge>
+          <feMergeNode in="b" />
+          <feMergeNode in="SourceGraphic" />
+        </feMerge>
+      </filter>
+
+      <marker id="poly-arr-fs" viewBox="0 0 10 10" refX="9" refY="5"
+              markerWidth="6" markerHeight="6" orient="auto">
+        <path d="M0,1 L10,5 L0,9 Z" class="poly-arr-fs-head" />
+      </marker>
+      <marker id="poly-arr-tag" viewBox="0 0 10 10" refX="9" refY="5"
+              markerWidth="6" markerHeight="6" orient="auto">
+        <path d="M0,1 L10,5 L0,9 Z" class="poly-arr-tag-head" />
+      </marker>
+
+      <!-- Single arrow: folder tree → file (ends just before file left edge x=420) -->
+      <path id="poly-path-folder" d="M 290,200 C 340,200 370,220 415,220" fill="none" />
+
+      <!-- Four arrows: file → tags (start just after file right edge x=580) -->
+      <path id="poly-path-tag-1" d="M 585,220 C 650,220 640,90  715,90"  fill="none" />
+      <path id="poly-path-tag-2" d="M 585,220 C 650,220 640,180 715,180" fill="none" />
+      <path id="poly-path-tag-3" d="M 585,220 C 650,220 640,260 715,260" fill="none" />
+      <path id="poly-path-tag-4" d="M 585,220 C 650,220 640,350 715,350" fill="none" />
+    </defs>
+
+    <!-- ────── Section headers ────── -->
+    <text class="poly-sec-label" x="30" y="30">FILESYSTEM</text>
+    <text class="poly-sec-sub"   x="30" y="48">rigid · one parent per file</text>
+
+    <text class="poly-sec-label" x="970" y="30" text-anchor="end">TAGS</text>
+    <text class="poly-sec-sub"   x="970" y="48" text-anchor="end">polyhierarchy · many parents per file</text>
+
+    <!-- ────── LEFT: folder tree ────── -->
+    <g class="poly-fs">
+      <!-- vault/ -->
+      <g transform="translate(30, 100)">
+        <rect class="poly-node poly-node-dir" width="260" height="36" rx="8" />
+        <g transform="translate(10, 8)"><use href="#poly-ico-folder" width="20" height="20" class="poly-ico-dir" /></g>
+        <text class="poly-node-text" x="38" y="23">vault/</text>
+      </g>
+
+      <!-- Projects/ -->
+      <g transform="translate(50, 155)">
+        <rect class="poly-node poly-node-dir" width="240" height="36" rx="8" />
+        <g transform="translate(10, 8)"><use href="#poly-ico-folder" width="20" height="20" class="poly-ico-dir" /></g>
+        <text class="poly-node-text" x="38" y="23">Projects/</text>
+      </g>
+
+      <!-- Q4-retrospective/ -->
+      <g transform="translate(70, 210)">
+        <rect class="poly-node poly-node-dir" width="220" height="36" rx="8" />
+        <g transform="translate(10, 8)"><use href="#poly-ico-folder" width="20" height="20" class="poly-ico-dir" /></g>
+        <text class="poly-node-text" x="38" y="23">Q4-retrospective/</text>
+      </g>
+
+      <!-- Connecting tree lines -->
+      <path class="poly-tree-line"
+            d="M 42,136 L 42,173 L 62,173 M 62,191 L 62,228 L 82,228"
+            fill="none" />
+    </g>
+
+    <!-- ────── Single arrow from folder to file ────── -->
+    <use href="#poly-path-folder"
+         class="poly-flow poly-flow-fs"
+         marker-end="url(#poly-arr-fs)" />
+
+    <!-- ────── CENTER: the file ────── -->
+    <g class="poly-file" transform="translate(420, 188)">
+      <rect class="poly-file-bg" width="160" height="66" rx="12" />
+      <g transform="translate(16, 18)"><use href="#poly-ico-file" width="30" height="30" class="poly-ico-file" /></g>
+      <text class="poly-file-name"  x="56" y="34">notes.md</text>
+      <text class="poly-file-sub"   x="56" y="52">the same file</text>
+    </g>
+
+    <!-- ────── Four arrows from file to tags ────── -->
+    <use href="#poly-path-tag-1" class="poly-flow poly-flow-tag poly-flow-tag-1" marker-end="url(#poly-arr-tag)" />
+    <use href="#poly-path-tag-2" class="poly-flow poly-flow-tag poly-flow-tag-2" marker-end="url(#poly-arr-tag)" />
+    <use href="#poly-path-tag-3" class="poly-flow poly-flow-tag poly-flow-tag-3" marker-end="url(#poly-arr-tag)" />
+    <use href="#poly-path-tag-4" class="poly-flow poly-flow-tag poly-flow-tag-4" marker-end="url(#poly-arr-tag)" />
+
+    <!-- ────── RIGHT: tag hierarchies ────── -->
+    <g class="poly-tags">
+      <g transform="translate(720, 70)">
+        <rect class="poly-node poly-node-tag" width="250" height="40" rx="10" />
+        <g transform="translate(10, 10)"><use href="#poly-ico-hash" width="20" height="20" class="poly-ico-tag" /></g>
+        <text class="poly-tag-path" x="38" y="18">projects</text>
+        <text class="poly-tag-leaf" x="38" y="32">└ q4-retrospective</text>
+      </g>
+
+      <g transform="translate(720, 160)">
+        <rect class="poly-node poly-node-tag" width="250" height="40" rx="10" />
+        <g transform="translate(10, 10)"><use href="#poly-ico-hash" width="20" height="20" class="poly-ico-tag" /></g>
+        <text class="poly-tag-path" x="38" y="18">archive/2024</text>
+        <text class="poly-tag-leaf" x="38" y="32">└ q4-retrospective</text>
+      </g>
+
+      <g transform="translate(720, 240)">
+        <rect class="poly-node poly-node-tag" width="250" height="40" rx="10" />
+        <g transform="translate(10, 10)"><use href="#poly-ico-hash" width="20" height="20" class="poly-ico-tag" /></g>
+        <text class="poly-tag-path" x="38" y="18">meetings/retrospectives</text>
+        <text class="poly-tag-leaf" x="38" y="32">└ q4</text>
+      </g>
+
+      <g transform="translate(720, 330)">
+        <rect class="poly-node poly-node-tag" width="250" height="40" rx="10" />
+        <g transform="translate(10, 10)"><use href="#poly-ico-hash" width="20" height="20" class="poly-ico-tag" /></g>
+        <text class="poly-tag-path" x="38" y="18">people/alice</text>
+        <text class="poly-tag-leaf" x="38" y="32">└ q4-retrospective</text>
+      </g>
+    </g>
+
+    <!-- ────── Sync engine — pill at bottom ────── -->
+    <g class="poly-sync" transform="translate(370, 420)">
+      <rect class="poly-sync-pill" width="260" height="44" rx="22" />
+      <g class="poly-sync-gear" transform="translate(22, 22)">
+        <circle r="9" class="poly-sync-gear-outer" />
+        <circle r="4" class="poly-sync-gear-inner" />
+      </g>
+      <text class="poly-sync-label" x="46" y="20">SYNC ENGINE</text>
+      <text class="poly-sync-sub"   x="46" y="34">regex rules · transformation pipeline</text>
+    </g>
+
+    <!-- Caption -->
+    <text class="poly-caption" x="500" y="485" text-anchor="middle">
+      One file · one folder parent · many tag parents · kept in sync automatically
+    </text>
+  </svg>
+</figure>
+
+<style>
+  .poly-fig {
+    margin: 2.5rem 0 2rem;
+    padding: 0;
+    max-width: 100%;
+    overflow: hidden;
+  }
+  .poly-svg {
+    width: 100%;
+    height: auto;
+    display: block;
+  }
+
+  /* Section labels */
+  .poly-sec-label {
+    font: 700 12px/1 'Space Grotesk', system-ui, sans-serif;
+    letter-spacing: 0.14em;
+    fill: var(--sl-color-gray-2);
+  }
+  .poly-sec-sub {
+    font: 400 11px/1 system-ui, sans-serif;
+    fill: var(--sl-color-gray-3);
+    letter-spacing: 0.02em;
+  }
+
+  /* Nodes — base */
+  .poly-node { stroke-width: 1.2; }
+
+  /* Folder side */
+  .poly-node-dir {
+    fill: var(--sl-color-gray-6);
+    stroke: var(--sl-color-gray-4);
+  }
+  .poly-node-text {
+    font: 500 14px/1 'JetBrains Mono', ui-monospace, monospace;
+    fill: var(--sl-color-white);
+  }
+  .poly-ico-dir { color: var(--sl-color-gray-2); }
+  .poly-tree-line {
+    stroke: var(--sl-color-gray-4);
+    stroke-width: 1.2;
+    stroke-dasharray: 2 3;
+    opacity: 0.8;
+  }
+
+  /* Tag side */
+  .poly-node-tag {
+    fill: color-mix(in srgb, var(--sl-color-accent) 12%, var(--sl-color-black));
+    stroke: var(--sl-color-accent);
+    stroke-opacity: 0.55;
+  }
+  .poly-tag-path {
+    font: 700 13px/1 'JetBrains Mono', ui-monospace, monospace;
+    fill: var(--sl-color-accent-high);
+  }
+  .poly-tag-leaf {
+    font: 400 11px/1 'JetBrains Mono', ui-monospace, monospace;
+    fill: var(--sl-color-gray-2);
+  }
+  .poly-ico-tag { color: var(--sl-color-accent-high); }
+
+  /* File node (the star) */
+  .poly-file-bg {
+    fill: color-mix(in srgb, var(--sl-color-accent) 18%, var(--sl-color-black));
+    stroke: var(--sl-color-accent-high);
+    stroke-width: 2;
+    filter: url(#poly-glow);
+  }
+  .poly-file-name {
+    font: 700 18px/1 'JetBrains Mono', ui-monospace, monospace;
+    fill: var(--sl-color-white);
+  }
+  .poly-file-sub {
+    font: 400 10px/1 system-ui, sans-serif;
+    fill: var(--sl-color-gray-3);
+    letter-spacing: 0.05em;
+  }
+  .poly-ico-file { color: var(--sl-color-accent-high); }
+
+  /* Flow arrows */
+  .poly-flow {
+    fill: none;
+    stroke-width: 2;
+    stroke-linecap: round;
+  }
+  .poly-flow-fs {
+    stroke: var(--sl-color-gray-2);
+    stroke-dasharray: 6 5;
+    opacity: 0.85;
+    animation: poly-flow-ltr 3s linear infinite;
+  }
+  .poly-flow-tag {
+    stroke: var(--sl-color-accent);
+    stroke-dasharray: 6 5;
+    opacity: 0.8;
+    animation: poly-flow-ltr 3s linear infinite;
+  }
+  .poly-flow-tag-1 { animation-delay: 0s; }
+  .poly-flow-tag-2 { animation-delay: 0.55s; }
+  .poly-flow-tag-3 { animation-delay: 1.1s; }
+  .poly-flow-tag-4 { animation-delay: 1.65s; }
+
+  .poly-arr-fs-head  { fill: var(--sl-color-gray-2); }
+  .poly-arr-tag-head { fill: var(--sl-color-accent); }
+
+  /* Sync engine pill */
+  .poly-sync-pill {
+    fill: color-mix(in srgb, var(--sl-color-accent-high) 12%, var(--sl-color-black));
+    stroke: var(--sl-color-accent-high);
+    stroke-width: 1.3;
+    filter: url(#poly-glow);
+  }
+  .poly-sync-gear-outer {
+    fill: none;
+    stroke: var(--sl-color-accent-high);
+    stroke-width: 1.5;
+    stroke-dasharray: 2.5 2.5;
+    transform-origin: center;
+    transform-box: fill-box;
+    animation: poly-rotate 14s linear infinite;
+  }
+  .poly-sync-gear-inner {
+    fill: var(--sl-color-accent-high);
+    transform-origin: center;
+    transform-box: fill-box;
+    animation: poly-pulse 2.2s ease-in-out infinite;
+  }
+  .poly-sync-label {
+    font: 700 13px/1 'Space Grotesk', system-ui, sans-serif;
+    letter-spacing: 0.14em;
+    fill: var(--sl-color-white);
+  }
+  .poly-sync-sub {
+    font: 400 10px/1 system-ui, sans-serif;
+    letter-spacing: 0.04em;
+    fill: var(--sl-color-gray-2);
+  }
+
+  .poly-caption {
+    font: 400 13px/1 system-ui, sans-serif;
+    fill: var(--sl-color-gray-2);
+    font-style: italic;
+  }
+
+  /* Animations */
+  @keyframes poly-flow-ltr { to { stroke-dashoffset: -22; } }
+  @keyframes poly-rotate   { to { transform: rotate(360deg); } }
+  @keyframes poly-pulse {
+    0%, 100% { transform: scale(1);   opacity: 1;   }
+    50%      { transform: scale(1.25); opacity: 0.7; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .poly-flow-fs,
+    .poly-flow-tag,
+    .poly-sync-gear-outer,
+    .poly-sync-gear-inner {
+      animation: none;
+    }
+  }
+
+  /* Narrow viewport: shrink the sub-labels to avoid overlap */
+  @media (max-width: 560px) {
+    .poly-sec-sub { display: none; }
+  }
+</style>

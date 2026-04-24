@@ -91,9 +91,10 @@
     <line class="pd-sec-divider" x1="960"  x2="1170" y1="64" y2="64" />
 
     <!-- ════════════════════════════ LEFT: FOLDER TREE ════════════════════════════
-         The star of the show is `kickoff.md` — a specific file that lives in
-         exactly one folder on this side and appears in multiple tag paths on
-         the right.
+         The winning rule (priority 10) places kickoff.md under Projects/.
+         The other rules also match (via tags), but their destination folders
+         are shown muted as "where the file would live if the other rule had
+         priority" — making the priority-wins-folder mechanism concrete.
     -->
     <g class="pd-fs">
       <!-- vault/ -->
@@ -103,26 +104,27 @@
         <text class="pd-node-text" x="38" y="21">vault/</text>
       </g>
 
-      <!-- Projects/ -->
+      <!-- Projects/ (the winning destination branch) -->
       <g transform="translate(50, 140)">
         <rect class="pd-node pd-node-dir" width="240" height="32" rx="6" />
         <g transform="translate(10, 6)"><use href="#pd-ico-folder" width="20" height="20" class="pd-ico-dir" /></g>
         <text class="pd-node-text" x="38" y="21">Projects/</text>
       </g>
 
-      <!-- Q4-Roadmap/ (context for the file, not highlighted) -->
+      <!-- Q4-Roadmap/ (winning leaf folder) -->
       <g transform="translate(70, 185)">
         <rect class="pd-node pd-node-dir" width="220" height="32" rx="6" />
         <g transform="translate(10, 6)"><use href="#pd-ico-folder" width="20" height="20" class="pd-ico-dir" /></g>
         <text class="pd-node-text" x="38" y="21">Q4-Roadmap/</text>
+        <text class="pd-node-winner-note" x="230" y="22" text-anchor="end">◄ winner</text>
       </g>
 
-      <!-- kickoff.md ★ HIGHLIGHTED — the file we're tracing -->
+      <!-- kickoff.md ★ HIGHLIGHTED — the file lives here because Rule 1 has priority -->
       <g class="pd-branch-star" transform="translate(90, 230)">
         <rect class="pd-node pd-node-star" width="200" height="42" rx="8" />
         <g transform="translate(12, 10)"><use href="#pd-ico-file" width="18" height="18" class="pd-ico-star" /></g>
         <text class="pd-node-star-text" x="38" y="20">kickoff.md</text>
-        <text class="pd-node-star-sub"  x="38" y="35">(the file we're tracing)</text>
+        <text class="pd-node-star-sub"  x="38" y="35">(placed by priority 10)</text>
       </g>
 
       <!-- Sibling files in Q4-Roadmap/ -->
@@ -135,35 +137,32 @@
         <text class="pd-node-muted" x="20" y="11">notes.md</text>
       </g>
 
-      <!-- Sibling folders in Projects/ (muted) -->
-      <g transform="translate(50, 348)">
-        <use href="#pd-ico-folder" width="18" height="18" class="pd-ico-muted" />
-        <text class="pd-node-muted-lg" x="25" y="14">Launch/</text>
+      <!-- Alternate destination #1: Time/ (Rule 2's folder pattern — outvoted) -->
+      <g class="pd-alt-dest" transform="translate(30, 360)">
+        <rect class="pd-node pd-node-alt" width="260" height="32" rx="6" />
+        <g transform="translate(10, 6)"><use href="#pd-ico-folder" width="20" height="20" class="pd-ico-alt" /></g>
+        <text class="pd-node-alt-text" x="38" y="21">Time/2024/q4/roadmap/</text>
       </g>
-      <g transform="translate(50, 378)">
-        <use href="#pd-ico-folder" width="18" height="18" class="pd-ico-muted" />
-        <text class="pd-node-muted-lg" x="25" y="14">Research/</text>
-      </g>
-
-      <!-- Other PARA branches (context that kickoff.md doesn't live in) -->
-      <g transform="translate(30, 420)">
-        <use href="#pd-ico-folder" width="18" height="18" class="pd-ico-muted" />
-        <text class="pd-node-muted-lg" x="25" y="14">Areas/</text>
-      </g>
-      <g transform="translate(50, 448)">
-        <use href="#pd-ico-folder" width="18" height="18" class="pd-ico-muted" />
-        <text class="pd-node-muted-lg" x="25" y="14">Health/</text>
-      </g>
-      <g transform="translate(50, 476)">
-        <use href="#pd-ico-folder" width="18" height="18" class="pd-ico-muted" />
-        <text class="pd-node-muted-lg" x="25" y="14">Finance/</text>
+      <g class="pd-alt-dest" transform="translate(100, 398)">
+        <use href="#pd-ico-file" width="14" height="14" class="pd-ico-alt-file" />
+        <text class="pd-node-alt-ghost" x="20" y="11">kickoff.md</text>
+        <text class="pd-node-alt-caption" x="20" y="26">× would live here if Rule 2 won</text>
       </g>
 
-      <g transform="translate(30, 520)">
-        <use href="#pd-ico-folder" width="18" height="18" class="pd-ico-muted" />
-        <text class="pd-node-muted-lg" x="25" y="14">Resources/</text>
+      <!-- Alternate destination #2: Topics/ (Rule 3's folder pattern — outvoted) -->
+      <g class="pd-alt-dest" transform="translate(30, 450)">
+        <rect class="pd-node pd-node-alt" width="260" height="32" rx="6" />
+        <g transform="translate(10, 6)"><use href="#pd-ico-folder" width="20" height="20" class="pd-ico-alt" /></g>
+        <text class="pd-node-alt-text" x="38" y="21">Topics/roadmaps/q4/</text>
       </g>
-      <g transform="translate(30, 555)">
+      <g class="pd-alt-dest" transform="translate(100, 488)">
+        <use href="#pd-ico-file" width="14" height="14" class="pd-ico-alt-file" />
+        <text class="pd-node-alt-ghost" x="20" y="11">kickoff.md</text>
+        <text class="pd-node-alt-caption" x="20" y="26">× would live here if Rule 3 won</text>
+      </g>
+
+      <!-- Other PARA peer (minimal context) -->
+      <g transform="translate(30, 540)">
         <use href="#pd-ico-folder" width="18" height="18" class="pd-ico-muted" />
         <text class="pd-node-muted-lg" x="25" y="14">Archive/</text>
       </g>
@@ -175,8 +174,6 @@
         <path d="M 82,217 L 82,250 L 100,250" />
         <path d="M 108,272 L 108,295 L 116,295" />
         <path d="M 108,272 L 108,317 L 116,317" />
-        <path d="M 64,217 L 64,355 L 82,355" />
-        <path d="M 64,217 L 64,385 L 82,385" />
       </g>
     </g>
 
@@ -199,19 +196,24 @@
           ── bottom padding: 14px → box bottom y=170 ──
       -->
 
-      <!-- Rule card 1 -->
-      <g class="pd-rule-card" transform="translate(560, 85)">
-        <rect class="pd-rule-bg" width="340" height="170" rx="12" />
+      <!-- Rule card 1: WINNER (priority 10) — determines where kickoff.md lives -->
+      <g class="pd-rule-card pd-rule-winner" transform="translate(560, 85)">
+        <rect class="pd-rule-bg pd-rule-bg-winner" width="340" height="170" rx="12" />
         <!-- Header -->
-        <circle class="pd-prio" cx="30" cy="30" r="18" />
+        <circle class="pd-prio pd-prio-winner" cx="30" cy="30" r="18" />
         <text class="pd-prio-text" x="30" y="36" text-anchor="middle">1</text>
         <text class="pd-prio-sub" x="60" y="27">matches first</text>
         <text class="pd-prio-tag" x="60" y="42">priority 10</text>
+        <!-- Winner badge (top-right) -->
+        <g class="pd-winner-badge" transform="translate(230, 16)">
+          <rect width="100" height="22" rx="11" />
+          <text x="50" y="15" text-anchor="middle">✓ MOVES FILE</text>
+        </g>
         <line class="pd-rule-divider" x1="14" x2="326" y1="58" y2="58" />
         <!-- Folder row -->
         <text class="pd-rule-label" x="20" y="85">folder</text>
         <text class="pd-rule-pattern-fs" x="78" y="85">^Projects/(.*)$</text>
-        <!-- Bidi pill: centered horizontally, visually connecting folder and tag -->
+        <!-- Bidi pill -->
         <g class="pd-bidi" transform="translate(170, 110)">
           <rect class="pd-bidi-pill" x="-42" y="-10" width="84" height="20" rx="10" />
           <line x1="-18" y1="0" x2="18" y2="0" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" />
@@ -225,16 +227,20 @@
         <text class="pd-rule-xform" x="20" y="160">transforms: snake_case · strip emoji</text>
       </g>
 
-      <!-- Rule card 2 -->
+      <!-- Rule card 2: tag only (outvoted) -->
       <g class="pd-rule-card" transform="translate(560, 285)">
         <rect class="pd-rule-bg" width="340" height="170" rx="12" />
         <circle class="pd-prio" cx="30" cy="30" r="18" />
         <text class="pd-prio-text" x="30" y="36" text-anchor="middle">2</text>
         <text class="pd-prio-sub" x="60" y="27">matches second</text>
         <text class="pd-prio-tag" x="60" y="42">priority 20</text>
+        <g class="pd-outvoted-badge" transform="translate(234, 16)">
+          <rect width="96" height="22" rx="11" />
+          <text x="48" y="15" text-anchor="middle">TAG ONLY</text>
+        </g>
         <line class="pd-rule-divider" x1="14" x2="326" y1="58" y2="58" />
         <text class="pd-rule-label" x="20" y="85">folder</text>
-        <text class="pd-rule-pattern-fs" x="78" y="85">^Projects/Q(\d+)-(.*)$</text>
+        <text class="pd-rule-pattern-fs" x="78" y="85">^Time/(.*)$</text>
         <g class="pd-bidi" transform="translate(170, 110)">
           <rect class="pd-bidi-pill" x="-42" y="-10" width="84" height="20" rx="10" />
           <line x1="-18" y1="0" x2="18" y2="0" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" />
@@ -242,20 +248,24 @@
           <path d="M 18,0 L 12,-5 M 18,0 L 12,5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" />
         </g>
         <text class="pd-rule-label" x="20" y="140">tag</text>
-        <text class="pd-rule-pattern-tag" x="78" y="140">#time/2024/q&#123;1&#125;/&#123;2&#125;</text>
+        <text class="pd-rule-pattern-tag" x="78" y="140">#time/&#123;1&#125;</text>
         <text class="pd-rule-xform" x="20" y="160">transforms: snake_case</text>
       </g>
 
-      <!-- Rule card 3 -->
+      <!-- Rule card 3: tag only (outvoted) -->
       <g class="pd-rule-card" transform="translate(560, 485)">
         <rect class="pd-rule-bg" width="340" height="170" rx="12" />
         <circle class="pd-prio" cx="30" cy="30" r="18" />
         <text class="pd-prio-text" x="30" y="36" text-anchor="middle">3</text>
         <text class="pd-prio-sub" x="60" y="27">matches last</text>
         <text class="pd-prio-tag" x="60" y="42">priority 30</text>
+        <g class="pd-outvoted-badge" transform="translate(234, 16)">
+          <rect width="96" height="22" rx="11" />
+          <text x="48" y="15" text-anchor="middle">TAG ONLY</text>
+        </g>
         <line class="pd-rule-divider" x1="14" x2="326" y1="58" y2="58" />
         <text class="pd-rule-label" x="20" y="85">folder</text>
-        <text class="pd-rule-pattern-fs" x="78" y="85">.*Roadmap.*</text>
+        <text class="pd-rule-pattern-fs" x="78" y="85">^Topics/(.*)$</text>
         <g class="pd-bidi" transform="translate(170, 110)">
           <rect class="pd-bidi-pill" x="-42" y="-10" width="84" height="20" rx="10" />
           <line x1="-18" y1="0" x2="18" y2="0" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" />
@@ -263,8 +273,8 @@
           <path d="M 18,0 L 12,-5 M 18,0 L 12,5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" />
         </g>
         <text class="pd-rule-label" x="20" y="140">tag</text>
-        <text class="pd-rule-pattern-tag" x="78" y="140">#topics/roadmaps/q4</text>
-        <text class="pd-rule-xform" x="20" y="160">transforms: lowercase</text>
+        <text class="pd-rule-pattern-tag" x="78" y="140">#topics/&#123;1&#125;</text>
+        <text class="pd-rule-xform" x="20" y="160">transforms: snake_case · lowercase</text>
       </g>
     </g>
 
@@ -328,7 +338,7 @@
         <text class="pd-tag-file pd-tag-leaf-star"        x="56" y="88">└ kickoff.md  ★</text>
         <text class="pd-tag-file pd-tag-file-muted"       x="56" y="110">├ brief.md</text>
         <text class="pd-tag-file pd-tag-file-muted"       x="56" y="130">└ notes.md</text>
-        <text class="pd-tag-caption"                       x="14" y="151">via Rule 2 · #time/2024/q&#123;1&#125;/&#123;2&#125;</text>
+        <text class="pd-tag-caption"                       x="14" y="151">via Rule 2 · #time/&#123;1&#125;</text>
       </g>
 
       <!-- #topics/roadmaps/q4/ -->
@@ -343,7 +353,7 @@
         <text class="pd-tag-file pd-tag-leaf-star"        x="56" y="88">└ kickoff.md  ★</text>
         <text class="pd-tag-file pd-tag-file-muted"       x="56" y="110">├ brief.md</text>
         <text class="pd-tag-file pd-tag-file-muted"       x="56" y="130">└ notes.md</text>
-        <text class="pd-tag-caption"                       x="14" y="151">via Rule 3 · #topics/roadmaps/q4</text>
+        <text class="pd-tag-caption"                       x="14" y="151">via Rule 3 · #topics/&#123;1&#125;</text>
       </g>
     </g>
 
@@ -413,6 +423,73 @@
     stroke-width: 1.2;
     stroke-dasharray: 2 3;
     fill: none;
+  }
+
+  /* ─── Winner annotation next to the destination folder (left side) ─── */
+  .pd-node-winner-note {
+    font: 700 10px/1 'Space Grotesk', system-ui, sans-serif;
+    letter-spacing: 0.1em;
+    fill: var(--sl-color-accent-high);
+    text-transform: uppercase;
+  }
+
+  /* ─── Alternate destination folders (outvoted) ─── */
+  .pd-node-alt {
+    fill: transparent;
+    stroke: var(--sl-color-gray-4);
+    stroke-width: 1;
+    stroke-dasharray: 4 3;
+    opacity: 0.55;
+  }
+  .pd-node-alt-text {
+    font: 400 13px/1 'JetBrains Mono', ui-monospace, monospace;
+    fill: var(--sl-color-gray-3);
+    opacity: 0.75;
+  }
+  .pd-ico-alt      { color: var(--sl-color-gray-4); }
+  .pd-ico-alt-file { color: var(--sl-color-gray-4); }
+  .pd-node-alt-ghost {
+    font: 400 11px/1 'JetBrains Mono', ui-monospace, monospace;
+    fill: var(--sl-color-gray-3);
+    opacity: 0.55;
+  }
+  .pd-node-alt-caption {
+    font: 400 9px/1 system-ui, sans-serif;
+    font-style: italic;
+    fill: var(--sl-color-gray-3);
+    opacity: 0.7;
+  }
+
+  /* ─── Winner rule card + badge ─── */
+  .pd-rule-bg-winner {
+    stroke: var(--sl-color-accent-high);
+    stroke-width: 1.6;
+    filter: url(#pd-glow-soft);
+  }
+  .pd-prio-winner {
+    fill: var(--sl-color-accent-high);
+    stroke: var(--sl-color-accent-high);
+  }
+  .pd-winner-badge rect {
+    fill: var(--sl-color-accent-high);
+    stroke: var(--sl-color-accent-high);
+  }
+  .pd-winner-badge text {
+    font: 700 9px/1 'Space Grotesk', system-ui, sans-serif;
+    letter-spacing: 0.1em;
+    fill: var(--sl-color-black);
+  }
+
+  /* ─── Outvoted badge (non-winning rules) ─── */
+  .pd-outvoted-badge rect {
+    fill: transparent;
+    stroke: var(--sl-color-gray-4);
+    stroke-width: 1;
+  }
+  .pd-outvoted-badge text {
+    font: 600 9px/1 'Space Grotesk', system-ui, sans-serif;
+    letter-spacing: 0.1em;
+    fill: var(--sl-color-gray-3);
   }
 
   /* ─── Highlighted branch (the star of the show) ─── */

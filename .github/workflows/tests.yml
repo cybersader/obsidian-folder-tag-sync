@@ -1,0 +1,41 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - 'docs/**'
+      - '**.md'
+  pull_request:
+    paths-ignore:
+      - 'docs/**'
+      - '**.md'
+  workflow_dispatch:
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+
+jobs:
+  unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - run: bun install --frozen-lockfile
+
+      - name: Type-check
+        run: bun x tsc -noEmit -skipLibCheck
+
+      - name: Unit tests (bun test src)
+        run: bun run test
+
+      - name: Lint (Obsidian plugin rules)
+        run: bun run lint -- --ignore-pattern '**/*.test.ts'

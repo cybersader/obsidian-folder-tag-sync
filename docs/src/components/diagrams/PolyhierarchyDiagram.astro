@@ -62,16 +62,17 @@
         <path d="M10,1 L0,5 L10,9 Z" class="pd-arr-head" />
       </marker>
 
-      <!-- Branch → rule paths: from branch right edge (x=290) to rule card left edge (x=560)
+      <!-- File → rule paths: from kickoff.md's right edge (x=290) to rule card left edge (x=560)
            at each card's vertical center (y=170, 370, 570 for cards at y=85/285/485, height=170). -->
-      <path id="pd-path-b1" d="M 290,200 C 420,200 430,170 560,170" fill="none" />
-      <path id="pd-path-b2" d="M 290,210 C 420,210 430,370 560,370" fill="none" />
-      <path id="pd-path-b3" d="M 290,220 C 420,220 430,570 560,570" fill="none" />
+      <path id="pd-path-b1" d="M 290,242 C 420,242 430,170 560,170" fill="none" />
+      <path id="pd-path-b2" d="M 290,251 C 420,251 430,370 560,370" fill="none" />
+      <path id="pd-path-b3" d="M 290,260 C 420,260 430,570 560,570" fill="none" />
 
-      <!-- Rule → tag paths: from rule card right edge (x=900) to tag tree center. -->
-      <path id="pd-path-t1" d="M 900,170 C 930,170 935,160 960,160" fill="none" />
-      <path id="pd-path-t2" d="M 900,370 C 930,370 935,330 960,330" fill="none" />
-      <path id="pd-path-t3" d="M 900,570 C 930,570 935,510 960,510" fill="none" />
+      <!-- Rule → tag paths: from rule card right edge (x=900) to tag tree left edge (x=950).
+           Tag tree centers (h=160): y=170, 370, 570 — aligns with rule card centers. -->
+      <path id="pd-path-t1" d="M 900,170 L 950,170" fill="none" />
+      <path id="pd-path-t2" d="M 900,370 L 950,370" fill="none" />
+      <path id="pd-path-t3" d="M 900,570 L 950,570" fill="none" />
     </defs>
 
     <!-- ────── Section headers ────── -->
@@ -89,7 +90,11 @@
     <line class="pd-sec-divider" x1="560"  x2="880"  y1="64" y2="64" />
     <line class="pd-sec-divider" x1="960"  x2="1170" y1="64" y2="64" />
 
-    <!-- ════════════════════════════ LEFT: FOLDER TREE ════════════════════════════ -->
+    <!-- ════════════════════════════ LEFT: FOLDER TREE ════════════════════════════
+         The star of the show is `kickoff.md` — a specific file that lives in
+         exactly one folder on this side and appears in multiple tag paths on
+         the right.
+    -->
     <g class="pd-fs">
       <!-- vault/ -->
       <g transform="translate(30, 95)">
@@ -105,56 +110,60 @@
         <text class="pd-node-text" x="38" y="21">Projects/</text>
       </g>
 
-      <!-- Q4-Roadmap/ ★ HIGHLIGHTED -->
-      <g class="pd-branch-star" transform="translate(70, 185)">
-        <rect class="pd-node pd-node-star" width="220" height="50" rx="8" />
-        <g transform="translate(12, 8)"><use href="#pd-ico-folder" width="20" height="20" class="pd-ico-star" /></g>
-        <text class="pd-node-star-text" x="40" y="22">Q4-Roadmap/</text>
-        <text class="pd-node-star-sub"  x="40" y="40">(the branch we're tracing)</text>
+      <!-- Q4-Roadmap/ (context for the file, not highlighted) -->
+      <g transform="translate(70, 185)">
+        <rect class="pd-node pd-node-dir" width="220" height="32" rx="6" />
+        <g transform="translate(10, 6)"><use href="#pd-ico-folder" width="20" height="20" class="pd-ico-dir" /></g>
+        <text class="pd-node-text" x="38" y="21">Q4-Roadmap/</text>
       </g>
 
-      <!-- nested files in Q4-Roadmap/ -->
-      <g transform="translate(100, 250)">
-        <use href="#pd-ico-file" width="15" height="15" class="pd-ico-muted" />
-        <text class="pd-node-muted" x="22" y="12">kickoff.md</text>
-      </g>
-      <g transform="translate(100, 275)">
-        <use href="#pd-ico-file" width="15" height="15" class="pd-ico-muted" />
-        <text class="pd-node-muted" x="22" y="12">brief.md</text>
-      </g>
-      <g transform="translate(100, 300)">
-        <use href="#pd-ico-file" width="15" height="15" class="pd-ico-muted" />
-        <text class="pd-node-muted" x="22" y="12">notes.md</text>
+      <!-- kickoff.md ★ HIGHLIGHTED — the file we're tracing -->
+      <g class="pd-branch-star" transform="translate(90, 230)">
+        <rect class="pd-node pd-node-star" width="200" height="42" rx="8" />
+        <g transform="translate(12, 10)"><use href="#pd-ico-file" width="18" height="18" class="pd-ico-star" /></g>
+        <text class="pd-node-star-text" x="38" y="20">kickoff.md</text>
+        <text class="pd-node-star-sub"  x="38" y="35">(the file we're tracing)</text>
       </g>
 
-      <!-- siblings & other PARA branches (muted) -->
-      <g transform="translate(50, 335)">
+      <!-- Sibling files in Q4-Roadmap/ -->
+      <g transform="translate(100, 290)">
+        <use href="#pd-ico-file" width="14" height="14" class="pd-ico-muted" />
+        <text class="pd-node-muted" x="20" y="11">brief.md</text>
+      </g>
+      <g transform="translate(100, 312)">
+        <use href="#pd-ico-file" width="14" height="14" class="pd-ico-muted" />
+        <text class="pd-node-muted" x="20" y="11">notes.md</text>
+      </g>
+
+      <!-- Sibling folders in Projects/ (muted) -->
+      <g transform="translate(50, 348)">
         <use href="#pd-ico-folder" width="18" height="18" class="pd-ico-muted" />
         <text class="pd-node-muted-lg" x="25" y="14">Launch/</text>
       </g>
-      <g transform="translate(50, 365)">
+      <g transform="translate(50, 378)">
         <use href="#pd-ico-folder" width="18" height="18" class="pd-ico-muted" />
         <text class="pd-node-muted-lg" x="25" y="14">Research/</text>
       </g>
 
-      <g transform="translate(30, 410)">
+      <!-- Other PARA branches (context that kickoff.md doesn't live in) -->
+      <g transform="translate(30, 420)">
         <use href="#pd-ico-folder" width="18" height="18" class="pd-ico-muted" />
         <text class="pd-node-muted-lg" x="25" y="14">Areas/</text>
       </g>
-      <g transform="translate(50, 438)">
+      <g transform="translate(50, 448)">
         <use href="#pd-ico-folder" width="18" height="18" class="pd-ico-muted" />
         <text class="pd-node-muted-lg" x="25" y="14">Health/</text>
       </g>
-      <g transform="translate(50, 466)">
+      <g transform="translate(50, 476)">
         <use href="#pd-ico-folder" width="18" height="18" class="pd-ico-muted" />
         <text class="pd-node-muted-lg" x="25" y="14">Finance/</text>
       </g>
 
-      <g transform="translate(30, 510)">
+      <g transform="translate(30, 520)">
         <use href="#pd-ico-folder" width="18" height="18" class="pd-ico-muted" />
         <text class="pd-node-muted-lg" x="25" y="14">Resources/</text>
       </g>
-      <g transform="translate(30, 548)">
+      <g transform="translate(30, 555)">
         <use href="#pd-ico-folder" width="18" height="18" class="pd-ico-muted" />
         <text class="pd-node-muted-lg" x="25" y="14">Archive/</text>
       </g>
@@ -163,9 +172,11 @@
       <g class="pd-tree-line">
         <path d="M 44,127 L 44,140 L 62,140" />
         <path d="M 64,172 L 64,185 L 80,185" />
-        <path d="M 90,235 L 90,250 L 104,250 M 104,260 M 104,275 L 115,275 M 115,285 M 115,300 L 126,300" />
-        <path d="M 64,217 L 64,335 L 82,335" />
-        <path d="M 64,217 L 64,365 L 82,365" />
+        <path d="M 82,217 L 82,250 L 100,250" />
+        <path d="M 108,272 L 108,295 L 116,295" />
+        <path d="M 108,272 L 108,317 L 116,317" />
+        <path d="M 64,217 L 64,355 L 82,355" />
+        <path d="M 64,217 L 64,385 L 82,385" />
       </g>
     </g>
 
@@ -275,60 +286,64 @@
     <use href="#pd-path-t3" class="pd-flow pd-flow-tag pd-flow-3"
          marker-start="url(#pd-arr-tail)" marker-end="url(#pd-arr-head)" />
 
-    <!-- ════════════════════════════ RIGHT: TAG HIERARCHIES ════════════════════════════ -->
-    <!--
-      All tag boxes use the same dimensions and padding:
-        height 140, width 210, rx 10
-        top pad   : 16px (icon starts at y=14)
-        header row: y=14–30 (icon + root name)
-        divider   : y=42
-        leaves    : y=64, 86, 108, 130  (22px line-height, bottom pad 10px from last leaf)
-        bot pad   : 10px below last leaf (so "compliance" sits y=130, box bottom y=140)
-      Indentation x-positions for nested leaves:
-        level 1: x=40
-        level 2: x=60
-        level 3: x=80
+    <!-- ════════════════════════════ RIGHT: TAG HIERARCHIES ════════════════════════════
+         Each tag tree ends in the SAME file (kickoff.md) — the polyhierarchy
+         payoff. The file lives once on the filesystem, but is listed under
+         three independent tag paths.
+
+         Box: 230w × 160h, rx 10
+         y=14–30   : # + top-level tag (e.g. "projects/")
+         y=42      : divider
+         y=66      : nested tag path (e.g. "└ q4_roadmap/")
+         y=88      : ★ kickoff.md (the file we're tracing — highlighted)
+         y=110     : brief.md (muted sibling)
+         y=130     : notes.md (muted sibling)
+         Indent: level 1 x=40, level 2 x=56, level 3 x=72
     -->
     <g class="pd-tags">
-      <!-- #projects/ -->
-      <g class="pd-tag-tree" transform="translate(960, 90)">
-        <rect class="pd-tag-bg" width="210" height="140" rx="10" />
+      <!-- #projects/q4_roadmap/ -->
+      <g class="pd-tag-tree" transform="translate(950, 90)">
+        <rect class="pd-tag-bg" width="230" height="160" rx="10" />
         <g transform="translate(14, 14)">
           <use href="#pd-ico-hash" width="18" height="18" class="pd-ico-tag" />
           <text class="pd-tag-root" x="26" y="14">projects/</text>
         </g>
-        <line class="pd-tag-divider" x1="14" x2="196" y1="42" y2="42" />
-        <text class="pd-tag-leaf pd-tag-leaf-star" x="40" y="68">└ q4_roadmap  ★</text>
-        <text class="pd-tag-leaf"                  x="40" y="92">├ launch</text>
-        <text class="pd-tag-leaf"                  x="40" y="116">└ research</text>
+        <line class="pd-tag-divider" x1="14" x2="216" y1="42" y2="42" />
+        <text class="pd-tag-leaf pd-tag-nested"           x="40" y="66">└ q4_roadmap/</text>
+        <text class="pd-tag-file pd-tag-leaf-star"        x="56" y="88">└ kickoff.md  ★</text>
+        <text class="pd-tag-file pd-tag-file-muted"       x="56" y="110">├ brief.md</text>
+        <text class="pd-tag-file pd-tag-file-muted"       x="56" y="130">└ notes.md</text>
+        <text class="pd-tag-caption"                       x="14" y="151">via Rule 1 · #projects/&#123;1&#125;</text>
       </g>
 
-      <!-- #time/ -->
-      <g class="pd-tag-tree" transform="translate(960, 260)">
-        <rect class="pd-tag-bg" width="210" height="140" rx="10" />
+      <!-- #time/2024/q4/roadmap/ -->
+      <g class="pd-tag-tree" transform="translate(950, 290)">
+        <rect class="pd-tag-bg" width="230" height="160" rx="10" />
         <g transform="translate(14, 14)">
           <use href="#pd-ico-hash" width="18" height="18" class="pd-ico-tag" />
           <text class="pd-tag-root" x="26" y="14">time/</text>
         </g>
-        <line class="pd-tag-divider" x1="14" x2="196" y1="42" y2="42" />
-        <text class="pd-tag-leaf"                  x="40" y="66">├ 2023/</text>
-        <text class="pd-tag-leaf"                  x="40" y="86">└ 2024/</text>
-        <text class="pd-tag-leaf"                  x="60" y="106">└ q4/</text>
-        <text class="pd-tag-leaf pd-tag-leaf-star" x="80" y="126">└ roadmap  ★</text>
+        <line class="pd-tag-divider" x1="14" x2="216" y1="42" y2="42" />
+        <text class="pd-tag-leaf pd-tag-nested"           x="40" y="66">└ 2024/q4/roadmap/</text>
+        <text class="pd-tag-file pd-tag-leaf-star"        x="56" y="88">└ kickoff.md  ★</text>
+        <text class="pd-tag-file pd-tag-file-muted"       x="56" y="110">├ brief.md</text>
+        <text class="pd-tag-file pd-tag-file-muted"       x="56" y="130">└ notes.md</text>
+        <text class="pd-tag-caption"                       x="14" y="151">via Rule 2 · #time/2024/q&#123;1&#125;/&#123;2&#125;</text>
       </g>
 
-      <!-- #topics/ -->
-      <g class="pd-tag-tree" transform="translate(960, 440)">
-        <rect class="pd-tag-bg" width="210" height="140" rx="10" />
+      <!-- #topics/roadmaps/q4/ -->
+      <g class="pd-tag-tree" transform="translate(950, 490)">
+        <rect class="pd-tag-bg" width="230" height="160" rx="10" />
         <g transform="translate(14, 14)">
           <use href="#pd-ico-hash" width="18" height="18" class="pd-ico-tag" />
           <text class="pd-tag-root" x="26" y="14">topics/</text>
         </g>
-        <line class="pd-tag-divider" x1="14" x2="196" y1="42" y2="42" />
-        <text class="pd-tag-leaf"                  x="40" y="66">├ roadmaps/</text>
-        <text class="pd-tag-leaf pd-tag-leaf-star" x="60" y="86">└ q4  ★</text>
-        <text class="pd-tag-leaf"                  x="40" y="108">└ research/</text>
-        <text class="pd-tag-leaf"                  x="60" y="128">└ compliance</text>
+        <line class="pd-tag-divider" x1="14" x2="216" y1="42" y2="42" />
+        <text class="pd-tag-leaf pd-tag-nested"           x="40" y="66">└ roadmaps/q4/</text>
+        <text class="pd-tag-file pd-tag-leaf-star"        x="56" y="88">└ kickoff.md  ★</text>
+        <text class="pd-tag-file pd-tag-file-muted"       x="56" y="110">├ brief.md</text>
+        <text class="pd-tag-file pd-tag-file-muted"       x="56" y="130">└ notes.md</text>
+        <text class="pd-tag-caption"                       x="14" y="151">via Rule 3 · #topics/roadmaps/q4</text>
       </g>
     </g>
 
@@ -528,6 +543,25 @@
     fill: var(--sl-color-white);
     font-weight: 700;
     animation: pd-pulse-leaf 3s ease-in-out infinite;
+  }
+  .pd-tag-nested {
+    font: 600 12px/1 'JetBrains Mono', ui-monospace, monospace;
+    fill: var(--sl-color-accent-high);
+    opacity: 0.85;
+  }
+  .pd-tag-file {
+    font: 500 12px/1 'JetBrains Mono', ui-monospace, monospace;
+    fill: var(--sl-color-white);
+  }
+  .pd-tag-file-muted {
+    opacity: 0.38;
+    font-weight: 400;
+  }
+  .pd-tag-caption {
+    font: 400 9px/1 system-ui, sans-serif;
+    fill: var(--sl-color-gray-3);
+    font-style: italic;
+    letter-spacing: 0.02em;
   }
   .pd-ico-tag { color: var(--sl-color-accent-high); }
 

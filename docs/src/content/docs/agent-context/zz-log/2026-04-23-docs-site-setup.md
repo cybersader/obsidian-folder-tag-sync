@@ -87,9 +87,16 @@ Aligned `.github/workflows/deploy-docs.yml` with portaconv's canonical:
 - Visual harness: **40 captures**, 0 issues
 - Build time: ~20s for a clean build
 
+## Deployment
+
+Committed and pushed as `eb7b4ef` on 2026-04-24. First push-triggered run failed at the `configure-pages` step because GitHub Pages hadn't been enabled yet. After the user enabled Pages (Settings → Pages → Source: GitHub Actions), a re-triggered `workflow_dispatch` run succeeded and the site went live at:
+
+**https://cybersader.github.io/obsidian-folder-tag-sync/**
+
+All 44 Playwright tests passed in CI (the 2 git-gated `lastUpdated` tests skipped locally now pass in CI, where the files have git history).
+
 ## Next priorities
 
-- Wire `preflight` into all CI steps (currently only local)
-- Commit, push, verify GitHub Pages deploy picks it up
 - Take plugin screenshots, add them to the docs (currently no images)
 - Add `zz-research/` if we accumulate research briefs
+- Wire `preflight` into CI as well (currently only local)

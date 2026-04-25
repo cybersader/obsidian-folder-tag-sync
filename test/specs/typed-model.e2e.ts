@@ -1072,14 +1072,11 @@ describe('folder-tag-sync — Phase 2 typed model E2E', function () {
 
         // Type an invalid regex into the folder pattern input
         const inputState = await browser.executeObsidian(() => {
-          // The advanced modal has no unique class — find the modal that's
-          // not the guided one and scope to it.
-          const modals = Array.from(
-            document.querySelectorAll('.modal-container .modal'),
-          );
-          const advanced = modals.find(
-            (m) => !m.classList.contains('dtf-guided-modal'),
-          ) as HTMLElement | undefined;
+          // Scope to the advanced modal's unique class — without it we'd
+          // also match the Obsidian settings dialog (also .modal).
+          const advanced = document.querySelector(
+            '.modal.dtf-advanced-modal',
+          ) as HTMLElement | null;
           if (!advanced) return { found: false };
 
           const inputs = Array.from(
@@ -1105,12 +1102,9 @@ describe('folder-tag-sync — Phase 2 typed model E2E', function () {
         await browser.pause(200);
 
         const validationState = await browser.executeObsidian(() => {
-          const modals = Array.from(
-            document.querySelectorAll('.modal-container .modal'),
-          );
-          const advanced = modals.find(
-            (m) => !m.classList.contains('dtf-guided-modal'),
-          ) as HTMLElement | undefined;
+          const advanced = document.querySelector(
+            '.modal.dtf-advanced-modal',
+          ) as HTMLElement | null;
           if (!advanced) {
             return { hasInvalidClass: false, errorVisible: false, errorText: '' };
           }
@@ -1141,12 +1135,9 @@ describe('folder-tag-sync — Phase 2 typed model E2E', function () {
 
         // Find and click the "Try guided" link inside the advanced modal
         const linkClicked = await browser.executeObsidian(() => {
-          const modals = Array.from(
-            document.querySelectorAll('.modal-container .modal'),
-          );
-          const advanced = modals.find(
-            (m) => !m.classList.contains('dtf-guided-modal'),
-          ) as HTMLElement | undefined;
+          const advanced = document.querySelector(
+            '.modal.dtf-advanced-modal',
+          ) as HTMLElement | null;
           if (!advanced) return { found: false };
 
           const links = Array.from(
@@ -1164,17 +1155,14 @@ describe('folder-tag-sync — Phase 2 typed model E2E', function () {
 
         const switchedState = await browser.executeObsidian(() => {
           const guided = document.querySelector('.modal.dtf-guided-modal');
-          const advanced = Array.from(
-            document.querySelectorAll('.modal-container .modal'),
-          ).filter((m) => !m.classList.contains('dtf-guided-modal'));
+          const advanced = document.querySelector('.modal.dtf-advanced-modal');
           return {
             guidedOpen: Boolean(guided),
-            advancedCount: advanced.length,
+            advancedClosed: !advanced,
           };
         });
         expect(switchedState.guidedOpen).toBe(true);
-        // Advanced may still appear briefly during close transition; the
-        // important assertion is guided is now open.
+        expect(switchedState.advancedClosed).toBe(true);
 
         await snap('17-advanced-try-guided-link');
         await closeAll();

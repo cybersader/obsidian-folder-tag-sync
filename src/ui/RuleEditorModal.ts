@@ -81,8 +81,12 @@ export class RuleEditorModal extends Modal {
 	}
 
 	onOpen() {
-		const { contentEl } = this;
+		const { contentEl, modalEl } = this;
 		contentEl.empty();
+		// Unique class so e2e tests can scope queries to this modal —
+		// without it, .modal-container .modal also matches Obsidian's
+		// settings dialog and tests grab the wrong inputs.
+		modalEl.addClass('dtf-advanced-modal');
 
 		// Walk the vault folder tree once per open. Both the pattern-section
 		// autocomplete and the live preview panel consume this list.

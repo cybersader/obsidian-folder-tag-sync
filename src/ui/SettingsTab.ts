@@ -1,6 +1,7 @@
 import { App, PluginSettingTab, Setting, Notice, TFolder } from 'obsidian';
 import DynamicTagsFoldersPlugin from '../main';
 import { RuleEditorModal } from './RuleEditorModal';
+import { GuidedRuleEditorModal } from './GuidedRuleEditorModal';
 import { MappingRule } from '../types/settings';
 import { previewRule, RulePreview } from '../engine/rulePreview';
 
@@ -83,12 +84,20 @@ export class SettingsTab extends PluginSettingTab {
 		const header = containerEl.createDiv({ cls: 'dtf-settings-header' });
 		new Setting(header).setName('Mapping rules').setHeading();
 
-		const addButton = header.createEl('button', {
+		const addGuidedButton = header.createEl('button', {
 			text: 'Add rule',
 			cls: 'mod-cta dtf-add-rule-button'
 		});
+		addGuidedButton.addEventListener('click', () => {
+			this.openGuidedRuleEditor();
+		});
 
-		addButton.addEventListener('click', () => {
+		const addAdvancedButton = header.createEl('button', {
+			text: 'Add rule (advanced)',
+			cls: 'dtf-add-rule-advanced-button'
+		});
+		addAdvancedButton.style.marginLeft = '0.5em';
+		addAdvancedButton.addEventListener('click', () => {
 			this.openRuleEditor(null);
 		});
 
@@ -342,6 +351,22 @@ export class SettingsTab extends PluginSettingTab {
 				}
 			});
 		});
+	}
+
+	/**
+	 * Open the guided rule editor — axis-first form with live derivation
+	 * preview and a "test against vault" panel. Save persists the rule
+	 * with full Layer 1 + Layer 2 fields populated by `deriveRule()`.
+	 */
+	private openGuidedRuleEditor() {
+		const modal = new GuidedRuleEditorModal(this.app, (newRule) => {
+			this.plugin.settings.rules = [...this.plugin.settings.rules, newRule];
+			void this.plugin.saveSettings().then(() => {
+				this.display();
+				new Notice(`Rule "${newRule.name}" added`);
+			});
+		});
+		modal.open();
 	}
 
 	private openRuleEditor(rule: MappingRule | null) {

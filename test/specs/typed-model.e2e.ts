@@ -521,6 +521,148 @@ describe('folder-tag-sync — Phase 2 typed model E2E', function () {
       });
     });
 
+    describe('Phase 2B — guided rule editor', function () {
+      const openGuided = async () => {
+        await browser.executeObsidian(({ app }) => {
+          const setting = (
+            app as unknown as {
+              setting: { open(): void; openTabById(id: string): void };
+            }
+          ).setting;
+          setting.open();
+          setting.openTabById('folder-tag-sync');
+        });
+        await browser.pause(400);
+        await browser.executeObsidian(() => {
+          const btns = Array.from(document.querySelectorAll('.dtf-add-rule-button'));
+          const guidedBtn = btns[0] as HTMLButtonElement | undefined;
+          guidedBtn?.click();
+        });
+        await browser.pause(400);
+      };
+
+      const closeAll = async () => {
+        await browser.keys(['Escape']);
+        await browser.pause(150);
+        await browser.executeObsidian(({ app }) => {
+          (app as unknown as { setting: { close(): void } }).setting.close();
+        });
+        await browser.pause(150);
+      };
+
+      it('opens with empty form and shows the live preview scaffolding', async function () {
+        await openGuided();
+        const visible = await browser.executeObsidian(() => {
+          return Boolean(document.querySelector('.dtf-guided-derived'));
+        });
+        expect(visible).toBe(true);
+        await snap('06-guided-empty');
+        await closeAll();
+      });
+
+      it('CTA disabled with empty form, enables after fields filled', async function () {
+        await openGuided();
+        const disabledFirst = await browser.executeObsidian(() => {
+          const btns = Array.from(document.querySelectorAll('.dtf-guided-actions button'));
+          const cta = btns.find((b) => (b.textContent ?? '').includes('Create')) as
+            | HTMLButtonElement
+            | undefined;
+          return cta?.disabled ?? false;
+        });
+        expect(disabledFirst).toBe(true);
+
+        // Fill the three required fields by populating modal state directly
+        await browser.executeObsidian(() => {
+          const inputs = Array.from(
+            document.querySelectorAll('.modal-content input[type="text"]'),
+          ) as HTMLInputElement[];
+          if (inputs.length >= 3) {
+            const set = (el: HTMLInputElement, v: string) => {
+              const desc = Object.getOwnPropertyDescriptor(
+                HTMLInputElement.prototype,
+                'value',
+              );
+              desc?.set?.call(el, v);
+              el.dispatchEvent(new Event('input', { bubbles: true }));
+            };
+            set(inputs[0], 'My capture inbox'); // name
+            // Find folderEntry input — it's after the priority field
+            const folderInput = inputs.find((i) => i.placeholder.includes('Capture/Inbox'));
+            const tagInput = inputs.find((i) => i.placeholder === '-inbox');
+            if (folderInput) set(folderInput, 'Capture/Inbox');
+            if (tagInput) set(tagInput, '-inbox');
+          }
+        });
+        await browser.pause(250);
+
+        const enabledSecond = await browser.executeObsidian(() => {
+          const btns = Array.from(document.querySelectorAll('.dtf-guided-actions button'));
+          const cta = btns.find((b) => (b.textContent ?? '').includes('Create')) as
+            | HTMLButtonElement
+            | undefined;
+          return !cta?.disabled;
+        });
+        expect(enabledSecond).toBe(true);
+
+        await snap('07-guided-filled-cta-enabled');
+        await closeAll();
+      });
+
+      it('inconsistency warnings appear for marker-only + pre-coordinated', async function () {
+        await openGuided();
+        // Switch transfer op to marker-only via the dropdown
+        await browser.executeObsidian(() => {
+          const selects = Array.from(
+            document.querySelectorAll('.modal-content select'),
+          ) as HTMLSelectElement[];
+          const transferOpSelect = selects.find((s) =>
+            Array.from(s.options).some((o) => o.value === 'truncation'),
+          );
+          if (transferOpSelect) {
+            transferOpSelect.value = 'marker-only';
+            transferOpSelect.dispatchEvent(new Event('change', { bubbles: true }));
+          }
+        });
+        await browser.pause(250);
+
+        const warningVisible = await browser.executeObsidian(() => {
+          return Boolean(document.querySelector('.dtf-guided-warning'));
+        });
+        expect(warningVisible).toBe(true);
+        await snap('08-guided-warning-marker-precoord');
+        await closeAll();
+      });
+
+      it('vault test panel updates with sample folder match', async function () {
+        await openGuided();
+        // Fill folderEntry with a path that exists in the test vault
+        await browser.executeObsidian(() => {
+          const inputs = Array.from(
+            document.querySelectorAll('.modal-content input[type="text"]'),
+          ) as HTMLInputElement[];
+          const folderInput = inputs.find((i) => i.placeholder.includes('Capture/Inbox'));
+          if (folderInput) {
+            const desc = Object.getOwnPropertyDescriptor(
+              HTMLInputElement.prototype,
+              'value',
+            );
+            desc?.set?.call(folderInput, 'PrimTest/Identity');
+            folderInput.dispatchEvent(new Event('input', { bubbles: true }));
+          }
+        });
+        await browser.pause(250);
+
+        const matchText = await browser.executeObsidian(() => {
+          const el = document.querySelector('.dtf-guided-vault-test');
+          return el?.textContent ?? '';
+        });
+        // Earlier specs in this run created PrimTest/Identity/Alpha/Beta/...
+        expect(matchText).toContain('match');
+        await snap('09-guided-vault-test-populated');
+        await closeAll();
+      });
+    });
+
     it('command palette — import-rule-pack command surfaces', async function () {
       // Distinct surface: open the command palette and verify the new
       // command appears. Captures a different state than settings tab,

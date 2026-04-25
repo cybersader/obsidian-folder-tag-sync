@@ -634,20 +634,26 @@ describe('folder-tag-sync — Phase 2 typed model E2E', function () {
 
       it('vault test panel updates with sample folder match', async function () {
         await openGuided();
-        // Fill folderEntry with a path that exists in the test vault
+        // Fill BOTH folderEntry AND tagEntry so the gate (entriesPopulated())
+        // releases and the panel shows real match results — not the "fill
+        // both" hint message (which incidentally contains the word "match"
+        // and would let the assertion below pass for the wrong reason).
         await browser.executeObsidian(() => {
           const inputs = Array.from(
             document.querySelectorAll('.modal-content input[type="text"]'),
           ) as HTMLInputElement[];
-          const folderInput = inputs.find((i) => i.placeholder.includes('Capture/Inbox'));
-          if (folderInput) {
+          const setVal = (el: HTMLInputElement, v: string) => {
             const desc = Object.getOwnPropertyDescriptor(
               HTMLInputElement.prototype,
               'value',
             );
-            desc?.set?.call(folderInput, 'PrimTest/Identity');
-            folderInput.dispatchEvent(new Event('input', { bubbles: true }));
-          }
+            desc?.set?.call(el, v);
+            el.dispatchEvent(new Event('input', { bubbles: true }));
+          };
+          const folderInput = inputs.find((i) => i.placeholder.includes('Capture/Inbox'));
+          const tagInput = inputs.find((i) => i.placeholder === '-inbox');
+          if (folderInput) setVal(folderInput, 'PrimTest/Identity');
+          if (tagInput) setVal(tagInput, 'prim-identity');
         });
         await browser.pause(250);
 

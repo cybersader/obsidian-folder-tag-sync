@@ -594,8 +594,12 @@ export class GuidedRuleEditorModal extends Modal {
 	private renderAxisTiles(): void {
 		this.axisTilesEl.empty();
 		for (const [axis, conv] of Object.entries(AXIS_CONVENTIONS) as Array<[Axis, typeof AXIS_CONVENTIONS[Axis]]>) {
+			const isSelected = this.state.axis === axis;
 			const tile = this.axisTilesEl.createDiv({ cls: 'dtf-guided-axis-tile' });
 			tile.setAttribute('data-axis', axis);
+			tile.setAttribute('role', 'button');
+			tile.setAttribute('aria-pressed', isSelected ? 'true' : 'false');
+			tile.tabIndex = 0;
 			tile.style.padding = '0.5em';
 			tile.style.background = 'var(--background-secondary)';
 			tile.style.borderRadius = '6px';
@@ -633,10 +637,17 @@ export class GuidedRuleEditorModal extends Modal {
 
 			tile.title = conv.description;
 
-			tile.addEventListener('click', () => {
+			const select = () => {
 				this.state.axis = axis;
 				this.state.tagPrefixMarker = conv.marker;
 				this.notify();
+			};
+			tile.addEventListener('click', select);
+			tile.addEventListener('keydown', (e) => {
+				if (e.key === 'Enter' || e.key === ' ') {
+					e.preventDefault();
+					select();
+				}
 			});
 		}
 	}

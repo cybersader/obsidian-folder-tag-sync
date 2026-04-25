@@ -3,6 +3,7 @@ import type { DynamicTagsFoldersSettings, MappingRule } from '../types/settings'
 import { DebugLogger } from '../utils/debug';
 import { findMatchingRules } from '../engine/ruleMatcher';
 import { applyTransformPipeline } from '../transformers/pipeline';
+import { applyRuleInverse } from '../engine/applyTransfer';
 
 /**
  * Handles tag-to-folder synchronization
@@ -194,57 +195,26 @@ export class TagToFolderSync {
   }
 
   /**
-   * Transform tag to folder path using rule's transformations
-   * This is the inverse of transformFolderToTag in FolderToTagSync
+   * Transform tag to folder path using `rule.inverseTransfer`.
+   *
+   * Delegates to the pure `applyRuleInverse`. The library-science pipeline
+   * lives in `engine/applyTransfer.ts`; this method just adapts to the
+   * sync-engine's async logged context.
    */
   private async transformTagToFolder(tag: string, rule: MappingRule): Promise<string | null> {
     try {
-      // Remove # prefix if present
-      let tagContent = tag.startsWith('#') ? tag.slice(1) : tag;
-
-      // Remove tag entry point if specified
-      if (rule.tagEntryPoint) {
-        const entryPoint = rule.tagEntryPoint.startsWith('#')
-          ? rule.tagEntryPoint.slice(1)
-          : rule.tagEntryPoint;
-        tagContent = tagContent.replace(new RegExp(`^${entryPoint}/?`), '');
-      }
-
-      await this.logger.info('Extracted tag content for transformation', {
+      const result = applyRuleInverse(tag, rule);
+      await this.logger.info('Recoordinated tag→folder', {
         originalTag: tag,
-        extractedContent: tagContent,
-        rule: rule.name
+        op: rule.inverseTransfer?.op ?? rule.transfer?.op ?? 'identity',
+        folder: result.folder,
+        lossy: result.lossy,
+        rule: rule.name,
       });
-
-      // Apply transformations using the pipeline
-      // For tag-to-folder, we need to reverse the transformations
-      if (rule.folderTransforms) {
-        const transformed = applyTransformPipeline(tagContent, rule.folderTransforms, {
-          isTagTransform: false
-        });
-
-        // Add folder entry point if specified
-        let folderPath: string;
-        if (rule.folderEntryPoint) {
-          folderPath = transformed
-            ? `${rule.folderEntryPoint}/${transformed}`
-            : rule.folderEntryPoint;
-        } else {
-          folderPath = transformed;
-        }
-
-        await this.logger.info('Transformed tag to folder', {
-          tag,
-          folderPath
-        });
-
-        return folderPath;
-      }
-
-      return null;
+      return result.folder;
     } catch (error) {
       await this.logger.error('Transformation error', {
-        error: error instanceof Error ? error.message : 'Unknown error'
+        error: error instanceof Error ? error.message : 'Unknown error',
       });
       return null;
     }

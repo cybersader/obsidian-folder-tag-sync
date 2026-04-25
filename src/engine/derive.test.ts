@@ -381,7 +381,7 @@ describe('additional framework rules (PARA/JD/ZK shapes)', () => {
 		};
 		const r = deriveRule(spec);
 		expect(r.tagPattern).toBe('^zk-inbox$');
-		expect(r.folderPattern).toBe('^0 - Inbox/.*$');
+		expect(r.folderPattern).toBe('^0 - Inbox(?:/.*)?$');
 		expect(r.cardinality).toBe('many:1');
 		expect(r.bijective).toBe(false);
 	});

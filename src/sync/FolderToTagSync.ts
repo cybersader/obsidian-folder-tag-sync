@@ -3,6 +3,7 @@ import type { DynamicTagsFoldersSettings, MappingRule } from '../types/settings'
 import { DebugLogger } from '../utils/debug';
 import { findMatchingRules } from '../engine/ruleMatcher';
 import { applyTransformPipeline } from '../transformers/pipeline';
+import { applyRuleForward } from '../engine/applyTransfer';
 
 /**
  * Handles folder-to-tag synchronization
@@ -66,25 +67,27 @@ export class FolderToTagSync {
         };
       }
 
-      // Transform folder path to tag
-      const tag = await this.transformFolderToTag(folderPath, rule);
+      // Transform folder path to tag(s) — may emit zero, one, or many tags
+      // depending on the rule's transfer op (opaque ⇒ 0; identity / truncation /
+      // marker-only / promotion / flattening / aggregation ⇒ 1; post-coordination ⇒ N).
+      const tags = await this.transformFolderToTag(folderPath, rule);
 
-      if (!tag) {
-        await this.logger.error('Failed to transform folder to tag', {
+      if (tags.length === 0) {
+        await this.logger.info('Rule produced no tags (opaque or empty)', {
           folderPath,
-          rule: rule.name
+          rule: rule.name,
         });
         return {
-          success: false,
+          success: true,
           tagsAdded: [],
           tagsRemoved: [],
-          error: 'Transformation failed'
+          message: 'Rule produced no tags',
         };
       }
 
-      await this.logger.info('Transformed folder to tag', {
+      await this.logger.info('Transformed folder to tag(s)', {
         folderPath,
-        tag
+        tags,
       });
 
       // Read current file content
@@ -94,39 +97,39 @@ export class FolderToTagSync {
       const { frontmatter, body } = this.parseFrontmatter(content);
       const currentTags = this.extractTags(frontmatter);
 
-      // Check if tag already exists
-      if (currentTags.includes(tag)) {
-        await this.logger.info('Tag already exists, no changes needed', { tag });
+      const newTagsToAdd = tags.filter((t) => !currentTags.includes(t));
+      if (newTagsToAdd.length === 0) {
+        await this.logger.info('All emitted tags already present, no changes needed', { tags });
         return {
           success: true,
           tagsAdded: [],
           tagsRemoved: [],
-          message: 'Tag already exists'
+          message: 'Tags already exist',
         };
       }
 
-      // Add new tag
-      const newTags = [...currentTags, tag];
-      const newFrontmatter = this.updateTags(frontmatter, newTags);
+      // Add new tags
+      const updatedTags = [...currentTags, ...newTagsToAdd];
+      const newFrontmatter = this.updateTags(frontmatter, updatedTags);
       const newContent = this.reconstructFile(newFrontmatter, body);
 
       // Write back to file
       await this.app.vault.modify(file, newContent);
 
-      await this.logger.info('Successfully added tag', {
-        tag,
-        file: file.path
+      await this.logger.info('Successfully added tag(s)', {
+        added: newTagsToAdd,
+        file: file.path,
       });
 
       if (this.settings.options.showNotifications) {
-        new Notice(`Added tag: ${tag}`);
+        new Notice(`Added ${newTagsToAdd.length} tag(s): ${newTagsToAdd.join(', ')}`);
       }
 
       return {
         success: true,
-        tagsAdded: [tag],
+        tagsAdded: newTagsToAdd,
         tagsRemoved: [],
-        message: 'Tag added successfully'
+        message: 'Tag(s) added successfully',
       };
 
     } catch (error) {
@@ -147,57 +150,30 @@ export class FolderToTagSync {
   }
 
   /**
-   * Transform folder path to tag using rule's transformations
+   * Transform folder path to one or more tags.
+   *
+   * Delegates to the pure `applyRuleForward` — this method exists only to
+   * adapt the result into the sync-engine's logged async context. The
+   * library-science pipeline (match → extract → recoordinate → transform →
+   * emit) lives in `engine/applyTransfer.ts` where it can be unit-tested
+   * without instantiating the sync engine.
    */
-  private async transformFolderToTag(folderPath: string, rule: MappingRule): Promise<string | null> {
+  private async transformFolderToTag(folderPath: string, rule: MappingRule): Promise<string[]> {
     try {
-      // Extract the relevant part of the folder path based on rule pattern
-      const pattern = new RegExp(rule.folderPattern || '.*');
-      const match = folderPath.match(pattern);
-
-      if (!match) {
-        return null;
-      }
-
-      // Use the full matched path, not just capture groups
-      let pathToTransform = match[0];
-
-      // Remove folder entry point if specified
-      if (rule.folderEntryPoint) {
-        pathToTransform = pathToTransform.replace(new RegExp(`^${rule.folderEntryPoint}/?`), '');
-      }
-
-      await this.logger.info('Extracted path for transformation', {
+      const result = applyRuleForward(folderPath, rule);
+      await this.logger.info('Recoordinated folder→tag', {
         originalPath: folderPath,
-        extractedPath: pathToTransform,
-        rule: rule.name
+        op: rule.transfer?.op ?? 'identity',
+        emitted: result.tags,
+        lossy: result.lossy,
+        rule: rule.name,
       });
-
-      // Apply transformations using the pipeline
-      if (rule.tagTransforms) {
-        const transformed = applyTransformPipeline(pathToTransform, rule.tagTransforms, {
-          isTagTransform: true
-        });
-
-        // Add tag entry point if specified
-        let tag: string;
-        if (rule.tagEntryPoint) {
-          // Only add slash if there's content after the entry point
-          tag = transformed ? `${rule.tagEntryPoint}/${transformed}` : rule.tagEntryPoint;
-        } else {
-          tag = transformed;
-        }
-
-        // Ensure tag starts with #
-        return tag.startsWith('#') ? tag : `#${tag}`;
-      }
-
-      return null;
+      return result.tags;
     } catch (error) {
       await this.logger.error('Transformation error', {
-        error: error instanceof Error ? error.message : 'Unknown error'
+        error: error instanceof Error ? error.message : 'Unknown error',
       });
-      return null;
+      return [];
     }
   }
 

@@ -48,8 +48,11 @@ export function deriveFolderPattern(spec: TypedRuleSpec): string {
 	const op = spec.transfer.op;
 
 	if (op === 'marker-only') {
-		// Folder side: any path under the entry point is tagged with the marker.
-		return `^${entry}${sep}.*$`;
+		// Folder side: any path under the entry point — including the entry
+		// folder ITSELF — is tagged with the marker. (`Capture/Inbox` alone
+		// is the folderPath of a file at `Capture/Inbox/today.md`, so the
+		// rule must match the bare entry string too.)
+		return `^${entry}(?:${sep}.*)?$`;
 	}
 
 	if (op === 'truncation' && spec.transfer.tailHandling === 'drop') {

@@ -7,7 +7,15 @@ sidebar:
 
 A `TransferOp` is the **mapping** between the two sides of a rule — the third of the three typed things (folder side, tag side, transfer). There are eight primitives. Each one answers the question "what happens to hierarchy as this rule's folder matches become tags (and vice versa)?"
 
-All eight are drawn from classification theory's vocabulary for how one scheme compresses or expands onto another.
+All eight are drawn from classification theory's vocabulary for how one scheme compresses or expands onto another. Each one is **runtime-enforced** by the sync engines — when a rule fires, the typed transfer op drives the recoordination of source-side path segments into destination-side tag segments before the transform pipeline (case, emoji, number-prefix) ever sees the strings.
+
+The pipeline is:
+
+```
+match → extract → recoordinate (this page) → transform → emit
+```
+
+`recoordinate` is the pure function `applyTransfer` in `src/engine/applyTransfer.ts`. The sync engines call `applyRuleForward` (for folder→tag) or `applyRuleInverse` (for tag→folder), both of which thread the typed transfer op through this pipeline.
 
 ## The eight primitives at a glance
 
@@ -66,41 +74,50 @@ Bijective. This is the strict option — use it when content deeper than N shoul
 
 ### `tailHandling: 'aggregate'`
 
-Deeper segments are **joined with `separator` into a single (N+1)th tag segment**. The user's "stack everything at the 3rd layer" case.
+Deeper segments are **joined with `separator` into a single (N+1)th tag segment**. The "stack everything at the 3rd layer" case.
 
 ```
 truncation(depth: 2, tailHandling: 'aggregate', separator: '-')
+
 File: Capture/Clips/Web/Tutorials/React/Hooks/intro.md
-→ tag = #-clip/web/tutorials-react-hooks
+Folder path:           Capture/Clips/Web/Tutorials/React/Hooks
+Strip entry:                          Web/Tutorials/React/Hooks
+Recoordinate (depth 2, aggregate '-'):  ['Web', 'Tutorials', 'React-Hooks']
+Apply tag transforms (kebab):         ['web', 'tutorials', 'react-hooks']
+Rejoin + prepend entry:               -clip/web/tutorials/react-hooks
+Emit:                                 #-clip/web/tutorials/react-hooks
 ```
 
-Level 1 (entry): `Capture/Clips` → `-clip`. Level 2 preserved: `Web` → `web`. Level 3+ aggregated: `Tutorials/React/Hooks` → `tutorials-react-hooks`. The tag has exactly depth 2 (your chosen hierarchy budget), and the deeper path gets packed into the single (N+1)th tag segment.
+Level 1 of the source (the entry folder `Capture/Clips`) is consumed by the entry-strip step. Levels 2 and 3 of the source (`Web`, `Tutorials`) become the first two tag segments. Level 4+ of the source (`React`, `Hooks`) get joined with `-` into the single third tag segment. The tag has exactly depth 2 in your chosen vocabulary, and the deeper folder path is preserved as one compressed term.
 
-**Not bijective**: unpacking `tutorials-react-hooks` back into `Tutorials/React/Hooks/` is lossy — we can't know a hyphen in the aggregated segment isn't a legitimate folder-name hyphen. The plugin warns on save.
+**Not bijective**: unpacking `react-hooks` back into `React/Hooks/` is lossy — we can't know a hyphen in the aggregated segment isn't a legitimate folder-name hyphen. The plugin marks `bijective: false` on the rule.
 
 ### `tailHandling: 'flatten'`
 
-Deeper path **collapses to just the leaf folder name**.
+Deeper path **collapses to just the leaf folder name**. Ancestry between depth N and the leaf is dropped.
 
 ```
 truncation(depth: 2, tailHandling: 'flatten')
+
 File: Capture/Clips/Web/Tutorials/React/Hooks/intro.md
-→ tag = #-clip/web/hooks
+Recoordinate:    ['Web', 'Tutorials', 'Hooks']  ← React dropped, Hooks is the leaf
+Emit:            #-clip/web/tutorials/hooks
 ```
 
-Level 2 preserved; the ancestry between level 2 and the leaf is thrown away. Lossy.
+Use when you care about the leaf identity but not the path that led there.
 
 ## `marker-only`
 
-Flat controlled vocabulary — one fixed tag for everything under the folder, regardless of sub-path.
+Flat controlled vocabulary — one fixed tag for everything under the folder (and the folder itself), regardless of sub-path.
 
 ```ts
 { op: 'marker-only'; marker: string }
 ```
 
-- **Derived folder pattern**: `^{folderEntry}/.*$`
-- **Derived tag pattern**: `^{escape(marker)}$` (fully anchored — single controlled term)
+- **Derived folder pattern**: `^{folderEntry}(?:/.*)?$` — matches the entry folder *and* anything beneath it
+- **Derived tag pattern**: `^{escape(marker)}$` (fully anchored — single controlled term, can't be a prefix of a longer tag)
 - **Cardinality**: many:1, non-bijective
+- **Marker is NOT re-cased** — it's a literal controlled-vocabulary term, so the runtime bypasses the tag transform pipeline for marker-only ops. `#-inbox` stays `#-inbox` no matter what `caseTransform` says.
 - **Use for**: `Capture/Inbox/ ↔ #-inbox`, `System/ ↔ /template`
 
 ## `promotion-to-root`
@@ -129,14 +146,15 @@ Only the **last** segment (the leaf folder) becomes the tag. Ancestry is dropped
 
 ## `post-coordination`
 
-Axis split. Each folder segment becomes **its own flat tag** — N tags instead of one hierarchical tag.
+Axis split. Each folder segment becomes **its own flat tag** — N tags instead of one hierarchical tag. The sync engine emits all N to the file's frontmatter.
 
 ```ts
 { op: 'post-coordination' }
 ```
 
 - **Use for**: faceted vocabularies where each facet is independent
-- **Example**: `Research/Attention/2024-Q4/` → `#research` + `#attention` + `#2024-q4` (three flat tags)
+- **Worked example**: `Research/Attention/2024-Q4/` (with `folderEntry: 'Research'`) → `#attention` + `#2024-q4` (two flat tags, hierarchy lost)
+- **Inverse direction**: a single tag can only place a file in one folder, so the inverse uses just the first emitted segment list — typically users author rules where the forward is post-coordination and the inverse is `flattening-to-leaf` or `identity` for asymmetric handling
 
 ## `aggregation`
 

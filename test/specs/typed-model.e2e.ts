@@ -746,6 +746,29 @@ describe('folder-tag-sync — Phase 2 typed model E2E', function () {
           );
         }
         expect(surfaced.hasModal).toBe(true);
+
+        // If hasModal is true but no packs surfaced, dump diagnostic about
+        // what the vault actually contains and what the modal is showing.
+        if (!surfaced.packs.some((p) => p.toLowerCase().includes('seacow'))) {
+          const debug = await browser.executeObsidian(({ app }) => {
+            const out: { folders: string[]; modalText: string } = { folders: [], modalText: '' };
+            const walk = (folder: { children: unknown[]; path: string }) => {
+              for (const child of folder.children as { children?: unknown[]; path?: string }[]) {
+                if ('children' in child && child.path) {
+                  out.folders.push(child.path);
+                  walk(child as { children: unknown[]; path: string });
+                }
+              }
+            };
+            walk(app.vault.getRoot() as unknown as { children: unknown[]; path: string });
+            const modal = document.querySelector('.dtf-detect-modal');
+            out.modalText = (modal?.textContent ?? '').slice(0, 500);
+            return out;
+          });
+          console.error(
+            `[detect e2e] no SEACOW match. vault folders: ${JSON.stringify(debug.folders)}\nmodal text: ${debug.modalText}`,
+          );
+        }
         // SEACOW outer should surface; PARA/JD won't unless we created their roots
         expect(surfaced.packs.some((p) => p.toLowerCase().includes('seacow'))).toBe(true);
 

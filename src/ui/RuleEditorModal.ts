@@ -26,7 +26,13 @@ export type SwitchToGuidedFn = (rule: MappingRule) => void;
 
 export class RuleEditorModal extends Modal {
 	rule: MappingRule;
-	onSave: (rule: MappingRule) => void;
+	/**
+	 * Save callback. `null` signals deletion (only fires from the Delete
+	 * button on existing rules); the callback distinguishes save-vs-delete
+	 * by checking for null. Previously typed as `MappingRule` with a cast
+	 * at the delete site, which was a lie — this is the honest version.
+	 */
+	onSave: (rule: MappingRule | null) => void;
 	isNew: boolean;
 	private readonly onSwitchToGuided?: SwitchToGuidedFn;
 
@@ -45,7 +51,7 @@ export class RuleEditorModal extends Modal {
 	constructor(
 		app: App,
 		rule: MappingRule | null,
-		onSave: (rule: MappingRule) => void,
+		onSave: (rule: MappingRule | null) => void,
 		onSwitchToGuided?: SwitchToGuidedFn,
 	) {
 		super(app);
@@ -740,9 +746,15 @@ export class RuleEditorModal extends Modal {
 			});
 
 			deleteButton.addEventListener('click', () => {
-				// Signal deletion by passing null - the callback handles this
-				// Cast is safe here as the callback checks for null
-				this.onSave(null as unknown as MappingRule);
+				// Confirm before destructive action. Click-once delete on a
+				// big modal button is too easy to fire accidentally; the
+				// confirm dialog is the standard browser native and runs in
+				// Electron without extra plumbing.
+				const ok = confirm(
+					`Delete rule "${this.rule.name}"? This cannot be undone.`,
+				);
+				if (!ok) return;
+				this.onSave(null);
 				new Notice(`Rule "${this.rule.name}" deleted`);
 				this.close();
 			});

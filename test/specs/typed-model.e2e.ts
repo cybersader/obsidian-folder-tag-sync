@@ -386,12 +386,20 @@ describe('folder-tag-sync — Phase 2 typed model E2E', function () {
           );
           plugin.settings.rules.push(derivedRule);
 
-          // Create the fixture file with empty body (no frontmatter — sync will add tags)
+          // Create the fixture file *through the vault*, not the adapter —
+          // adapter.write bypasses Obsidian's metadata cache, so the file
+          // wouldn't be findable via vault.getAbstractFileByPath() when sync
+          // tries to read it. vault.createFolder + vault.create register the
+          // file in the index synchronously.
           const folderPath = c.filePath.split('/').slice(0, -1).join('/');
-          if (!(await adapter.exists(folderPath))) {
-            await adapter.mkdir(folderPath);
+          if (folderPath && !app.vault.getAbstractFileByPath(folderPath)) {
+            await app.vault.createFolder(folderPath);
           }
-          await adapter.write(c.filePath, '');
+          if (!app.vault.getAbstractFileByPath(c.filePath)) {
+            await app.vault.create(c.filePath, '');
+          }
+          // Suppress unused-var warning for adapter (still imported for type)
+          void adapter;
         }
         await plugin.saveSettings();
       }, cases);

@@ -325,6 +325,9 @@ export type GuidedEditorMode =
 	/** Editing a legacy regex rule via best-effort inference. Banner shown. */
 	| { kind: 'edit-from-inferred'; existingRule: MappingRule };
 
+/** Optional callback for the "Open in advanced (regex)" escape-hatch link. */
+export type SwitchToAdvancedFn = (rule: MappingRule) => void;
+
 export class GuidedRuleEditorModal extends Modal {
 	private state: FormState;
 	private readonly onSave: (rule: MappingRule) => void;
@@ -346,15 +349,19 @@ export class GuidedRuleEditorModal extends Modal {
 	private axisTilesEl!: HTMLElement;
 	private saveBtn!: HTMLButtonElement;
 
+	private readonly onSwitchToAdvanced?: SwitchToAdvancedFn;
+
 	constructor(
 		app: App,
 		onSave: (rule: MappingRule) => void,
 		mode: GuidedEditorMode = { kind: 'create' },
+		onSwitchToAdvanced?: SwitchToAdvancedFn,
 	) {
 		super(app);
 		this.mode = mode;
 		this.state = mode.kind === 'create' ? defaultFormState() : populateFromRule(mode.existingRule);
 		this.onSave = onSave;
+		this.onSwitchToAdvanced = onSwitchToAdvanced;
 	}
 
 	onOpen(): void {
@@ -366,12 +373,35 @@ export class GuidedRuleEditorModal extends Modal {
 
 		this.collectVaultFolders();
 
-		// 1. Title — adapts to mode
+		// 1. Title row — adapts to mode, with optional escape-hatch link
 		const titleText =
 			this.mode.kind === 'create' ? 'Create rule (guided)' : 'Edit rule (guided)';
-		new Setting(contentEl).setName(titleText).setHeading();
 
-		// Inferred-mode banner: be honest about what just happened.
+		const titleRow = contentEl.createDiv();
+		titleRow.style.display = 'flex';
+		titleRow.style.alignItems = 'baseline';
+		titleRow.style.justifyContent = 'space-between';
+		titleRow.style.gap = '0.5em';
+
+		new Setting(titleRow).setName(titleText).setHeading();
+
+		// Escape hatch — present whenever the user might want raw regex
+		if (this.mode.kind !== 'create' && this.onSwitchToAdvanced) {
+			const switchLink = titleRow.createEl('a', { text: 'Open in advanced (regex)' });
+			switchLink.style.fontSize = '0.85em';
+			switchLink.style.cursor = 'pointer';
+			switchLink.style.color = 'var(--text-muted)';
+			switchLink.addEventListener('click', (e) => {
+				e.preventDefault();
+				const rule = this.mode.kind !== 'create' ? this.mode.existingRule : null;
+				if (rule && this.onSwitchToAdvanced) {
+					this.onSwitchToAdvanced(rule);
+					this.close();
+				}
+			});
+		}
+
+		// Inferred-mode banner: be honest about what's been auto-filled.
 		if (this.mode.kind === 'edit-from-inferred') {
 			const banner = contentEl.createDiv();
 			banner.style.padding = '0.5em 0.75em';
@@ -380,7 +410,7 @@ export class GuidedRuleEditorModal extends Modal {
 			banner.style.marginBottom = '0.6em';
 			banner.style.fontSize = '0.85em';
 			banner.setText(
-				'Best-effort import from a regex rule — review the fields below before saving. The save will replace the original rule\'s fields with the typed-derived versions.',
+				"Best-effort import — fields below were inferred from this rule's regex patterns. Review each before saving. If the inferred shape doesn't match your intent, switch to the advanced (regex) editor via the link above.",
 			);
 		}
 

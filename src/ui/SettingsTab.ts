@@ -2,11 +2,9 @@ import { App, PluginSettingTab, Setting, Notice, TFolder } from 'obsidian';
 import DynamicTagsFoldersPlugin from '../main';
 import { RuleEditorModal } from './RuleEditorModal';
 import { GuidedRuleEditorModal } from './GuidedRuleEditorModal';
-import { EditModeChooserModal } from './EditModeChooserModal';
 import { DetectVaultModal } from './DetectVaultModal';
 import { MappingRule } from '../types/settings';
 import { previewRule, RulePreview } from '../engine/rulePreview';
-import { inferTypedModel } from '../engine/inferTyped';
 
 /**
  * Settings tab for the plugin
@@ -376,38 +374,36 @@ export class SettingsTab extends PluginSettingTab {
 	 * Smart edit router — clicking an existing rule decides which editor
 	 * to open based on whether the rule fits the typed model.
 	 *
-	 *   - rule has typed fields (folder/tag/transfer set) → guided editor
-	 *     (edit mode, populated from those fields)
-	 *   - legacy regex rule but inferTypedModel() recovers all 3 typed
-	 *     fields → chooser dialog (guided import vs advanced)
-	 *   - inference is ambiguous → advanced editor directly
+	 * Principle: ALWAYS default to guided. Whatever the rule looks like —
+	 * fully typed, partially inferable, or pure regex — the guided form
+	 * can hold it. Missing typed fields are defaulted (the user reviews +
+	 * sets explicitly). The "Open in advanced (regex)" link inside the
+	 * guided modal is the explicit escape hatch for users who need raw
+	 * regex.
 	 *
-	 * Save callback handles update-vs-append by id matching.
+	 *   - rule has typed fields → guided edit, no banner
+	 *   - rule has any inferable typed fields → guided edit + best-effort
+	 *     banner explaining what was inferred / defaulted
+	 *   - rule has nothing inferable (pure regex with weird shape) →
+	 *     guided edit anyway, banner says "Couldn't infer — review every
+	 *     field," and the Advanced link is right there
+	 *
+	 * The chooser modal is intentionally NOT used — adding a click before
+	 * the user can edit a rule is friction that violates "always default
+	 * to the better UX."
 	 */
 	private routeRuleEdit(rule: MappingRule): void {
-		// Path A — explicit typed fields present
+		// Path A — explicit typed fields already present (rule was authored
+		// via guided modal, or imported through the typed-spec path).
 		if (rule.folder && rule.tag && rule.transfer) {
 			this.openGuidedEditMode(rule, 'edit');
 			return;
 		}
 
-		// Path B — legacy rule; try inference. If complete, offer chooser.
-		const inferred = inferTypedModel(rule);
-		const inferenceComplete = !!(inferred.folder && inferred.tag && inferred.transfer);
-		if (inferenceComplete) {
-			const chooser = new EditModeChooserModal(this.app, rule.name, (choice) => {
-				if (choice === 'guided') {
-					this.openGuidedEditMode(rule, 'edit-from-inferred');
-				} else {
-					this.openRuleEditor(rule);
-				}
-			});
-			chooser.open();
-			return;
-		}
-
-		// Path C — inference can't reconstruct cleanly. Advanced only.
-		this.openRuleEditor(rule);
+		// Path B — anything else. Run inference at population time inside
+		// the guided modal (populateFromRule already does this). The banner
+		// communicates that some fields are best-effort imports.
+		this.openGuidedEditMode(rule, 'edit-from-inferred');
 	}
 
 	/** Open guided in edit mode + handle save-by-id (replace existing). */
@@ -421,6 +417,12 @@ export class SettingsTab extends PluginSettingTab {
 				this.upsertRule(updatedRule);
 			},
 			{ kind, existingRule: rule },
+			// Escape hatch — clicking "Open in advanced (regex)" inside the
+			// guided modal closes guided and opens the legacy regex editor
+			// against the same rule.
+			(forwardedRule) => {
+				this.openRuleEditor(forwardedRule);
+			},
 		);
 		modal.open();
 	}

@@ -684,13 +684,15 @@ describe('folder-tag-sync — Phase 2 typed model E2E', function () {
 
     describe('Phase 2C — Detect-mode UI', function () {
       it('Scan command opens detect modal with detected packs ranked', async function () {
-        // Stage some folders that match the SEACOW outer signal pattern
-        // (Capture/, Entity/, Output/, System/) so detection surfaces the pack.
+        // Stage SEACOW-shaped folders via vault.createFolder so they
+        // register in the vault index — adapter.mkdir bypasses the index
+        // and vault.getRoot() wouldn't see the folders.
         await browser.executeObsidian(async ({ app }) => {
-          const adapter = app.vault.adapter;
           const dirs = ['Capture', 'Capture/Inbox', 'Entity', 'Output', 'Output/Main', 'System'];
           for (const d of dirs) {
-            if (!(await adapter.exists(d))) await adapter.mkdir(d);
+            if (!app.vault.getAbstractFileByPath(d)) {
+              await app.vault.createFolder(d);
+            }
           }
         });
         await browser.pause(200);

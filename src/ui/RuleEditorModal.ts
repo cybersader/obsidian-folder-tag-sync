@@ -7,8 +7,9 @@
 import { App, Modal, Setting, Notice, TFolder } from 'obsidian';
 import { MappingRule, CaseTransformType, RuleDirection } from '../types/settings';
 import { validateRule } from '../engine/ruleMatcher';
-import { folderToTag, tagToFolder, isTransformReversible } from '../transformers/pipeline';
+import { isTransformReversible } from '../transformers/pipeline';
 import { validateRegexPattern } from '../transformers/regexTransformers';
+import { previewRule } from '../engine/rulePreview';
 import {
 	EntryPathSuggest,
 	collectFolderSources,
@@ -26,6 +27,11 @@ export class RuleEditorModal extends Modal {
 		folderPattern: null,
 		tagPattern: null,
 	};
+
+	// Cached vault folder list — computed once on open, reused by the live
+	// preview panel on every input change.
+	private vaultFolderPaths: string[] = [];
+	private previewPanelEl: HTMLElement | null = null;
 
 	constructor(
 		app: App,
@@ -67,6 +73,19 @@ export class RuleEditorModal extends Modal {
 		const { contentEl } = this;
 		contentEl.empty();
 
+		// Walk the vault folder tree once per open. Both the pattern-section
+		// autocomplete and the live preview panel consume this list.
+		this.vaultFolderPaths = [];
+		const walk = (folder: TFolder) => {
+			for (const child of folder.children) {
+				if (child instanceof TFolder) {
+					this.vaultFolderPaths.push(child.path);
+					walk(child);
+				}
+			}
+		};
+		walk(this.app.vault.getRoot());
+
 		new Setting(contentEl)
 			.setName(this.isNew ? 'Create new rule' : 'Edit rule')
 			.setHeading();
@@ -91,6 +110,14 @@ export class RuleEditorModal extends Modal {
 
 		// Action Buttons
 		this.buildActionButtons(contentEl);
+
+		// Reactive preview — any input or change inside the modal triggers
+		// a preview re-render. Single integration point instead of plumbing
+		// notify() through every Setting.onChange handler.
+		const refresh = () => this.renderVaultTestPreview();
+		contentEl.addEventListener('input', refresh);
+		contentEl.addEventListener('change', refresh);
+		refresh();
 	}
 
 	private buildBasicInfoSection(containerEl: HTMLElement) {
@@ -171,19 +198,9 @@ export class RuleEditorModal extends Modal {
 		const needsFolderPattern = this.rule.direction === 'folder-to-tag' || this.rule.direction === 'bidirectional';
 		const needsTagPattern = this.rule.direction === 'tag-to-folder' || this.rule.direction === 'bidirectional';
 
-		// Pre-compute autocomplete sources once per render. Cheap on typical
-		// vaults and avoids rebuilding the list on every keystroke.
-		const folderPaths: string[] = [];
-		const walk = (folder: TFolder) => {
-			for (const child of folder.children) {
-				if (child instanceof TFolder) {
-					folderPaths.push(child.path);
-					walk(child);
-				}
-			}
-		};
-		walk(this.app.vault.getRoot());
-		const folderSources = collectFolderSources(folderPaths);
+		// Reuse the cached folder walk from onOpen() — autocomplete sources
+		// are derived from the same list as the live preview panel below.
+		const folderSources = collectFolderSources(this.vaultFolderPaths);
 		const tagSources = collectTagSources(
 			(this.app.metadataCache as unknown as { getTags(): Record<string, number> })
 				.getTags() ?? {},
@@ -488,45 +505,95 @@ export class RuleEditorModal extends Modal {
 
 	private buildPreviewSection(containerEl: HTMLElement) {
 		const section = containerEl.createDiv({ cls: 'rule-editor-section' });
-		new Setting(section).setName('Test and preview').setHeading();
+		new Setting(section).setName('Test against your vault').setHeading();
 
-		const testContainer = section.createDiv({ cls: 'rule-test-container' });
+		const desc = section.createEl('p');
+		desc.style.fontSize = '0.85em';
+		desc.style.color = 'var(--text-muted)';
+		desc.style.marginTop = '-0.5em';
+		desc.style.marginBottom = '0.5em';
+		desc.setText(
+			'Live preview — applies the rule to your real vault folders and shows what it would emit. Updates as you edit fields above.',
+		);
 
-		new Setting(testContainer)
-			.setName('Test folder path')
-			.setDesc('Enter a folder path to test transformation')
-			.addText(text => text
-				.setPlaceholder('Projects/my project')
-				.onChange((value) => {
-					if (value && this.rule.folderTransforms) {
-						const result = folderToTag(value, this.rule.folderTransforms);
-						const resultEl = testContainer.querySelector('.test-folder-result');
-						if (resultEl) {
-							resultEl.setText(`→ Tag: ${result}`);
-						}
-					}
-				})
+		this.previewPanelEl = section.createDiv({ cls: 'dtf-advanced-preview-panel' });
+		this.previewPanelEl.style.padding = '0.5em 0.75em';
+		this.previewPanelEl.style.background = 'var(--background-secondary)';
+		this.previewPanelEl.style.borderRadius = '4px';
+		this.previewPanelEl.style.fontSize = '0.9em';
+	}
+
+	private renderVaultTestPreview(): void {
+		const panel = this.previewPanelEl;
+		if (!panel) return;
+		panel.empty();
+
+		// Refuse to preview while regex is invalid — the inline error already
+		// communicates the problem; running previewRule against a broken
+		// regex would just throw.
+		if (this.regexErrors.folderPattern || this.regexErrors.tagPattern) {
+			const note = panel.createDiv();
+			note.style.color = 'var(--text-muted)';
+			note.setText('Fix regex errors above to see preview.');
+			return;
+		}
+
+		// Without a folder pattern there's nothing to match against. The
+		// rule may still be tag-to-folder only, but previewRule's path
+		// works off folder→tag — show a friendly note instead of "0 folders".
+		if (!this.rule.folderPattern) {
+			const note = panel.createDiv();
+			note.style.color = 'var(--text-muted)';
+			note.setText('Add a folder pattern to see what this rule matches.');
+			return;
+		}
+
+		let preview;
+		try {
+			preview = previewRule(this.rule, this.vaultFolderPaths, { maxSamples: 5 });
+		} catch (err) {
+			const note = panel.createDiv();
+			note.style.color = 'var(--text-error)';
+			note.setText(
+				`Preview failed: ${err instanceof Error ? err.message : String(err)}`,
 			);
+			return;
+		}
 
-		testContainer.createDiv({ cls: 'test-folder-result' });
-
-		new Setting(testContainer)
-			.setName('Test tag')
-			.setDesc('Enter a tag to test transformation')
-			.addText(text => text
-				.setPlaceholder('Enter tag')
-				.onChange((value) => {
-					if (value && this.rule.tagTransforms) {
-						const result = tagToFolder(value, this.rule.tagTransforms);
-						const resultEl = testContainer.querySelector('.test-tag-result');
-						if (resultEl) {
-							resultEl.setText(`→ Folder: ${result}`);
-						}
-					}
-				})
+		// Summary line
+		const summary = panel.createDiv();
+		summary.style.fontWeight = '500';
+		summary.style.marginBottom = '0.4em';
+		if (preview.opaqueByDesign) {
+			summary.setText(
+				`Matches ${preview.matchCount} folders · this rule deliberately emits no tags (opaque)`,
 			);
+		} else {
+			summary.setText(
+				`Matches ${preview.matchCount} folders · emits ${preview.emittedTags.length} distinct tags`,
+			);
+		}
 
-		testContainer.createDiv({ cls: 'test-tag-result' });
+		// Sample pairs — folder → tag(s)
+		if (preview.samples.length > 0) {
+			const samplesList = panel.createDiv();
+			samplesList.style.fontFamily = 'var(--font-monospace)';
+			samplesList.style.fontSize = '0.85em';
+			samplesList.style.lineHeight = '1.5';
+			for (const sample of preview.samples) {
+				const row = samplesList.createDiv();
+				row.style.color = 'var(--text-normal)';
+				const tagPart = preview.opaqueByDesign
+					? '(no tag emitted)'
+					: sample.tags.map((t) => `#${t}`).join(', ');
+				row.setText(`${sample.folder} → ${tagPart}`);
+			}
+		} else if (preview.matchCount === 0 && !preview.opaqueByDesign) {
+			const note = panel.createDiv();
+			note.style.color = 'var(--text-muted)';
+			note.style.fontStyle = 'italic';
+			note.setText('No vault folders match this pattern yet.');
+		}
 	}
 
 	private buildActionButtons(containerEl: HTMLElement) {

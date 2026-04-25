@@ -1,34 +1,38 @@
 /**
- * Guided rule editor — axis-first authoring with live derivation preview
- * AND a live "test against vault" panel.
+ * Guided rule editor — axis-first authoring with PRINCIPLED visual structure.
  *
- * The user describes their mapping in library-science vocabulary:
- *   - which SEACOW axis is being classified
- *   - how the folder side is structured (classifier)
- *   - how the tag side is structured (vocabulary)
- *   - how structure transfers between them (8 transfer primitives)
+ * Layout reflects the principle "two sides, independently typed, then mapped":
  *
- * As the user types, three things update synchronously:
+ *   ┌─────── live preview strip ─────────┐  ← what the rule will DO,
+ *   │ folder/path/sample.md → #tag        │    visible at top before any input
+ *   └─────────────────────────────────────┘
  *
- *   1. Derived Layer-1 fields rendered as code chips (folderPattern,
- *      tagPattern) plus colored badges (cardinality, bijective).
- *   2. "Test against my vault" panel — runs `previewRule()` against the
- *      vault's actual folder list, showing N matches + sample
- *      folder→tag(s) mappings. Updates per-keystroke.
- *   3. Inconsistency warnings — flash hints next to fields when the
- *      user picks a combination that contradicts itself (e.g.
- *      `marker-only` + `pre-coordinated`). Each warning offers a "Fix"
- *      affordance that auto-corrects.
+ *   ┌─────── status strip ──────────────────┐
+ *   │ N folders match · K tags · 1:1 · ✓    │
+ *   └───────────────────────────────────────┘
  *
- * Validation: the Create button is disabled until `name`, `folderEntry`,
- * and `tagEntry` are non-empty. Tooltip lists missing fields.
+ *   Basic info (compact)
  *
- * Keyboard: Enter saves (when enabled), Escape closes, Cmd/Ctrl+Enter
- * saves regardless of focus. Tab order follows visual order.
+ *   Axis selector — 6 SEACOW tiles with prefix-marker shown
+ *
+ *   ┌── FOLDER SIDE ──┐ ┌─TRANSFER─┐ ┌── TAG SIDE ──┐
+ *   │ entry, scheme,  │ │  ↓ cards │ │ entry, coord │
+ *   │ naming          │ │  4×2     │ │              │
+ *   └─────────────────┘ └──────────┘ └──────────────┘
+ *
+ *   Inconsistency warnings (when present)
+ *
+ *   Disclosures: Sample mappings · Derived regex
+ *
+ *   Action buttons
+ *
+ * As the user fills the form, every panel updates synchronously. Save
+ * compiles the typed spec via deriveRule() and persists the full
+ * MappingRule (Layer 1 + Layer 2). Cancel discards.
  */
 
 import { App, Modal, Setting, Notice, TFolder } from 'obsidian';
-import type { MappingRule, RuleOptions, RuleDirection, TransformConfig } from '../types/settings';
+import type { MappingRule, RuleOptions, RuleDirection } from '../types/settings';
 import type {
 	Axis,
 	FolderScheme,
@@ -62,7 +66,6 @@ interface FormState {
 	tagCoordination: TagCoordination;
 	tagPrefixMarker: TagPrefixMarker;
 
-	// Transfer op + per-op sub-options (only the relevant ones are read at save time)
 	transferOp: TransferOp['op'];
 	truncationDepth: number;
 	truncationTailHandling: TruncationTailHandling;
@@ -103,6 +106,33 @@ function defaultFormState(): FormState {
 		aggregationSeparator: '-',
 	};
 }
+
+// ─── Library-science conventions ─────────────────────────────────────────
+
+/** SEACOW prefix-marker convention per docs/concepts/axes.md */
+const AXIS_CONVENTIONS: Record<
+	Axis,
+	{ label: string; marker: TagPrefixMarker; description: string }
+> = {
+	system: { label: 'System', marker: '/', description: 'Platform, config, templates' },
+	entity: { label: 'Entity', marker: '--', description: 'Workspace owner, authority' },
+	capture: { label: 'Capture', marker: '-', description: 'Ingestion, inbox, clippings' },
+	output: { label: 'Output', marker: '_', description: 'Publishable, external-facing' },
+	work: { label: 'Work', marker: null, description: 'Active processing (PARA, JD)' },
+	relation: { label: 'Relation', marker: null, description: 'Flat cross-link keywords' },
+};
+
+/** Per-op mini-diagram for the card grid. Sample input: `A/B/C/D` */
+const OP_DIAGRAMS: Record<TransferOp['op'], { gloss: string; output: string }> = {
+	identity: { gloss: 'preserve full depth', output: '#a/b/c/d' },
+	truncation: { gloss: 'preserve N levels', output: '#a/b/c (drop)' },
+	'marker-only': { gloss: 'one fixed tag', output: '#-marker' },
+	'promotion-to-root': { gloss: 'first level only', output: '#a' },
+	'flattening-to-leaf': { gloss: 'leaf level only', output: '#d' },
+	aggregation: { gloss: 'compress all', output: '#a-b-c-d' },
+	'post-coordination': { gloss: 'split into N flat tags', output: '#a #b #c #d' },
+	opaque: { gloss: 'no tag emitted', output: '(none)' },
+};
 
 // ─── Form → TypedRuleSpec → MappingRule (pure) ───────────────────────────
 
@@ -170,7 +200,7 @@ function buildSpec(state: FormState): TypedRuleSpec {
 // ─── Inconsistency detection ─────────────────────────────────────────────
 
 interface Warning {
-	field: 'tagCoordination' | 'transferOp' | 'tagEntry' | 'folderEntry';
+	field: string;
 	message: string;
 	fix?: { label: string; apply: (state: FormState) => void };
 }
@@ -235,16 +265,17 @@ function isFormValid(state: FormState): { valid: boolean; missing: string[] } {
 export class GuidedRuleEditorModal extends Modal {
 	private state: FormState;
 	private readonly onSave: (rule: MappingRule) => void;
-
-	// Cache vault folders once on open — re-computing per keystroke would be
-	// painful on large vaults. Folders rarely change mid-edit.
 	private vaultFolders: string[] = [];
 
 	// DOM refs for live updates
-	private derivedChipsEl!: HTMLElement;
-	private vaultTestEl!: HTMLElement;
+	private livePreviewEl!: HTMLElement;
+	private statusStripEl!: HTMLElement;
 	private warningsEl!: HTMLElement;
+	private vaultTestEl!: HTMLElement;
+	private derivedChipsEl!: HTMLElement;
+	private transferCardsEl!: HTMLElement;
 	private transferSubOptionsEl!: HTMLElement;
+	private axisTilesEl!: HTMLElement;
 	private saveBtn!: HTMLButtonElement;
 
 	constructor(app: App, onSave: (rule: MappingRule) => void) {
@@ -254,21 +285,45 @@ export class GuidedRuleEditorModal extends Modal {
 	}
 
 	onOpen(): void {
-		const { contentEl } = this;
+		const { contentEl, modalEl } = this;
 		contentEl.empty();
+		modalEl.addClass('dtf-guided-modal');
+		// Wider modal — layout is two/three columns, needs the room
+		modalEl.style.width = 'min(900px, 95vw)';
+
 		this.collectVaultFolders();
 
+		// 1. Title
 		new Setting(contentEl).setName('Create rule (guided)').setHeading();
 
-		this.buildBasicSection(contentEl);
-		this.buildAxisSection(contentEl);
-		this.buildFolderSection(contentEl);
-		this.buildTagSection(contentEl);
-		this.buildTransferSection(contentEl);
-		this.buildLivePreviewSection(contentEl);
-		this.buildActions(contentEl);
-		this.bindKeyboard();
+		// 2. Live preview strip — at the TOP so the user sees output before inputs
+		this.buildLivePreviewStrip(contentEl);
 
+		// 3. Status strip — match count + cardinality + bijective
+		this.buildStatusStrip(contentEl);
+
+		// 4. Compact basic row
+		this.buildBasicRow(contentEl);
+
+		// 5. Axis tile selector — 6 SEACOW tiles
+		this.buildAxisSection(contentEl);
+
+		// 6. Two-column folder | tag split (transfer ops are below in their own row)
+		this.buildSplitPanel(contentEl);
+
+		// 7. Transfer op cards — 4×2 grid of selectable mini-diagrams
+		this.buildTransferCards(contentEl);
+
+		// 8. Inconsistency warnings (renders only when present)
+		this.warningsEl = contentEl.createDiv({ cls: 'dtf-guided-warnings' });
+
+		// 9. Vault test (sample mappings) + derived regex (collapsible)
+		this.buildDisclosureSections(contentEl);
+
+		// 10. Action buttons
+		this.buildActions(contentEl);
+
+		this.bindKeyboard();
 		this.notify();
 	}
 
@@ -286,85 +341,275 @@ export class GuidedRuleEditorModal extends Modal {
 		this.vaultFolders = out;
 	}
 
-	/** The reactive heartbeat — every field change calls this. */
+	/** Reactive heartbeat — every field change calls this. */
 	private notify(): void {
-		this.renderDerivedChips();
-		this.renderVaultTest();
+		this.renderLivePreview();
+		this.renderStatusStrip();
+		this.renderTransferCards();
+		this.renderAxisTiles();
 		this.renderWarnings();
+		this.renderVaultTest();
+		this.renderDerivedChips();
 		this.updateSaveButtonState();
 	}
 
-	// ─── Sections ────────────────────────────────────────────────────────
+	// ─── 2. Live preview strip ───────────────────────────────────────────
 
-	private buildBasicSection(parent: HTMLElement): void {
-		new Setting(parent).setName('Basic').setHeading();
-
-		new Setting(parent)
-			.setName('Rule name')
-			.setDesc('Short label shown in the rule list')
-			.addText((t) =>
-				t.setPlaceholder('Short label for this rule').setValue(this.state.name).onChange((v) => {
-					this.state.name = v;
-					this.notify();
-				}),
-			);
-
-		new Setting(parent)
-			.setName('Priority')
-			.setDesc('Lower number runs first')
-			.addText((t) =>
-				t.setValue(String(this.state.priority)).onChange((v) => {
-					const n = parseInt(v, 10);
-					if (!Number.isNaN(n) && n >= 0) {
-						this.state.priority = n;
-						this.notify();
-					}
-				}),
-			);
-
-		new Setting(parent)
-			.setName('Direction')
-			.addDropdown((d) =>
-				d
-					.addOption('bidirectional', 'Bidirectional')
-					.addOption('folder-to-tag', 'Folder → tag')
-					.addOption('tag-to-folder', 'Tag → folder')
-					.setValue(this.state.direction)
-					.onChange((v) => {
-						this.state.direction = v as RuleDirection;
-						this.notify();
-					}),
-			);
+	private buildLivePreviewStrip(parent: HTMLElement): void {
+		const strip = parent.createDiv({ cls: 'dtf-guided-live-preview' });
+		strip.style.padding = '0.6em 0.75em';
+		strip.style.background = 'var(--background-modifier-cover)';
+		strip.style.borderRadius = '6px';
+		strip.style.marginBottom = '0.6em';
+		strip.style.fontFamily = 'var(--font-monospace)';
+		strip.style.fontSize = '0.95em';
+		this.livePreviewEl = strip;
 	}
+
+	private renderLivePreview(): void {
+		this.livePreviewEl.empty();
+		const header = this.livePreviewEl.createDiv();
+		header.createEl('strong', { text: 'Live preview' });
+		header.style.fontFamily = 'var(--font-interface)';
+		header.style.fontSize = '0.75em';
+		header.style.opacity = '0.7';
+		header.style.textTransform = 'uppercase';
+		header.style.letterSpacing = '0.05em';
+		header.style.marginBottom = '0.3em';
+
+		try {
+			const spec = buildSpec(this.state);
+			const rule = deriveRule(spec);
+			const preview = previewRule(rule, this.vaultFolders, { maxSamples: 1 });
+
+			const row = this.livePreviewEl.createDiv();
+			row.style.display = 'flex';
+			row.style.alignItems = 'center';
+			row.style.gap = '0.5em';
+			row.style.flexWrap = 'wrap';
+
+			// Folder side
+			if (preview.samples.length > 0) {
+				const sample = preview.samples[0];
+				row.createEl('code', { text: sample.folder });
+				row.createSpan({ text: ' → ' });
+				if (sample.tags.length === 0) {
+					row.createEl('em', { text: '(no tag — opaque)' });
+				} else {
+					sample.tags.forEach((t, i) => {
+						if (i > 0) row.createSpan({ text: ' + ' });
+						row.createEl('code', { text: t });
+					});
+				}
+			} else if (preview.opaqueByDesign) {
+				row.createEl('em', {
+					text: 'Opaque rule — folders matched, no tag emitted',
+				});
+			} else if (this.state.folderEntry.trim() === '') {
+				row.createEl('em', { text: 'Fill folder entry to see what this rule will do' });
+			} else {
+				row.createEl('em', {
+					text: `No vault folders match "${this.state.folderEntry}". The path may not exist yet.`,
+				});
+			}
+		} catch (err) {
+			this.livePreviewEl.createEl('em', {
+				text: `Cannot preview: ${err instanceof Error ? err.message : String(err)}`,
+			});
+		}
+	}
+
+	// ─── 3. Status strip ─────────────────────────────────────────────────
+
+	private buildStatusStrip(parent: HTMLElement): void {
+		const strip = parent.createDiv({ cls: 'dtf-guided-status' });
+		strip.style.display = 'flex';
+		strip.style.gap = '0.4em';
+		strip.style.flexWrap = 'wrap';
+		strip.style.marginBottom = '0.8em';
+		this.statusStripEl = strip;
+	}
+
+	private renderStatusStrip(): void {
+		this.statusStripEl.empty();
+		try {
+			const spec = buildSpec(this.state);
+			const rule = deriveRule(spec);
+			const preview = previewRule(rule, this.vaultFolders, { maxSamples: 0 });
+
+			const badge = (label: string, value: string, color: string, title?: string) => {
+				const b = this.statusStripEl.createDiv({ cls: 'dtf-guided-badge' });
+				b.style.padding = '0.2em 0.6em';
+				b.style.borderRadius = '12px';
+				b.style.fontSize = '0.8em';
+				b.style.background = color;
+				b.style.color = 'var(--text-on-accent)';
+				b.style.fontWeight = '500';
+				b.setText(`${label}: ${value}`);
+				if (title) b.title = title;
+			};
+
+			badge(
+				'matches',
+				String(preview.matchCount),
+				preview.matchCount > 0 ? 'var(--color-green)' : 'var(--color-base-50)',
+				`${preview.matchCount} vault folder(s) would be affected by this rule`,
+			);
+			badge(
+				'emits',
+				`${preview.emittedTags.length} tag(s)`,
+				'var(--color-base-50)',
+				`${preview.emittedTags.length} distinct tag(s) would be emitted`,
+			);
+			badge(
+				'cardinality',
+				rule.cardinality ?? '?',
+				rule.cardinality === '1:1' ? 'var(--color-green)' : 'var(--color-yellow)',
+				`Mapping shape: ${rule.cardinality === '1:1' ? 'one-to-one (lossless)' : rule.cardinality}`,
+			);
+			badge(
+				rule.bijective ? 'bijective' : 'lossy',
+				rule.bijective ? '✓' : '⚠',
+				rule.bijective ? 'var(--color-green)' : 'var(--color-orange)',
+				rule.bijective
+					? 'This rule preserves enough info to round-trip folder ↔ tag'
+					: 'This rule is intentionally lossy — some structure cannot be recovered',
+			);
+		} catch {
+			// silent; live preview will show the error
+		}
+	}
+
+	// ─── 4. Compact basic row ────────────────────────────────────────────
+
+	private buildBasicRow(parent: HTMLElement): void {
+		const row = parent.createDiv({ cls: 'dtf-guided-basic-row' });
+		row.style.display = 'grid';
+		row.style.gridTemplateColumns = '2fr 1fr 1.4fr';
+		row.style.gap = '0.6em';
+		row.style.marginBottom = '0.8em';
+		row.style.alignItems = 'end';
+
+		// Name
+		const nameWrap = row.createDiv();
+		nameWrap.createEl('label', { text: 'Rule name' });
+		const nameInput = nameWrap.createEl('input', { type: 'text' });
+		nameInput.placeholder = 'Short label for this rule';
+		nameInput.value = this.state.name;
+		nameInput.style.width = '100%';
+		nameInput.addEventListener('input', () => {
+			this.state.name = nameInput.value;
+			this.notify();
+		});
+
+		// Priority
+		const priWrap = row.createDiv();
+		priWrap.createEl('label', { text: 'Priority' });
+		const priInput = priWrap.createEl('input', { type: 'text' });
+		priInput.value = String(this.state.priority);
+		priInput.style.width = '100%';
+		priInput.addEventListener('input', () => {
+			const n = parseInt(priInput.value, 10);
+			if (!Number.isNaN(n) && n >= 0) {
+				this.state.priority = n;
+				this.notify();
+			}
+		});
+
+		// Direction
+		const dirWrap = row.createDiv();
+		dirWrap.createEl('label', { text: 'Direction' });
+		const dirSelect = dirWrap.createEl('select');
+		dirSelect.style.width = '100%';
+		const opts: Array<[RuleDirection, string]> = [
+			['bidirectional', 'Bidirectional'],
+			['folder-to-tag', 'Folder → tag'],
+			['tag-to-folder', 'Tag → folder'],
+		];
+		for (const [v, l] of opts) {
+			const o = dirSelect.createEl('option', { text: l });
+			o.value = v;
+		}
+		dirSelect.value = this.state.direction;
+		dirSelect.addEventListener('change', () => {
+			this.state.direction = dirSelect.value as RuleDirection;
+			this.notify();
+		});
+	}
+
+	// ─── 5. Axis tile selector ───────────────────────────────────────────
 
 	private buildAxisSection(parent: HTMLElement): void {
-		new Setting(parent).setName('Axis').setHeading();
-		new Setting(parent)
-			.setName('Which axis does this rule classify?')
-			// eslint-disable-next-line obsidianmd/ui/sentence-case -- SEACOW is the framework name; preserving its all-caps style
-			.setDesc('SEACOW axes — see the concepts documentation for details on each')
-			.addDropdown((d) =>
-				d
-					.addOption('work', 'Work — active processing')
-					.addOption('output', 'Output — publishable, external-facing')
-					.addOption('capture', 'Capture — ingestion, inbox, clippings')
-					.addOption('entity', 'Entity — workspace owner, authority')
-					.addOption('system', 'System — platform, config, templates')
-					.addOption('relation', 'Relation — flat cross-link keywords')
-					.setValue(this.state.axis)
-					.onChange((v) => {
-						this.state.axis = v as Axis;
-						this.notify();
-					}),
-			);
+		const section = parent.createDiv({ cls: 'dtf-guided-axis-section' });
+		section.style.marginBottom = '0.8em';
+
+		const heading = section.createEl('label', { text: 'Axis & marker convention' });
+		heading.style.display = 'block';
+		heading.style.marginBottom = '0.3em';
+
+		this.axisTilesEl = section.createDiv({ cls: 'dtf-guided-axis-tiles' });
+		this.axisTilesEl.style.display = 'grid';
+		this.axisTilesEl.style.gridTemplateColumns = 'repeat(6, 1fr)';
+		this.axisTilesEl.style.gap = '0.4em';
 	}
 
-	private buildFolderSection(parent: HTMLElement): void {
-		new Setting(parent).setName('Folder side').setHeading();
+	private renderAxisTiles(): void {
+		this.axisTilesEl.empty();
+		for (const [axis, conv] of Object.entries(AXIS_CONVENTIONS) as Array<[Axis, typeof AXIS_CONVENTIONS[Axis]]>) {
+			const tile = this.axisTilesEl.createDiv({ cls: 'dtf-guided-axis-tile' });
+			tile.setAttribute('data-axis', axis);
+			tile.style.padding = '0.5em';
+			tile.style.background = 'var(--background-secondary)';
+			tile.style.borderRadius = '6px';
+			tile.style.border = `2px solid ${this.state.axis === axis ? 'var(--interactive-accent)' : 'transparent'}`;
+			tile.style.cursor = 'pointer';
+			tile.style.textAlign = 'center';
+			tile.style.transition = 'border-color 80ms';
 
-		new Setting(parent)
-			.setName('Folder entry path')
-			.setDesc('Root path under which this rule applies — e.g. Projects, Capture/Inbox')
+			const label = tile.createDiv();
+			label.createEl('strong', { text: conv.label });
+			label.style.fontSize = '0.85em';
+
+			const marker = tile.createDiv();
+			marker.style.fontFamily = 'var(--font-monospace)';
+			marker.style.fontSize = '0.85em';
+			marker.style.color = 'var(--text-muted)';
+			marker.setText(conv.marker === null ? '(none)' : conv.marker);
+
+			tile.title = conv.description;
+
+			tile.addEventListener('click', () => {
+				this.state.axis = axis;
+				this.state.tagPrefixMarker = conv.marker;
+				this.notify();
+			});
+		}
+	}
+
+	// ─── 6. Folder | Tag split panel ─────────────────────────────────────
+
+	private buildSplitPanel(parent: HTMLElement): void {
+		const split = parent.createDiv({ cls: 'dtf-guided-split' });
+		split.style.display = 'grid';
+		split.style.gridTemplateColumns = '1fr 1fr';
+		split.style.gap = '0.8em';
+		split.style.marginBottom = '0.8em';
+
+		// FOLDER SIDE
+		const folder = split.createDiv({ cls: 'dtf-guided-folder-col' });
+		folder.style.padding = '0.6em';
+		folder.style.background = 'var(--background-secondary)';
+		folder.style.borderRadius = '6px';
+
+		const folderHeader = folder.createDiv();
+		folderHeader.createEl('strong', { text: 'Folder side' });
+		folderHeader.style.fontSize = '0.7em';
+		folderHeader.style.opacity = '0.6';
+		folderHeader.style.letterSpacing = '0.1em';
+		folderHeader.style.marginBottom = '0.5em';
+
+		new Setting(folder)
+			.setName('Entry path')
 			.addText((t) =>
 				t.setPlaceholder('e.g. Capture/Inbox').setValue(this.state.folderEntry).onChange((v) => {
 					this.state.folderEntry = v;
@@ -372,16 +617,15 @@ export class GuidedRuleEditorModal extends Modal {
 				}),
 			);
 
-		new Setting(parent)
-			.setName('Classification scheme')
-			.setDesc('How this folder structures its content')
+		new Setting(folder)
+			.setName('Scheme')
 			.addDropdown((d) =>
 				d
-					.addOption('hierarchical', 'Hierarchical — deep subject tree')
-					.addOption('enumerative', 'Enumerative — numbered siblings')
-					.addOption('faceted', 'Faceted — independent sub-axes')
-					.addOption('authority-root', 'Authority root — per-entity workspace')
-					.addOption('container-only', 'Container only — groups but does not classify')
+					.addOption('hierarchical', 'Hierarchical')
+					.addOption('enumerative', 'Enumerative')
+					.addOption('faceted', 'Faceted')
+					.addOption('authority-root', 'Authority root')
+					.addOption('container-only', 'Container only')
 					.setValue(this.state.folderScheme)
 					.onChange((v) => {
 						this.state.folderScheme = v as FolderScheme;
@@ -389,12 +633,12 @@ export class GuidedRuleEditorModal extends Modal {
 					}),
 			);
 
-		new Setting(parent)
-			.setName('Naming convention')
+		new Setting(folder)
+			.setName('Naming')
 			.addDropdown((d) =>
 				d
 					.addOption('word', 'Word')
-					.addOption('ordinal', 'Ordinal — numeric prefix')
+					.addOption('ordinal', 'Ordinal')
 					.addOption('symbol-prefixed', 'Symbol-prefixed')
 					.addOption('emoji-prefixed', 'Emoji-prefixed')
 					.addOption('mixed', 'Mixed')
@@ -404,14 +648,22 @@ export class GuidedRuleEditorModal extends Modal {
 						this.notify();
 					}),
 			);
-	}
 
-	private buildTagSection(parent: HTMLElement): void {
-		new Setting(parent).setName('Tag side').setHeading();
+		// TAG SIDE
+		const tag = split.createDiv({ cls: 'dtf-guided-tag-col' });
+		tag.style.padding = '0.6em';
+		tag.style.background = 'var(--background-secondary)';
+		tag.style.borderRadius = '6px';
 
-		new Setting(parent)
+		const tagHeader = tag.createDiv();
+		tagHeader.createEl('strong', { text: 'Tag side' });
+		tagHeader.style.fontSize = '0.7em';
+		tagHeader.style.opacity = '0.6';
+		tagHeader.style.letterSpacing = '0.1em';
+		tagHeader.style.marginBottom = '0.5em';
+
+		new Setting(tag)
 			.setName('Tag entry')
-			.setDesc('Tag prefix this rule emits — include any marker like -clip or --cybersader')
 			.addText((t) =>
 				t.setPlaceholder('-inbox').setValue(this.state.tagEntry).onChange((v) => {
 					this.state.tagEntry = v;
@@ -419,14 +671,13 @@ export class GuidedRuleEditorModal extends Modal {
 				}),
 			);
 
-		new Setting(parent)
+		new Setting(tag)
 			.setName('Coordination')
-			.setDesc('How concepts combine in this tag family')
 			.addDropdown((d) =>
 				d
-					.addOption('pre-coordinated', 'Pre-coordinated — concepts fused in the term')
-					.addOption('post-coordinated', 'Post-coordinated — concepts as separate tags')
-					.addOption('flat-keyword', 'Flat keyword — single concept')
+					.addOption('pre-coordinated', 'Pre-coordinated')
+					.addOption('post-coordinated', 'Post-coordinated')
+					.addOption('flat-keyword', 'Flat keyword')
 					.setValue(this.state.tagCoordination)
 					.onChange((v) => {
 						this.state.tagCoordination = v as TagCoordination;
@@ -434,18 +685,16 @@ export class GuidedRuleEditorModal extends Modal {
 					}),
 			);
 
-		new Setting(parent)
+		new Setting(tag)
 			.setName('Prefix marker')
-			// eslint-disable-next-line obsidianmd/ui/sentence-case -- SEACOW is the framework name
-			.setDesc('SEACOW convention — slash for system, double-dash for entity, dash for capture, underscore for output, none for work')
 			.addDropdown((d) =>
 				d
 					.addOption('null', 'None')
-					.addOption('/', 'Slash — system')
-					.addOption('--', 'Double-dash — entity')
-					.addOption('-', 'Dash — capture')
-					.addOption('_', 'Underscore — output')
-					.addOption('', 'Empty string — work convention')
+					.addOption('/', 'Slash')
+					.addOption('--', 'Double-dash')
+					.addOption('-', 'Dash')
+					.addOption('_', 'Underscore')
+					.addOption('', 'Empty')
 					.setValue(this.state.tagPrefixMarker === null ? 'null' : this.state.tagPrefixMarker)
 					.onChange((v) => {
 						this.state.tagPrefixMarker = v === 'null' ? null : (v as TagPrefixMarker);
@@ -454,31 +703,79 @@ export class GuidedRuleEditorModal extends Modal {
 			);
 	}
 
-	private buildTransferSection(parent: HTMLElement): void {
-		new Setting(parent).setName('Transfer operation').setHeading();
+	// ─── 7. Transfer-op cards ────────────────────────────────────────────
 
-		new Setting(parent)
-			.setName('How does folder structure become tag structure?')
-			.setDesc('Eight library-science primitives for hierarchy transfer')
-			.addDropdown((d) =>
-				d
-					.addOption('identity', 'Identity — preserve full depth')
-					.addOption('truncation', 'Truncation — preserve some depth, configurable tail')
-					.addOption('marker-only', 'Marker only — one fixed tag, ignores sub-path')
-					.addOption('promotion-to-root', 'Promotion to root — first segment only')
-					.addOption('flattening-to-leaf', 'Flattening to leaf — leaf segment only')
-					.addOption('aggregation', 'Aggregation — entire path joined into one tag')
-					.addOption('post-coordination', 'Post-coordination — many independent flat tags')
-					.addOption('opaque', 'Opaque — emit no tag, clustering only')
-					.setValue(this.state.transferOp)
-					.onChange((v) => {
-						this.state.transferOp = v as TransferOp['op'];
-						this.renderTransferSubOptions();
-						this.notify();
-					}),
-			);
+	private buildTransferCards(parent: HTMLElement): void {
+		const section = parent.createDiv({ cls: 'dtf-guided-transfer-section' });
+		section.style.marginBottom = '0.8em';
 
-		this.transferSubOptionsEl = parent.createDiv({ cls: 'dtf-guided-transfer-sub' });
+		const heading = section.createEl('label', { text: 'Transfer operation' });
+		heading.style.display = 'block';
+		heading.style.marginBottom = '0.3em';
+
+		const sub = section.createDiv();
+		sub.style.fontSize = '0.85em';
+		sub.style.color = 'var(--text-muted)';
+		sub.style.marginBottom = '0.5em';
+		sub.setText('How does folder structure become tag structure? Pick one of eight library-science primitives.');
+
+		this.transferCardsEl = section.createDiv({ cls: 'dtf-guided-transfer-cards' });
+		this.transferCardsEl.style.display = 'grid';
+		this.transferCardsEl.style.gridTemplateColumns = 'repeat(4, 1fr)';
+		this.transferCardsEl.style.gap = '0.4em';
+
+		this.transferSubOptionsEl = section.createDiv({ cls: 'dtf-guided-transfer-sub' });
+		this.transferSubOptionsEl.style.marginTop = '0.6em';
+	}
+
+	private renderTransferCards(): void {
+		this.transferCardsEl.empty();
+		const ops: TransferOp['op'][] = [
+			'identity',
+			'truncation',
+			'marker-only',
+			'promotion-to-root',
+			'flattening-to-leaf',
+			'aggregation',
+			'post-coordination',
+			'opaque',
+		];
+
+		for (const op of ops) {
+			const card = this.transferCardsEl.createDiv({ cls: 'dtf-guided-transfer-card' });
+			card.setAttribute('data-op', op);
+			card.style.padding = '0.5em';
+			card.style.background = 'var(--background-secondary)';
+			card.style.borderRadius = '5px';
+			card.style.border = `2px solid ${this.state.transferOp === op ? 'var(--interactive-accent)' : 'transparent'}`;
+			card.style.cursor = 'pointer';
+			card.style.fontSize = '0.78em';
+			card.style.transition = 'border-color 80ms';
+
+			const name = card.createDiv();
+			name.style.fontWeight = '600';
+			name.style.marginBottom = '0.2em';
+			name.setText(op);
+
+			const gloss = card.createDiv();
+			gloss.style.color = 'var(--text-muted)';
+			gloss.style.fontSize = '0.95em';
+			gloss.setText(OP_DIAGRAMS[op].gloss);
+
+			const diagram = card.createDiv();
+			diagram.style.marginTop = '0.3em';
+			diagram.style.fontFamily = 'var(--font-monospace)';
+			diagram.style.fontSize = '0.85em';
+			diagram.style.color = 'var(--text-accent)';
+			diagram.setText(`a/b/c/d → ${OP_DIAGRAMS[op].output}`);
+
+			card.addEventListener('click', () => {
+				this.state.transferOp = op;
+				this.renderTransferSubOptions();
+				this.notify();
+			});
+		}
+
 		this.renderTransferSubOptions();
 	}
 
@@ -489,7 +786,7 @@ export class GuidedRuleEditorModal extends Modal {
 		if (op === 'truncation') {
 			new Setting(this.transferSubOptionsEl)
 				.setName('Depth')
-				.setDesc('How many folder segments survive on the tag side')
+				.setDesc('Number of folder segments preserved on the tag side')
 				.addText((t) =>
 					t.setValue(String(this.state.truncationDepth)).onChange((v) => {
 						const n = parseInt(v, 10);
@@ -502,7 +799,7 @@ export class GuidedRuleEditorModal extends Modal {
 
 			new Setting(this.transferSubOptionsEl)
 				.setName('Tail handling')
-				.setDesc('What to do with folder segments beyond the depth cap')
+				.setDesc('What happens to folder segments deeper than the cap')
 				.addDropdown((d) =>
 					d
 						.addOption('drop', 'Drop — deeper paths reject the rule')
@@ -547,147 +844,99 @@ export class GuidedRuleEditorModal extends Modal {
 		}
 	}
 
-	// ─── Live preview rendering ──────────────────────────────────────────
+	// ─── 8. Warnings ─────────────────────────────────────────────────────
 
-	private buildLivePreviewSection(parent: HTMLElement): void {
-		new Setting(parent).setName('Live preview').setHeading();
+	private renderWarnings(): void {
+		this.warningsEl.empty();
+		const warnings = detectWarnings(this.state);
+		if (warnings.length === 0) return;
 
-		this.warningsEl = parent.createDiv({ cls: 'dtf-guided-warnings' });
-		this.warningsEl.style.marginBottom = '0.5em';
+		this.warningsEl.style.marginBottom = '0.8em';
 
-		this.derivedChipsEl = parent.createDiv({ cls: 'dtf-guided-derived' });
-		this.derivedChipsEl.style.padding = '0.75em';
-		this.derivedChipsEl.style.background = 'var(--background-secondary)';
-		this.derivedChipsEl.style.borderRadius = '4px';
-		this.derivedChipsEl.style.fontSize = '0.85em';
-		this.derivedChipsEl.style.marginBottom = '0.5em';
+		for (const w of warnings) {
+			const row = this.warningsEl.createDiv({ cls: 'dtf-guided-warning' });
+			row.style.padding = '0.5em 0.75em';
+			row.style.background = 'var(--background-modifier-error)';
+			row.style.color = 'var(--text-error)';
+			row.style.borderRadius = '4px';
+			row.style.marginBottom = '0.3em';
+			row.style.display = 'flex';
+			row.style.gap = '0.5em';
+			row.style.alignItems = 'center';
+			row.style.justifyContent = 'space-between';
 
-		this.vaultTestEl = parent.createDiv({ cls: 'dtf-guided-vault-test' });
-		this.vaultTestEl.style.padding = '0.75em';
-		this.vaultTestEl.style.background = 'var(--background-secondary)';
-		this.vaultTestEl.style.borderRadius = '4px';
-		this.vaultTestEl.style.fontSize = '0.85em';
+			const msg = row.createSpan({ text: `⚠ ${w.message}` });
+			msg.style.flex = '1';
+
+			if (w.fix) {
+				const fixBtn = row.createEl('button', { text: w.fix.label });
+				fixBtn.addEventListener('click', () => {
+					w.fix!.apply(this.state);
+					this.notify();
+				});
+			}
+		}
 	}
 
-	private renderDerivedChips(): void {
-		this.derivedChipsEl.empty();
+	// ─── 9. Disclosure sections (vault test + derived regex) ─────────────
 
-		try {
-			const spec = buildSpec(this.state);
-			const rule = deriveRule(spec);
+	private buildDisclosureSections(parent: HTMLElement): void {
+		// Vault test
+		const vt = parent.createEl('details', { cls: 'dtf-guided-vault-test-wrap' });
+		vt.style.marginBottom = '0.5em';
+		const vtSummary = vt.createEl('summary', { text: 'Sample vault matches' });
+		vtSummary.style.cursor = 'pointer';
+		vtSummary.style.fontWeight = '500';
+		this.vaultTestEl = vt.createDiv({ cls: 'dtf-guided-vault-test' });
+		this.vaultTestEl.style.padding = '0.6em';
+		this.vaultTestEl.style.fontSize = '0.85em';
+		vt.open = true; // open by default — this is the principle in action
 
-			const header = this.derivedChipsEl.createDiv();
-			header.createEl('strong', { text: 'Derived patterns and transforms' });
-
-			const grid = this.derivedChipsEl.createDiv();
-			grid.style.marginTop = '0.4em';
-			grid.style.display = 'grid';
-			grid.style.gridTemplateColumns = '8em 1fr';
-			grid.style.gap = '0.3em 0.7em';
-			grid.style.fontFamily = 'var(--font-monospace)';
-
-			const fieldRow = (label: string, value: string | undefined, isCode = true) => {
-				grid.createSpan({ text: label, cls: 'dtf-guided-field-label' });
-				if (value === undefined || value === '') {
-					grid.createEl('em', { text: '(not used)' });
-				} else if (isCode) {
-					grid.createEl('code', { text: value });
-				} else {
-					grid.createSpan({ text: value });
-				}
-			};
-
-			fieldRow('folderPattern', rule.folderPattern);
-			fieldRow('tagPattern', rule.tagPattern);
-			fieldRow('folderEntry', rule.folderEntryPoint);
-			fieldRow('tagEntry', rule.tagEntryPoint);
-
-			// Cardinality + bijective as colored badges
-			const meta = this.derivedChipsEl.createDiv();
-			meta.style.marginTop = '0.5em';
-			meta.style.display = 'flex';
-			meta.style.gap = '0.5em';
-			meta.style.alignItems = 'center';
-
-			const cardBadge = meta.createSpan({
-				text: `cardinality: ${rule.cardinality ?? '?'}`,
-			});
-			cardBadge.style.padding = '0.15em 0.5em';
-			cardBadge.style.borderRadius = '3px';
-			cardBadge.style.fontSize = '0.8em';
-			cardBadge.style.background =
-				rule.cardinality === '1:1' ? 'var(--color-green)' : 'var(--color-yellow)';
-			cardBadge.style.color = 'var(--text-on-accent)';
-
-			const bijBadge = meta.createSpan({
-				text: rule.bijective ? 'bijective ✓' : 'lossy',
-			});
-			bijBadge.style.padding = '0.15em 0.5em';
-			bijBadge.style.borderRadius = '3px';
-			bijBadge.style.fontSize = '0.8em';
-			bijBadge.style.background = rule.bijective ? 'var(--color-green)' : 'var(--color-red)';
-			bijBadge.style.color = 'var(--text-on-accent)';
-			if (!rule.bijective) {
-				bijBadge.title =
-					'This rule cannot perfectly reconstruct the original folder structure from the emitted tag. Some information is lost by design.';
-			}
-		} catch (err) {
-			this.derivedChipsEl.createEl('em', {
-				text: `Derivation error: ${err instanceof Error ? err.message : String(err)}`,
-			});
-		}
+		// Derived regex (collapsed by default — the typed model is the durable
+		// surface; regex is implementation detail per principle 4)
+		const dr = parent.createEl('details', { cls: 'dtf-guided-derived-wrap' });
+		dr.style.marginBottom = '0.8em';
+		const drSummary = dr.createEl('summary', { text: 'Show derived regex' });
+		drSummary.style.cursor = 'pointer';
+		drSummary.style.fontSize = '0.85em';
+		drSummary.style.color = 'var(--text-muted)';
+		this.derivedChipsEl = dr.createDiv({ cls: 'dtf-guided-derived' });
+		this.derivedChipsEl.style.padding = '0.6em';
+		this.derivedChipsEl.style.fontFamily = 'var(--font-monospace)';
+		this.derivedChipsEl.style.fontSize = '0.8em';
 	}
 
 	private renderVaultTest(): void {
 		this.vaultTestEl.empty();
-
-		const header = this.vaultTestEl.createDiv();
-		header.createEl('strong', { text: 'Test against your vault' });
-
 		try {
 			const spec = buildSpec(this.state);
 			const rule = deriveRule(spec);
 			const preview = previewRule(rule, this.vaultFolders, { maxSamples: 5 });
 
-			const summary = this.vaultTestEl.createDiv();
-			summary.style.marginTop = '0.4em';
-
-			if (preview.opaqueByDesign) {
-				summary.setText(
-					`${preview.matchCount} folder(s) match — this rule is opaque and deliberately emits no tag.`,
-				);
-			} else if (preview.matchCount === 0) {
-				summary.createEl('em', {
-					text: 'No vault folders match yet. Either the entry path doesn\'t exist or the pattern is too restrictive.',
-				});
+			if (preview.matchCount === 0 && !preview.opaqueByDesign) {
+				this.vaultTestEl.createEl('em', { text: 'No vault folders match yet.' });
 				return;
-			} else {
-				summary.setText(
-					`${preview.matchCount} folder(s) match → ${preview.emittedTags.length} distinct tag(s).`,
-				);
 			}
 
-			if (preview.emittedTags.length > 0) {
-				const tagsBlock = this.vaultTestEl.createDiv();
-				tagsBlock.style.marginTop = '0.4em';
-				tagsBlock.createSpan({ text: 'Tags: ' });
-				const capped = preview.emittedTags.slice(0, 8);
-				for (const t of capped) {
+			const tagsBlock = this.vaultTestEl.createDiv();
+			tagsBlock.createSpan({ text: 'Tags emitted: ' });
+			if (preview.emittedTags.length === 0) {
+				tagsBlock.createEl('em', { text: '(none — opaque)' });
+			} else {
+				preview.emittedTags.slice(0, 8).forEach((t, i) => {
+					if (i > 0) tagsBlock.createSpan({ text: ' ' });
 					const chip = tagsBlock.createEl('code', { text: t });
-					chip.style.marginRight = '0.4em';
-				}
+					chip.style.marginRight = '0.3em';
+				});
 				if (preview.emittedTags.length > 8) {
-					tagsBlock.createSpan({ text: ` (+${preview.emittedTags.length - 8} more)` });
+					tagsBlock.createSpan({ text: `+${preview.emittedTags.length - 8} more` });
 				}
 			}
 
 			if (preview.samples.length > 0) {
-				const samplesBlock = this.vaultTestEl.createDiv();
-				samplesBlock.style.marginTop = '0.4em';
-				samplesBlock.createDiv({ text: 'Samples:' });
-				const list = samplesBlock.createEl('ul');
-				list.style.marginTop = '0.2em';
-				list.style.paddingLeft = '1.5em';
+				const list = this.vaultTestEl.createEl('ul');
+				list.style.paddingLeft = '1.2em';
+				list.style.marginTop = '0.4em';
 				for (const sample of preview.samples) {
 					const li = list.createEl('li');
 					li.createEl('code', { text: sample.folder });
@@ -709,39 +958,35 @@ export class GuidedRuleEditorModal extends Modal {
 		}
 	}
 
-	private renderWarnings(): void {
-		this.warningsEl.empty();
-		const warnings = detectWarnings(this.state);
-		if (warnings.length === 0) return;
-
-		for (const w of warnings) {
-			const row = this.warningsEl.createDiv({ cls: 'dtf-guided-warning' });
-			row.style.padding = '0.5em 0.75em';
-			row.style.background = 'var(--color-yellow)';
-			row.style.color = 'var(--text-on-accent)';
-			row.style.borderRadius = '4px';
-			row.style.marginBottom = '0.3em';
-			row.style.display = 'flex';
-			row.style.gap = '0.5em';
-			row.style.alignItems = 'center';
-			row.style.justifyContent = 'space-between';
-
-			const msg = row.createSpan({ text: `⚠ ${w.message}` });
-			msg.style.flex = '1';
-
-			if (w.fix) {
-				const fixBtn = row.createEl('button', { text: w.fix.label });
-				fixBtn.addEventListener('click', () => {
-					w.fix!.apply(this.state);
-					// Re-render the entire modal — fix may need to update a dropdown's
-					// shown value and that requires re-binding. Cheaper than per-field refs.
-					this.onOpen();
-				});
-			}
+	private renderDerivedChips(): void {
+		this.derivedChipsEl.empty();
+		try {
+			const spec = buildSpec(this.state);
+			const rule = deriveRule(spec);
+			const grid = this.derivedChipsEl.createDiv();
+			grid.style.display = 'grid';
+			grid.style.gridTemplateColumns = '7em 1fr';
+			grid.style.gap = '0.2em 0.6em';
+			const fieldRow = (label: string, value: string | undefined) => {
+				grid.createSpan({ text: label });
+				if (value === undefined || value === '') {
+					grid.createEl('em', { text: '(not used)' });
+				} else {
+					grid.createEl('code', { text: value });
+				}
+			};
+			fieldRow('folderPattern', rule.folderPattern);
+			fieldRow('tagPattern', rule.tagPattern);
+			fieldRow('folderEntryPoint', rule.folderEntryPoint);
+			fieldRow('tagEntryPoint', rule.tagEntryPoint);
+		} catch (err) {
+			this.derivedChipsEl.createEl('em', {
+				text: `Cannot derive: ${err instanceof Error ? err.message : String(err)}`,
+			});
 		}
 	}
 
-	// ─── Validation + actions ────────────────────────────────────────────
+	// ─── 10. Validation + actions ────────────────────────────────────────
 
 	private updateSaveButtonState(): void {
 		if (!this.saveBtn) return;
@@ -757,6 +1002,8 @@ export class GuidedRuleEditorModal extends Modal {
 		actions.style.gap = '0.5em';
 		actions.style.justifyContent = 'flex-end';
 		actions.style.marginTop = '1em';
+		actions.style.paddingTop = '0.6em';
+		actions.style.borderTop = '1px solid var(--background-modifier-border)';
 
 		const cancelBtn = actions.createEl('button', { text: 'Cancel' });
 		cancelBtn.addEventListener('click', () => this.close());
@@ -783,9 +1030,6 @@ export class GuidedRuleEditorModal extends Modal {
 	}
 
 	private bindKeyboard(): void {
-		// Cmd/Ctrl+Enter = save (works regardless of focus)
-		// Plain Enter inside an input also saves (when valid)
-		// Escape closes
 		this.scope.register([], 'Escape', () => {
 			this.close();
 			return false;
@@ -794,11 +1038,9 @@ export class GuidedRuleEditorModal extends Modal {
 			this.attemptSave();
 			return false;
 		});
-		// Plain Enter in any text input also triggers save
 		this.contentEl.addEventListener('keydown', (e) => {
 			if (e.key === 'Enter' && !e.isComposing && !e.metaKey && !e.ctrlKey) {
 				const target = e.target as HTMLElement;
-				// Only fire on text inputs, not textareas or buttons
 				if (target instanceof HTMLInputElement && target.type === 'text') {
 					e.preventDefault();
 					this.attemptSave();

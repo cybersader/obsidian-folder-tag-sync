@@ -625,10 +625,14 @@ describe('folder-tag-sync — Phase 2 typed model E2E', function () {
         });
         await browser.pause(250);
 
+        // Scroll the warning element into the viewport so the screenshot captures it
         const warningVisible = await browser.executeObsidian(() => {
-          return Boolean(document.querySelector('.dtf-guided-warning'));
+          const w = document.querySelector('.dtf-guided-warning');
+          w?.scrollIntoView({ block: 'center', behavior: 'instant' as ScrollBehavior });
+          return Boolean(w);
         });
         expect(warningVisible).toBe(true);
+        await browser.pause(150);
         await snap('08-guided-warning-marker-precoord');
         await closeAll();
       });
@@ -652,13 +656,27 @@ describe('folder-tag-sync — Phase 2 typed model E2E', function () {
         });
         await browser.pause(250);
 
+        // Scroll the vault-test panel into the viewport before snapping
         const matchText = await browser.executeObsidian(() => {
           const el = document.querySelector('.dtf-guided-vault-test');
+          el?.scrollIntoView({ block: 'center', behavior: 'instant' as ScrollBehavior });
           return el?.textContent ?? '';
         });
         // Earlier specs in this run created PrimTest/Identity/Alpha/Beta/...
         expect(matchText).toContain('match');
+        await browser.pause(150);
         await snap('09-guided-vault-test-populated');
+        await closeAll();
+      });
+
+      it('full modal viewport — captures bottom (CTA + actions)', async function () {
+        await openGuided();
+        await browser.executeObsidian(() => {
+          const actions = document.querySelector('.dtf-guided-actions');
+          actions?.scrollIntoView({ block: 'center', behavior: 'instant' as ScrollBehavior });
+        });
+        await browser.pause(150);
+        await snap('10-guided-actions-bottom');
         await closeAll();
       });
     });

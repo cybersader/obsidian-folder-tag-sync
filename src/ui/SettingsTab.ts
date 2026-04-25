@@ -1,7 +1,8 @@
-import { App, PluginSettingTab, Setting, Notice } from 'obsidian';
+import { App, PluginSettingTab, Setting, Notice, TFolder } from 'obsidian';
 import DynamicTagsFoldersPlugin from '../main';
 import { RuleEditorModal } from './RuleEditorModal';
 import { MappingRule } from '../types/settings';
+import { previewRule, RulePreview } from '../engine/rulePreview';
 
 /**
  * Settings tab for the plugin
@@ -99,6 +100,87 @@ export class SettingsTab extends PluginSettingTab {
 		this.displayRuleList(ruleListContainer);
 	}
 
+	/**
+	 * Compute and render a rule preview into `panel`. Pulls all folder paths
+	 * from the vault, runs the pure `previewRule()` against them, formats
+	 * the result as a readable summary.
+	 */
+	private renderRulePreview(panel: HTMLElement, rule: MappingRule): void {
+		panel.empty();
+
+		// Collect all folder paths in the vault. Limit total count to keep
+		// large vaults responsive — the user can re-run later if they want.
+		const folderPaths: string[] = [];
+		const walk = (folder: TFolder) => {
+			for (const child of folder.children) {
+				if (child instanceof TFolder) {
+					folderPaths.push(child.path);
+					walk(child);
+				}
+			}
+		};
+		walk(this.app.vault.getRoot());
+
+		const preview = previewRule(rule, folderPaths, { maxSamples: 5 });
+
+		// Header line
+		const summary = panel.createDiv({ cls: 'dtf-preview-summary' });
+		if (preview.opaqueByDesign) {
+			summary.createSpan({
+				text: `${preview.matchCount} folder(s) match — this rule is opaque and deliberately emits no tag.`,
+			});
+		} else if (preview.matchCount === 0) {
+			summary.createEl('em', {
+				text: 'No vault folders match this rule. The pattern may be misconfigured, or the vault doesn\'t contain folders the rule targets.',
+			});
+			return;
+		} else {
+			summary.createSpan({
+				text: `${preview.matchCount} folder(s) match. Would emit ${preview.emittedTags.length} distinct tag(s).`,
+			});
+		}
+
+		// Emitted tags chip list
+		if (preview.emittedTags.length > 0) {
+			const tagsBlock = panel.createDiv({ cls: 'dtf-preview-tags' });
+			tagsBlock.style.marginTop = '0.5em';
+			tagsBlock.createSpan({ text: 'Tags: ' });
+			const capped = preview.emittedTags.slice(0, 12);
+			for (const t of capped) {
+				const chip = tagsBlock.createEl('code', { text: t });
+				chip.style.marginRight = '0.5em';
+			}
+			if (preview.emittedTags.length > 12) {
+				tagsBlock.createSpan({
+					text: ` (+${preview.emittedTags.length - 12} more)`,
+				});
+			}
+		}
+
+		// Samples
+		if (preview.samples.length > 0) {
+			const samplesBlock = panel.createDiv({ cls: 'dtf-preview-samples' });
+			samplesBlock.style.marginTop = '0.5em';
+			samplesBlock.createDiv({ text: 'Samples:' });
+			const list = samplesBlock.createEl('ul');
+			list.style.marginTop = '0.25em';
+			list.style.paddingLeft = '1.5em';
+			for (const sample of preview.samples) {
+				const li = list.createEl('li');
+				li.createEl('code', { text: sample.folder });
+				if (sample.tags.length === 0) {
+					li.createSpan({ text: ' → (no tag — opaque)' });
+				} else {
+					li.createSpan({ text: ' → ' });
+					sample.tags.forEach((t, i) => {
+						if (i > 0) li.createSpan({ text: ' + ' });
+						li.createEl('code', { text: t });
+					});
+				}
+			}
+		}
+	}
+
 	private displayRuleList(containerEl: HTMLElement) {
 		containerEl.empty();
 
@@ -173,7 +255,42 @@ export class SettingsTab extends PluginSettingTab {
 				});
 			}
 
-			// Click to edit
+			// ─── Preview panel — Track B ────────────────────────────────
+			// Click "Preview" → expands a panel showing what this rule
+			// would do against the current vault: matched folders count,
+			// emitted tags, sample folder→tag mappings. Pure derivation;
+			// no I/O beyond enumerating vault folders. Surfaces the
+			// typed-model runtime decisions before the user commits.
+			const previewActions = ruleItem.createDiv({ cls: 'dtf-rule-actions' });
+			const previewBtn = previewActions.createEl('button', {
+				text: 'Preview against vault',
+				cls: 'dtf-rule-preview-toggle'
+			});
+			const previewPanel = ruleItem.createDiv({ cls: 'dtf-rule-preview-panel' });
+			previewPanel.style.display = 'none';
+			previewPanel.style.marginTop = '0.5em';
+			previewPanel.style.padding = '0.75em';
+			previewPanel.style.background = 'var(--background-secondary)';
+			previewPanel.style.borderRadius = '4px';
+			previewPanel.style.fontSize = '0.85em';
+
+			let previewComputed = false;
+			previewBtn.addEventListener('click', (e) => {
+				e.stopPropagation(); // don't open the rule editor
+				if (previewPanel.style.display === 'none') {
+					if (!previewComputed) {
+						this.renderRulePreview(previewPanel, rule);
+						previewComputed = true;
+					}
+					previewPanel.style.display = 'block';
+					previewBtn.setText('Hide preview');
+				} else {
+					previewPanel.style.display = 'none';
+					previewBtn.setText('Preview against vault');
+				}
+			});
+
+			// Click to edit (excludes preview interactions via stopPropagation above)
 			ruleItem.addEventListener('click', () => {
 				this.openRuleEditor(rule);
 			});

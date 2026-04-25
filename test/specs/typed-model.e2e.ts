@@ -478,6 +478,49 @@ describe('folder-tag-sync — Phase 2 typed model E2E', function () {
       }
     });
 
+    it('rule preview panel — click a rule, see what it would do', async function () {
+      // Open settings, find a rule (the e2e-sample one already imported by an
+      // earlier spec in this run), click its Preview button, screenshot the
+      // expanded panel.
+      await browser.executeObsidian(({ app }) => {
+        const setting = (
+          app as unknown as {
+            setting: { open(): void; openTabById(id: string): void };
+          }
+        ).setting;
+        setting.open();
+        setting.openTabById('folder-tag-sync');
+      });
+      await browser.pause(500);
+
+      const result = await browser.executeObsidian(() => {
+        // Find the first preview-toggle button and click it
+        const btn = document.querySelector(
+          '.dtf-rule-preview-toggle',
+        ) as HTMLButtonElement | null;
+        if (!btn) return { found: false } as const;
+        btn.scrollIntoView({ block: 'center', behavior: 'instant' as ScrollBehavior });
+        btn.click();
+        return { found: true } as const;
+      });
+      expect(result.found).toBe(true);
+
+      // Wait for the lazy preview to render
+      await browser.pause(300);
+
+      const previewVisible = await browser.executeObsidian(() => {
+        const panels = Array.from(document.querySelectorAll('.dtf-rule-preview-panel'));
+        return panels.some((p) => (p as HTMLElement).style.display !== 'none');
+      });
+      expect(previewVisible).toBe(true);
+
+      await snap('05-rule-preview-panel-expanded');
+
+      await browser.executeObsidian(({ app }) => {
+        (app as unknown as { setting: { close(): void } }).setting.close();
+      });
+    });
+
     it('command palette — import-rule-pack command surfaces', async function () {
       // Distinct surface: open the command palette and verify the new
       // command appears. Captures a different state than settings tab,

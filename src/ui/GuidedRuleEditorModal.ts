@@ -45,6 +45,8 @@ import type {
 } from '../types/typed';
 import { deriveRule } from '../engine/derive';
 import { previewRule } from '../engine/rulePreview';
+import { inferTypedModel } from '../engine/inferTyped';
+import { EntryPathSuggest, collectFolderSources, collectTagSources } from './suggest/EntryPathSuggest';
 
 // ─── Form state ──────────────────────────────────────────────────────────
 
@@ -82,6 +84,47 @@ const DEFAULT_OPTIONS: RuleOptions = {
 	syncOnFileMove: true,
 	syncOnFileRename: true,
 };
+
+/**
+ * Populate form state from an existing rule. If the rule has typed
+ * (Layer 2) metadata fields, use them directly. Otherwise run
+ * inferTypedModel() and use the best-effort result. Falls back to
+ * field-by-field inspection if neither path produces a value.
+ */
+function populateFromRule(rule: MappingRule): FormState {
+	const inferred = inferTypedModel(rule);
+	const folder = rule.folder ?? inferred.folder;
+	const tag = rule.tag ?? inferred.tag;
+	const transfer = rule.transfer ?? inferred.transfer ?? { op: 'identity' as const };
+
+	// Defaults — derive from typed metadata when present, else infer-best.
+	const axis: Axis = (folder?.axes?.[0] ?? tag?.axis ?? 'work') as Axis;
+	const folderEntry = rule.folderEntryPoint ?? inferred.folderEntry ?? '';
+	const tagEntry = rule.tagEntryPoint ?? inferred.tagEntry ?? '';
+
+	const state: FormState = {
+		id: rule.id,
+		name: rule.name,
+		description: rule.description ?? '',
+		priority: rule.priority,
+		direction: rule.direction,
+		enabled: rule.enabled,
+		axis,
+		folderEntry,
+		folderScheme: folder?.scheme ?? 'hierarchical',
+		folderNaming: folder?.naming ?? 'word',
+		tagEntry,
+		tagCoordination: tag?.coordination ?? 'pre-coordinated',
+		tagPrefixMarker: tag?.prefixMarker ?? null,
+		transferOp: transfer.op,
+		truncationDepth: transfer.op === 'truncation' ? transfer.depth : 2,
+		truncationTailHandling: transfer.op === 'truncation' ? transfer.tailHandling : 'drop',
+		truncationSeparator: transfer.op === 'truncation' ? transfer.separator ?? '-' : '-',
+		markerOnlyMarker: transfer.op === 'marker-only' ? transfer.marker : '-inbox',
+		aggregationSeparator: transfer.op === 'aggregation' ? transfer.separator : '-',
+	};
+	return state;
+}
 
 function defaultFormState(): FormState {
 	return {
@@ -274,10 +317,23 @@ function isFormValid(state: FormState): { valid: boolean; missing: string[] } {
 
 // ─── Modal ───────────────────────────────────────────────────────────────
 
+/** Mode the modal opens in. Drives title, CTA label, banner. */
+export type GuidedEditorMode =
+	| { kind: 'create' }
+	/** Editing a rule that already has typed (Layer 2) fields. */
+	| { kind: 'edit'; existingRule: MappingRule }
+	/** Editing a legacy regex rule via best-effort inference. Banner shown. */
+	| { kind: 'edit-from-inferred'; existingRule: MappingRule };
+
 export class GuidedRuleEditorModal extends Modal {
 	private state: FormState;
 	private readonly onSave: (rule: MappingRule) => void;
+	private readonly mode: GuidedEditorMode;
 	private vaultFolders: string[] = [];
+
+	// Pre-computed autocomplete sources, populated once at modal open.
+	private folderSuggestSources: string[] = [];
+	private tagSuggestSources: string[] = [];
 
 	// DOM refs for live updates
 	private livePreviewEl!: HTMLElement;
@@ -290,9 +346,14 @@ export class GuidedRuleEditorModal extends Modal {
 	private axisTilesEl!: HTMLElement;
 	private saveBtn!: HTMLButtonElement;
 
-	constructor(app: App, onSave: (rule: MappingRule) => void) {
+	constructor(
+		app: App,
+		onSave: (rule: MappingRule) => void,
+		mode: GuidedEditorMode = { kind: 'create' },
+	) {
 		super(app);
-		this.state = defaultFormState();
+		this.mode = mode;
+		this.state = mode.kind === 'create' ? defaultFormState() : populateFromRule(mode.existingRule);
 		this.onSave = onSave;
 	}
 
@@ -305,8 +366,23 @@ export class GuidedRuleEditorModal extends Modal {
 
 		this.collectVaultFolders();
 
-		// 1. Title
-		new Setting(contentEl).setName('Create rule (guided)').setHeading();
+		// 1. Title — adapts to mode
+		const titleText =
+			this.mode.kind === 'create' ? 'Create rule (guided)' : 'Edit rule (guided)';
+		new Setting(contentEl).setName(titleText).setHeading();
+
+		// Inferred-mode banner: be honest about what just happened.
+		if (this.mode.kind === 'edit-from-inferred') {
+			const banner = contentEl.createDiv();
+			banner.style.padding = '0.5em 0.75em';
+			banner.style.background = 'var(--background-modifier-border)';
+			banner.style.borderRadius = '4px';
+			banner.style.marginBottom = '0.6em';
+			banner.style.fontSize = '0.85em';
+			banner.setText(
+				'Best-effort import from a regex rule — review the fields below before saving. The save will replace the original rule\'s fields with the typed-derived versions.',
+			);
+		}
 
 		// 2. Live preview strip — at the TOP so the user sees output before inputs
 		this.buildLivePreviewStrip(contentEl);
@@ -351,6 +427,13 @@ export class GuidedRuleEditorModal extends Modal {
 		};
 		walk(this.app.vault.getRoot());
 		this.vaultFolders = out;
+		// Build the autocomplete source lists from the same walk + the
+		// metadata cache. Computed once per modal open — re-rendering the
+		// modal (e.g. on inconsistency-fix) doesn't re-walk.
+		this.folderSuggestSources = collectFolderSources(out);
+		const tagsRecord = (this.app.metadataCache as unknown as { getTags(): Record<string, number> })
+			.getTags();
+		this.tagSuggestSources = collectTagSources(tagsRecord);
 	}
 
 	/** Reactive heartbeat — every field change calls this. */
@@ -676,12 +759,18 @@ export class GuidedRuleEditorModal extends Modal {
 
 		new Setting(folder)
 			.setName('Entry path')
-			.addText((t) =>
+			.addText((t) => {
 				t.setPlaceholder('e.g. Capture/Inbox').setValue(this.state.folderEntry).onChange((v) => {
 					this.state.folderEntry = v;
 					this.notify();
-				}),
-			);
+				});
+				// Attach autocomplete on the underlying input element so users
+				// pick from real vault folders instead of guessing.
+				new EntryPathSuggest(this.app, t.inputEl, this.folderSuggestSources, (picked) => {
+					this.state.folderEntry = picked;
+					this.notify();
+				});
+			});
 
 		new Setting(folder)
 			.setName('Scheme')
@@ -730,12 +819,16 @@ export class GuidedRuleEditorModal extends Modal {
 
 		new Setting(tag)
 			.setName('Tag entry')
-			.addText((t) =>
+			.addText((t) => {
 				t.setPlaceholder('-inbox').setValue(this.state.tagEntry).onChange((v) => {
 					this.state.tagEntry = v;
 					this.notify();
-				}),
-			);
+				});
+				new EntryPathSuggest(this.app, t.inputEl, this.tagSuggestSources, (picked) => {
+					this.state.tagEntry = picked;
+					this.notify();
+				});
+			});
 
 		new Setting(tag)
 			.setName('Coordination')
@@ -1139,7 +1232,8 @@ export class GuidedRuleEditorModal extends Modal {
 		const cancelBtn = buttons.createEl('button', { text: 'Cancel' });
 		cancelBtn.addEventListener('click', () => this.close());
 
-		this.saveBtn = buttons.createEl('button', { text: 'Create rule', cls: 'mod-cta' });
+		const saveLabel = this.mode.kind === 'create' ? 'Create rule' : 'Save changes';
+		this.saveBtn = buttons.createEl('button', { text: saveLabel, cls: 'mod-cta' });
 		this.saveBtn.addEventListener('click', () => this.attemptSave());
 	}
 

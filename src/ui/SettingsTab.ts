@@ -2,9 +2,11 @@ import { App, PluginSettingTab, Setting, Notice, TFolder } from 'obsidian';
 import DynamicTagsFoldersPlugin from '../main';
 import { RuleEditorModal } from './RuleEditorModal';
 import { GuidedRuleEditorModal } from './GuidedRuleEditorModal';
+import { EditModeChooserModal } from './EditModeChooserModal';
 import { DetectVaultModal } from './DetectVaultModal';
 import { MappingRule } from '../types/settings';
 import { previewRule, RulePreview } from '../engine/rulePreview';
+import { inferTypedModel } from '../engine/inferTyped';
 
 /**
  * Settings tab for the plugin
@@ -302,7 +304,7 @@ export class SettingsTab extends PluginSettingTab {
 
 			// Click to edit (excludes preview interactions via stopPropagation above)
 			ruleItem.addEventListener('click', () => {
-				this.openRuleEditor(rule);
+				this.routeRuleEdit(rule);
 			});
 
 			// Make draggable for reordering
@@ -368,6 +370,75 @@ export class SettingsTab extends PluginSettingTab {
 			this.display();
 		});
 		modal.open();
+	}
+
+	/**
+	 * Smart edit router — clicking an existing rule decides which editor
+	 * to open based on whether the rule fits the typed model.
+	 *
+	 *   - rule has typed fields (folder/tag/transfer set) → guided editor
+	 *     (edit mode, populated from those fields)
+	 *   - legacy regex rule but inferTypedModel() recovers all 3 typed
+	 *     fields → chooser dialog (guided import vs advanced)
+	 *   - inference is ambiguous → advanced editor directly
+	 *
+	 * Save callback handles update-vs-append by id matching.
+	 */
+	private routeRuleEdit(rule: MappingRule): void {
+		// Path A — explicit typed fields present
+		if (rule.folder && rule.tag && rule.transfer) {
+			this.openGuidedEditMode(rule, 'edit');
+			return;
+		}
+
+		// Path B — legacy rule; try inference. If complete, offer chooser.
+		const inferred = inferTypedModel(rule);
+		const inferenceComplete = !!(inferred.folder && inferred.tag && inferred.transfer);
+		if (inferenceComplete) {
+			const chooser = new EditModeChooserModal(this.app, rule.name, (choice) => {
+				if (choice === 'guided') {
+					this.openGuidedEditMode(rule, 'edit-from-inferred');
+				} else {
+					this.openRuleEditor(rule);
+				}
+			});
+			chooser.open();
+			return;
+		}
+
+		// Path C — inference can't reconstruct cleanly. Advanced only.
+		this.openRuleEditor(rule);
+	}
+
+	/** Open guided in edit mode + handle save-by-id (replace existing). */
+	private openGuidedEditMode(
+		rule: MappingRule,
+		kind: 'edit' | 'edit-from-inferred',
+	): void {
+		const modal = new GuidedRuleEditorModal(
+			this.app,
+			(updatedRule) => {
+				this.upsertRule(updatedRule);
+			},
+			{ kind, existingRule: rule },
+		);
+		modal.open();
+	}
+
+	/** Replace by id; fall back to appending if no match. */
+	private upsertRule(updated: MappingRule): void {
+		const idx = this.plugin.settings.rules.findIndex((r) => r.id === updated.id);
+		const rules = [...this.plugin.settings.rules];
+		if (idx >= 0) {
+			rules[idx] = updated;
+		} else {
+			rules.push(updated);
+		}
+		this.plugin.settings.rules = rules;
+		void this.plugin.saveSettings().then(() => {
+			this.display();
+			new Notice(idx >= 0 ? `Rule "${updated.name}" updated` : `Rule "${updated.name}" added`);
+		});
 	}
 
 	/**

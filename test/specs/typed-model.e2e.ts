@@ -168,45 +168,7 @@ describe('folder-tag-sync — Phase 2 typed model E2E', function () {
     // artifacts so failures can be inspected visually. Locally, they're
     // useful for verifying the visual layout matches expectation.
 
-    it('settings tab renders the Browse bundled rule packs button', async function () {
-      // Open the settings modal and navigate to this plugin's tab.
-      await browser.executeObsidian(({ app }) => {
-        const setting = (
-          app as unknown as {
-            setting: {
-              open(): void;
-              openTabById(id: string): void;
-            };
-          }
-        ).setting;
-        setting.open();
-        setting.openTabById('folder-tag-sync');
-      });
-
-      // Wait for the settings UI to render.
-      await browser.pause(500);
-
-      // Verify the new button exists in the DOM.
-      const browseButtonText = await browser.executeObsidian(() => {
-        const buttons = Array.from(document.querySelectorAll('.setting-item button'));
-        return buttons.map((b) => b.textContent?.trim()).filter(Boolean);
-      });
-      expect(browseButtonText).toContain('Browse');
-
-      await snap('settings-tab-with-browse-button');
-
-      // Close the settings modal so it doesn't leak into the next spec.
-      await browser.executeObsidian(({ app }) => {
-        (
-          app as unknown as { setting: { close(): void } }
-        ).setting.close();
-      });
-    });
-
-    it('captures the settings rule list after import (proxy for visual regression)', async function () {
-      // The previous "end-to-end import flow" spec already populated
-      // settings with the e2e-sample rule. Open settings, screenshot the
-      // populated list. This is what a user sees post-import.
+    it('settings tab — top of plugin tab (rule list visible)', async function () {
       await browser.executeObsidian(({ app }) => {
         const setting = (
           app as unknown as {
@@ -217,13 +179,96 @@ describe('folder-tag-sync — Phase 2 typed model E2E', function () {
         setting.openTabById('folder-tag-sync');
       });
       await browser.pause(500);
-      await snap('settings-tab-with-imported-rule');
+
+      const ruleListVisible = await browser.executeObsidian(() => {
+        return document.body.textContent?.includes('Mapping rules') ?? false;
+      });
+      expect(ruleListVisible).toBe(true);
+
+      await snap('01-settings-top-rule-list');
 
       await browser.executeObsidian(({ app }) => {
-        (
-          app as unknown as { setting: { close(): void } }
-        ).setting.close();
+        (app as unknown as { setting: { close(): void } }).setting.close();
       });
+    });
+
+    it('settings tab — Import/export section with Browse button visible', async function () {
+      // Re-open settings and SCROLL the Import/export section into view
+      // before screenshotting. The Browse button is the new Phase 2 surface
+      // and should be clearly visible in the captured image.
+      await browser.executeObsidian(({ app }) => {
+        const setting = (
+          app as unknown as {
+            setting: { open(): void; openTabById(id: string): void };
+          }
+        ).setting;
+        setting.open();
+        setting.openTabById('folder-tag-sync');
+      });
+      await browser.pause(500);
+
+      const browseButtonText = await browser.executeObsidian(() => {
+        // Find the Setting row whose name is "Browse bundled rule packs",
+        // scroll its button into view, and return its text for assertion.
+        const headings = Array.from(document.querySelectorAll('.setting-item-name'));
+        const target = headings.find((h) =>
+          (h.textContent ?? '').trim() === 'Browse bundled rule packs',
+        );
+        if (!target) return null;
+        const row = target.closest('.setting-item');
+        const button = row?.querySelector('button');
+        button?.scrollIntoView({ block: 'center', behavior: 'instant' as ScrollBehavior });
+        return button?.textContent?.trim() ?? null;
+      });
+
+      expect(browseButtonText).toBe('Browse');
+      await browser.pause(150); // let the scroll settle before snapping
+      await snap('02-settings-browse-button-in-view');
+
+      await browser.executeObsidian(({ app }) => {
+        (app as unknown as { setting: { close(): void } }).setting.close();
+      });
+    });
+
+    it('command palette — import-rule-pack command surfaces', async function () {
+      // Distinct surface: open the command palette and verify the new
+      // command appears. Captures a different state than settings tab,
+      // proving the command-palette surface independently of the UI.
+      await browser.executeObsidian(({ app }) => {
+        (
+          app as unknown as {
+            commands: {
+              executeCommandById(id: string): void;
+            };
+          }
+        ).commands.executeCommandById('command-palette:open');
+      });
+      await browser.pause(400);
+
+      // Type the command name into the palette input
+      await browser.executeObsidian(() => {
+        const input = document.querySelector(
+          '.prompt-input',
+        ) as HTMLInputElement | null;
+        if (input) {
+          input.value = 'Import rule pack';
+          input.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+      });
+      await browser.pause(300);
+
+      const matched = await browser.executeObsidian(() => {
+        const items = Array.from(document.querySelectorAll('.suggestion-item'));
+        return items.some((it) =>
+          (it.textContent ?? '').includes('Import rule pack from bundled packs'),
+        );
+      });
+      expect(matched).toBe(true);
+
+      await snap('03-command-palette-import-rule-pack');
+
+      // Close palette via Escape
+      await browser.keys(['Escape']);
     });
   });
 });

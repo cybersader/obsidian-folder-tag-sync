@@ -264,7 +264,7 @@ export class SettingsTab extends PluginSettingTab {
 
 		new Setting(section)
 			.setName('Browse bundled rule packs')
-			.setDesc('Pick a pre-configured rule pack (PARA, SEACOW, etc.) and import its rules into your settings.')
+			.setDesc('Pick a pre-configured rule pack and import its rules into your settings.')
 			.addButton(btn => btn
 				.setButtonText('Browse')
 				.setCta()

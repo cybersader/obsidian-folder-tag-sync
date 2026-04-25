@@ -59,3 +59,15 @@ jobs:
             wdio-logs/
             .wdio/
           retention-days: 7
+
+      # Screenshots from typed-model.e2e.ts UI specs land here. Always upload —
+      # passing runs are useful as a visual baseline; failed runs show where
+      # the UI broke.
+      - name: Upload e2e screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-screenshots
+          path: test/screenshots/
+          retention-days: 14
+          if-no-files-found: ignore

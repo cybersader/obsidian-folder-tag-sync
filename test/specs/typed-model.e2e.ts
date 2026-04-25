@@ -1,5 +1,14 @@
 import { browser, expect } from '@wdio/globals';
 import { describe, it, before } from 'mocha';
+import * as path from 'node:path';
+import * as fs from 'node:fs/promises';
+
+const SCREENSHOT_DIR = path.resolve('test/screenshots');
+
+async function snap(name: string): Promise<void> {
+  await fs.mkdir(SCREENSHOT_DIR, { recursive: true });
+  await browser.saveScreenshot(path.join(SCREENSHOT_DIR, `${name}.png`));
+}
 
 /**
  * Phase 2 E2E coverage. Exercises the Layer 2 typed model end-to-end inside
@@ -26,57 +35,21 @@ describe('folder-tag-sync — Phase 2 typed model E2E', function () {
     expect(has).toBe(true);
   });
 
-  it('deriveRule produces the expected Layer 1 fields for an identity spec', async function () {
-    const result = await browser.executeObsidian(async ({ app }) => {
+  it('plugin instance is reachable via app.plugins (proxy for derivation coverage)', async function () {
+    // Note: invoking deriveRule / loadRulePackFromJSON directly from inside
+    // Obsidian's renderer would require those modules to be on a require
+    // path that's resolvable in the Electron context — they aren't, since
+    // the plugin is bundled by esbuild into a single main.js. The pure-logic
+    // coverage for derivation lives in the bun unit suite (derive.test.ts,
+    // applyRule.test.ts). This e2e suite confirms the wiring (plugin loads,
+    // command registers, import flow works against real settings).
+    const reachable = await browser.executeObsidian(({ app }) => {
       const plugin = (app as unknown as {
-        plugins: { plugins: Record<string, { app: unknown }> };
-      }).plugins.plugins['folder-tag-sync'] as unknown as {
-        // The plugin module's deriveRule isn't exposed on the instance, so we
-        // round-trip via the rule-pack loader path: feed a typed-spec pack,
-        // load it, inspect the resulting Layer 1 fields.
-      };
-      // Use require so we don't take a static dep on the module path
-      const { loadRulePackFromJSON } = (window as unknown as {
-        require?: (m: string) => unknown;
-      }).require?.('./engine/rulePackLoader') ?? { loadRulePackFromJSON: undefined };
-      if (typeof loadRulePackFromJSON !== 'function') {
-        // Plugin module isn't exposed via require; fall back to a manual
-        // derivation through the plugin instance is non-trivial here. Skip
-        // the deep assertion in that case and just confirm the plugin
-        // instance is present.
-        return { skipped: true, instance: !!plugin };
-      }
-      const pack = JSON.stringify({
-        name: 'PARA-mini',
-        description: 'one identity rule',
-        version: '1.0.0',
-        author: 'e2e',
-        rules: [{
-          typedSpec: {
-            id: 'p',
-            name: 'PARA Projects',
-            priority: 10,
-            direction: 'bidirectional',
-            enabled: true,
-            folder: { axes: ['work'], scheme: 'enumerative', naming: 'word', subdivisionDepth: 'unbounded', siblingUniformity: 'parallel' },
-            tag: { axis: 'work', coordination: 'pre-coordinated', prefixMarker: null, authority: 'mutual' },
-            transfer: { op: 'identity' }, inverseTransfer: { op: 'identity' },
-            folderEntry: 'Projects', tagEntry: 'projects',
-            options: { createFolders: true, addTags: true, removeOrphanedTags: false, syncOnFileCreate: true, syncOnFileMove: true, syncOnFileRename: true },
-          },
-        }],
-      });
-      const r = (loadRulePackFromJSON as (j: string) => { ok: boolean; pack?: { rules: unknown[] } })(pack);
-      return { skipped: false, ok: r.ok, ruleCount: r.pack?.rules.length };
+        plugins: { plugins: Record<string, unknown> };
+      }).plugins.plugins['folder-tag-sync'];
+      return plugin !== undefined;
     });
-    if ('skipped' in result && result.skipped) {
-      // Plugin runtime didn't expose the loader for in-page invocation —
-      // accept that and rely on the bun unit tests for derivation coverage.
-      expect(result.instance).toBe(true);
-    } else {
-      expect(result.ok).toBe(true);
-      expect(result.ruleCount).toBe(1);
-    }
+    expect(reachable).toBe(true);
   });
 
   describe('end-to-end import flow', function () {
@@ -186,6 +159,71 @@ describe('folder-tag-sync — Phase 2 typed model E2E', function () {
       for (const id of before) {
         expect(after.ids).toContain(id);
       }
+    });
+  });
+
+  describe('UI surfaces', function () {
+    // These specs open real Obsidian UI (settings tab, picker modal) and
+    // capture screenshots into test/screenshots/. CI uploads them as
+    // artifacts so failures can be inspected visually. Locally, they're
+    // useful for verifying the visual layout matches expectation.
+
+    it('settings tab renders the Browse bundled rule packs button', async function () {
+      // Open the settings modal and navigate to this plugin's tab.
+      await browser.executeObsidian(({ app }) => {
+        const setting = (
+          app as unknown as {
+            setting: {
+              open(): void;
+              openTabById(id: string): void;
+            };
+          }
+        ).setting;
+        setting.open();
+        setting.openTabById('folder-tag-sync');
+      });
+
+      // Wait for the settings UI to render.
+      await browser.pause(500);
+
+      // Verify the new button exists in the DOM.
+      const browseButtonText = await browser.executeObsidian(() => {
+        const buttons = Array.from(document.querySelectorAll('.setting-item button'));
+        return buttons.map((b) => b.textContent?.trim()).filter(Boolean);
+      });
+      expect(browseButtonText).toContain('Browse');
+
+      await snap('settings-tab-with-browse-button');
+
+      // Close the settings modal so it doesn't leak into the next spec.
+      await browser.executeObsidian(({ app }) => {
+        (
+          app as unknown as { setting: { close(): void } }
+        ).setting.close();
+      });
+    });
+
+    it('captures the settings rule list after import (proxy for visual regression)', async function () {
+      // The previous "end-to-end import flow" spec already populated
+      // settings with the e2e-sample rule. Open settings, screenshot the
+      // populated list. This is what a user sees post-import.
+      await browser.executeObsidian(({ app }) => {
+        const setting = (
+          app as unknown as {
+            setting: { open(): void; openTabById(id: string): void };
+          }
+        ).setting;
+        setting.open();
+        setting.openTabById('folder-tag-sync');
+      });
+      await browser.pause(500);
+      await snap('settings-tab-with-imported-rule');
+
+      await browser.executeObsidian(({ app }) => {
+        (
+          app as unknown as { setting: { close(): void } }
+        ).setting.close();
+      });
     });
   });
 });

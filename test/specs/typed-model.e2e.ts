@@ -424,19 +424,25 @@ describe('folder-tag-sync — Phase 2 typed model E2E', function () {
             }
             await plugin.syncFolderToTags(file as unknown as never);
 
-            // Read back the file's frontmatter
+            // Read back the file's frontmatter. Note: Obsidian convention is
+            // to store tags WITHOUT the `#` prefix in YAML frontmatter; the
+            // sync engine strips it before writing. Normalize on read so
+            // comparison against `#`-prefixed expectedTag works either way.
             const content = await app.vault.read(file as unknown as never);
             const fmMatch = content.match(/^---\n([\s\S]*?)\n---/);
             const fm = fmMatch?.[1] ?? '';
-            // Crude tag extraction: lines starting with "  - " or YAML inline `tags: [...]`
-            const blockTags = Array.from(fm.matchAll(/^\s*-\s*(?:"|')?(#[^"'\n]+?)(?:"|')?$/gm))
-              .map((m) => m[1].trim());
+            const normalize = (t: string): string => (t.startsWith('#') ? t : `#${t}`);
+            // Block list under `tags:` —  - someTag  / - "someTag"
+            const blockTags = Array.from(
+              fm.matchAll(/^\s*-\s*(?:"|')?([^"'\s][^"'\n]*?)(?:"|')?\s*$/gm),
+            ).map((m) => normalize(m[1].trim()));
             const inlineMatch = fm.match(/^tags:\s*\[(.*?)\]/m);
             const inlineTags = inlineMatch
               ? inlineMatch[1]
                   .split(',')
                   .map((s) => s.replace(/['"]/g, '').trim())
-                  .filter((s) => s.startsWith('#'))
+                  .filter(Boolean)
+                  .map(normalize)
               : [];
             const tags = [...blockTags, ...inlineTags];
 

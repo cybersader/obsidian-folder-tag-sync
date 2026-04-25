@@ -25,6 +25,14 @@ import {
 } from '../engine/detectPacks';
 import { loadRulePackFromJSON } from '../engine/rulePackLoader';
 import type { MappingRule } from '../types/settings';
+// Bundle the manifest at build time so the modal works even when the
+// plugin's rule-packs/ folder isn't shipped alongside main.js (e.g. some
+// wdio install paths copy only main.js + manifest.json + styles.css).
+// Pack files themselves stay on-disk and load on-demand when the user
+// applies a pack — that path goes through the vault adapter, which is
+// fine because users installing via BRAT/community-plugins always get
+// the full plugin directory.
+import bundledManifest from '../../rule-packs/manifest.json';
 
 interface ManifestFile {
 	version: number;
@@ -58,17 +66,9 @@ export class DetectVaultModal extends Modal {
 		status.style.fontStyle = 'italic';
 		status.setText('Loading packs and scanning vault…');
 
-		// Load manifest + scan vault folders + run detection
-		let manifest: ManifestFile;
-		try {
-			manifest = await this.loadManifest();
-		} catch (err) {
-			status.empty();
-			status.createEl('em', {
-				text: `Could not load rule-packs/manifest.json — ${(err as Error).message}`,
-			});
-			return;
-		}
+		// Use bundled manifest. Falls back to filesystem read only if a future
+		// version of the manifest schema needs runtime fetching.
+		const manifest = bundledManifest as ManifestFile;
 
 		const folderPaths = this.collectVaultFolders();
 		const results = detectPacks(folderPaths, manifest.packs);
@@ -243,13 +243,6 @@ export class DetectVaultModal extends Modal {
 		} catch (err) {
 			new Notice(`✗ Error reading ${packEntry.file}: ${(err as Error).message}`);
 		}
-	}
-
-	private async loadManifest(): Promise<ManifestFile> {
-		const adapter = this.app.vault.adapter;
-		const path = `${this.app.vault.configDir}/plugins/${this.pluginId()}/rule-packs/manifest.json`;
-		const json = await adapter.read(path);
-		return JSON.parse(json) as ManifestFile;
 	}
 
 	private pluginId(): string {

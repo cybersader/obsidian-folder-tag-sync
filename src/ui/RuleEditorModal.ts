@@ -608,14 +608,17 @@ export class RuleEditorModal extends Modal {
 			return;
 		}
 
-		let preview;
-		try {
-			preview = previewRule(this.rule, this.vaultFolderPaths, { maxSamples: 5 });
-		} catch (err) {
+		const preview = previewRule(this.rule, this.vaultFolderPaths, { maxSamples: 5 });
+
+		// previewRule no longer throws on invalid regex — it surfaces the
+		// problem via invalidRegex. The inline-validation gate above
+		// should already catch this case, but render a clear message if
+		// it slips through.
+		if (preview.invalidRegex) {
 			const note = panel.createDiv();
 			note.style.color = 'var(--text-error)';
 			note.setText(
-				`Preview failed: ${err instanceof Error ? err.message : String(err)}`,
+				`Invalid ${preview.invalidRegex.which} regex: ${preview.invalidRegex.error}.`,
 			);
 			return;
 		}

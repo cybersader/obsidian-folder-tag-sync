@@ -133,6 +133,18 @@ export class SettingsTab extends PluginSettingTab {
 
 		const preview = previewRule(rule, folderPaths, { maxSamples: 5 });
 
+		// Invalid regex — render a clear error instead of a misleading
+		// "0 matches" panel. Click-edit the rule to fix.
+		if (preview.invalidRegex) {
+			const err = panel.createDiv({ cls: 'dtf-preview-error' });
+			err.style.color = 'var(--text-error)';
+			err.style.padding = '0.4em 0';
+			err.setText(
+				`Invalid ${preview.invalidRegex.which} regex: ${preview.invalidRegex.error}. Edit the rule to fix.`,
+			);
+			return;
+		}
+
 		// Header line
 		const summary = panel.createDiv({ cls: 'dtf-preview-summary' });
 		if (preview.opaqueByDesign) {

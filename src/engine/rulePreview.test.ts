@@ -186,3 +186,48 @@ describe('previewRule — post-coordination produces multiple tags per folder', 
 		expect(p.samples[0].tags.length).toBe(3); // first folder, 3 tags
 	});
 });
+
+describe('previewRule — invalid regex resilience', () => {
+	test('returns invalidRegex instead of throwing on broken folderPattern', () => {
+		const rule = deriveRule(spec({}));
+		// Stomp the derived folderPattern with an unparseable regex
+		const broken = { ...rule, folderPattern: '[invalid(' };
+
+		// Must not throw — this is a UI-facing operation; a config mistake
+		// should never crash the panel.
+		const p = previewRule(broken, SAMPLE_VAULT);
+
+		expect(p.invalidRegex).toBeDefined();
+		expect(p.invalidRegex?.which).toBe('folder');
+		expect(p.invalidRegex?.error.toLowerCase()).toContain('invalid');
+		expect(p.matchCount).toBe(0);
+		expect(p.matchedFolders).toEqual([]);
+		expect(p.samples).toEqual([]);
+		expect(p.emittedTags).toEqual([]);
+	});
+
+	test('valid rule does not set invalidRegex', () => {
+		const rule = deriveRule(spec({}));
+		const p = previewRule(rule, SAMPLE_VAULT);
+		expect(p.invalidRegex).toBeUndefined();
+	});
+
+	test('invalid regex on opaque rule still surfaces (rather than masking the issue)', () => {
+		const rule = deriveRule(
+			spec({ transfer: { op: 'opaque' }, inverseTransfer: { op: 'opaque' } }),
+		);
+		const broken = { ...rule, folderPattern: '*invalid' };
+		const p = previewRule(broken, SAMPLE_VAULT);
+		expect(p.invalidRegex).toBeDefined();
+		expect(p.matchCount).toBe(0);
+	});
+
+	test('opaqueByDesign reflects rule shape even when regex is invalid', () => {
+		const rule = deriveRule(
+			spec({ transfer: { op: 'opaque' }, inverseTransfer: { op: 'opaque' } }),
+		);
+		const broken = { ...rule, folderPattern: '[invalid(' };
+		const p = previewRule(broken, SAMPLE_VAULT);
+		expect(p.opaqueByDesign).toBe(true);
+	});
+});

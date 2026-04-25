@@ -772,22 +772,35 @@ describe('folder-tag-sync — Phase 2 typed model E2E', function () {
         });
         await browser.pause(400);
 
-        // Guided modal should be open in edit mode — verify title + populated entry path
+        // Guided modal should be open in edit mode. Scope all queries to
+        // the guided modal element so we don't pick up the Obsidian settings
+        // tab's headings (which use the same .setting-item-name class).
         const editState = await browser.executeObsidian(() => {
-          const modalTitle = document.querySelector('.modal-content .setting-item-name');
+          const guidedModal = document.querySelector('.modal.dtf-guided-modal');
+          if (!guidedModal) {
+            return {
+              guidedOpen: false,
+              title: '',
+              folderEntryValue: '',
+              ctaText: '',
+            };
+          }
+          const modalTitle = guidedModal.querySelector('.setting-item-name');
           const inputs = Array.from(
-            document.querySelectorAll('.modal-content input[type="text"]'),
+            guidedModal.querySelectorAll('input[type="text"]'),
           ) as HTMLInputElement[];
           const folderInput = inputs.find((i) => i.placeholder.includes('Capture/Inbox'));
           return {
+            guidedOpen: true,
             title: modalTitle?.textContent ?? '',
             folderEntryValue: folderInput?.value ?? '',
             ctaText:
-              Array.from(document.querySelectorAll('.dtf-guided-actions button'))
+              Array.from(guidedModal.querySelectorAll('.dtf-guided-actions button'))
                 .map((b) => b.textContent ?? '')
                 .find((t) => t.includes('Save') || t.includes('Create')) ?? '',
           };
         });
+        expect(editState.guidedOpen).toBe(true);
         expect(editState.title.toLowerCase()).toContain('edit');
         expect(editState.folderEntryValue).toBe('EditTest/Foo');
         expect(editState.ctaText.toLowerCase()).toContain('save');

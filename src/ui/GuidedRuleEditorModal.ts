@@ -191,10 +191,22 @@ function buildSpec(state: FormState): TypedRuleSpec {
 		},
 		transfer,
 		inverseTransfer: transfer,
-		folderEntry: state.folderEntry || '(empty)',
-		tagEntry: state.tagEntry || '(empty)',
+		// Pass raw entry strings — no '(empty)' substitution. Empty entries
+		// produce loose patterns the live preview can detect and gate on.
+		folderEntry: state.folderEntry,
+		tagEntry: state.tagEntry,
 		options: { ...DEFAULT_OPTIONS },
 	};
+}
+
+/**
+ * Both folder and tag entries must be non-empty before live derivation
+ * makes sense. Empty entries produce vacuous patterns (e.g. `^/`) that
+ * pollute the preview output. The status strip + live preview should
+ * gate on this and show a "fill in entry paths" hint instead.
+ */
+function entriesPopulated(state: FormState): boolean {
+	return state.folderEntry.trim() !== '' && state.tagEntry.trim() !== '';
 }
 
 // ─── Inconsistency detection ─────────────────────────────────────────────
@@ -377,18 +389,29 @@ export class GuidedRuleEditorModal extends Modal {
 		header.style.letterSpacing = '0.05em';
 		header.style.marginBottom = '0.3em';
 
+		const row = this.livePreviewEl.createDiv();
+		row.style.display = 'flex';
+		row.style.alignItems = 'center';
+		row.style.gap = '0.5em';
+		row.style.flexWrap = 'wrap';
+
+		// Gate on both entries being populated. Vacuous patterns (empty
+		// entry → loose match-anything regex) produce nonsense previews.
+		if (!entriesPopulated(this.state)) {
+			const missing: string[] = [];
+			if (!this.state.folderEntry.trim()) missing.push('folder entry');
+			if (!this.state.tagEntry.trim()) missing.push('tag entry');
+			row.createEl('em', {
+				text: `Fill ${missing.join(' and ')} to see what this rule will do`,
+			});
+			return;
+		}
+
 		try {
 			const spec = buildSpec(this.state);
 			const rule = deriveRule(spec);
 			const preview = previewRule(rule, this.vaultFolders, { maxSamples: 1 });
 
-			const row = this.livePreviewEl.createDiv();
-			row.style.display = 'flex';
-			row.style.alignItems = 'center';
-			row.style.gap = '0.5em';
-			row.style.flexWrap = 'wrap';
-
-			// Folder side
 			if (preview.samples.length > 0) {
 				const sample = preview.samples[0];
 				row.createEl('code', { text: sample.folder });
@@ -405,11 +428,9 @@ export class GuidedRuleEditorModal extends Modal {
 				row.createEl('em', {
 					text: 'Opaque rule — folders matched, no tag emitted',
 				});
-			} else if (this.state.folderEntry.trim() === '') {
-				row.createEl('em', { text: 'Fill folder entry to see what this rule will do' });
 			} else {
 				row.createEl('em', {
-					text: `No vault folders match "${this.state.folderEntry}". The path may not exist yet.`,
+					text: `No vault folders match "${this.state.folderEntry}" yet. The path may not exist.`,
 				});
 			}
 		} catch (err) {
@@ -432,45 +453,62 @@ export class GuidedRuleEditorModal extends Modal {
 
 	private renderStatusStrip(): void {
 		this.statusStripEl.empty();
+
+		const badge = (label: string, value: string, color: string, title?: string) => {
+			const b = this.statusStripEl.createDiv({ cls: 'dtf-guided-badge' });
+			b.style.padding = '0.2em 0.6em';
+			b.style.borderRadius = '12px';
+			b.style.fontSize = '0.8em';
+			b.style.background = color;
+			b.style.color = 'var(--text-on-accent)';
+			b.style.fontWeight = '500';
+			b.setText(`${label}: ${value}`);
+			if (title) b.title = title;
+		};
+
+		// When entries are empty, badges are informational placeholders.
+		// Cardinality/bijective are computed from settings, not from results,
+		// so they'd show green even with 0 matches — misleading the user
+		// into thinking the rule is "good" before it actually applies anywhere.
+		const NEUTRAL = 'var(--color-base-50)';
+		if (!entriesPopulated(this.state)) {
+			badge('matches', '—', NEUTRAL, 'Fill in folder + tag entry to see results');
+			badge('emits', '— tag(s)', NEUTRAL);
+			badge('cardinality', '—', NEUTRAL);
+			badge('bijective', '—', NEUTRAL);
+			return;
+		}
+
 		try {
 			const spec = buildSpec(this.state);
 			const rule = deriveRule(spec);
 			const preview = previewRule(rule, this.vaultFolders, { maxSamples: 0 });
 
-			const badge = (label: string, value: string, color: string, title?: string) => {
-				const b = this.statusStripEl.createDiv({ cls: 'dtf-guided-badge' });
-				b.style.padding = '0.2em 0.6em';
-				b.style.borderRadius = '12px';
-				b.style.fontSize = '0.8em';
-				b.style.background = color;
-				b.style.color = 'var(--text-on-accent)';
-				b.style.fontWeight = '500';
-				b.setText(`${label}: ${value}`);
-				if (title) b.title = title;
-			};
-
+			// `matches` is the only badge derived from VAULT RESULTS, so it's
+			// the only one that earns success-green. Settings-derived badges
+			// stay informational regardless of value.
 			badge(
 				'matches',
 				String(preview.matchCount),
-				preview.matchCount > 0 ? 'var(--color-green)' : 'var(--color-base-50)',
+				preview.matchCount > 0 ? 'var(--color-green)' : NEUTRAL,
 				`${preview.matchCount} vault folder(s) would be affected by this rule`,
 			);
 			badge(
 				'emits',
 				`${preview.emittedTags.length} tag(s)`,
-				'var(--color-base-50)',
+				NEUTRAL,
 				`${preview.emittedTags.length} distinct tag(s) would be emitted`,
 			);
 			badge(
 				'cardinality',
 				rule.cardinality ?? '?',
-				rule.cardinality === '1:1' ? 'var(--color-green)' : 'var(--color-yellow)',
+				NEUTRAL,
 				`Mapping shape: ${rule.cardinality === '1:1' ? 'one-to-one (lossless)' : rule.cardinality}`,
 			);
 			badge(
 				rule.bijective ? 'bijective' : 'lossy',
 				rule.bijective ? '✓' : '⚠',
-				rule.bijective ? 'var(--color-green)' : 'var(--color-orange)',
+				NEUTRAL,
 				rule.bijective
 					? 'This rule preserves enough info to round-trip folder ↔ tag'
 					: 'This rule is intentionally lossy — some structure cannot be recovered',
@@ -565,16 +603,33 @@ export class GuidedRuleEditorModal extends Modal {
 			tile.style.cursor = 'pointer';
 			tile.style.textAlign = 'center';
 			tile.style.transition = 'border-color 80ms';
+			// Fixed min-height so axes with no marker don't shrink relative
+			// to ones with markers — prevents row-height shifts between
+			// selected/unselected states.
+			tile.style.minHeight = '4em';
+			tile.style.display = 'flex';
+			tile.style.flexDirection = 'column';
+			tile.style.justifyContent = 'center';
+			tile.style.alignItems = 'center';
+			tile.style.gap = '0.15em';
 
 			const label = tile.createDiv();
 			label.createEl('strong', { text: conv.label });
 			label.style.fontSize = '0.85em';
 
 			const marker = tile.createDiv();
-			marker.style.fontFamily = 'var(--font-monospace)';
-			marker.style.fontSize = '0.85em';
-			marker.style.color = 'var(--text-muted)';
-			marker.setText(conv.marker === null ? '(none)' : conv.marker);
+			if (conv.marker === null) {
+				// "(none)" reads like an error state. Italicize the
+				// natural-language label to communicate "intentionally bare".
+				marker.createEl('em', { text: 'No marker' });
+				marker.style.color = 'var(--text-muted)';
+				marker.style.fontSize = '0.78em';
+			} else {
+				marker.setText(conv.marker);
+				marker.style.fontFamily = 'var(--font-monospace)';
+				marker.style.fontSize = '0.9em';
+				marker.style.color = 'var(--text-accent)';
+			}
 
 			tile.title = conv.description;
 
@@ -709,15 +764,16 @@ export class GuidedRuleEditorModal extends Modal {
 		const section = parent.createDiv({ cls: 'dtf-guided-transfer-section' });
 		section.style.marginBottom = '0.8em';
 
-		const heading = section.createEl('label', { text: 'Transfer operation' });
+		const heading = section.createEl('label', { text: 'How folders become tags' });
 		heading.style.display = 'block';
 		heading.style.marginBottom = '0.3em';
+		heading.title = 'Transfer operation — the library-science primitive that maps source-side hierarchy to destination-side hierarchy.';
 
 		const sub = section.createDiv();
 		sub.style.fontSize = '0.85em';
 		sub.style.color = 'var(--text-muted)';
 		sub.style.marginBottom = '0.5em';
-		sub.setText('How does folder structure become tag structure? Pick one of eight library-science primitives.');
+		sub.setText('Pick one of eight library-science primitives. Each describes a different way folder structure transfers into tag structure.');
 
 		this.transferCardsEl = section.createDiv({ cls: 'dtf-guided-transfer-cards' });
 		this.transferCardsEl.style.display = 'grid';
@@ -742,15 +798,32 @@ export class GuidedRuleEditorModal extends Modal {
 		];
 
 		for (const op of ops) {
+			const isSelected = this.state.transferOp === op;
 			const card = this.transferCardsEl.createDiv({ cls: 'dtf-guided-transfer-card' });
 			card.setAttribute('data-op', op);
+			card.setAttribute('role', 'button');
+			card.setAttribute('aria-pressed', isSelected ? 'true' : 'false');
+			card.tabIndex = 0;
 			card.style.padding = '0.5em';
 			card.style.background = 'var(--background-secondary)';
 			card.style.borderRadius = '5px';
-			card.style.border = `2px solid ${this.state.transferOp === op ? 'var(--interactive-accent)' : 'transparent'}`;
+			card.style.border = `2px solid ${isSelected ? 'var(--interactive-accent)' : 'transparent'}`;
 			card.style.cursor = 'pointer';
 			card.style.fontSize = '0.78em';
 			card.style.transition = 'border-color 80ms';
+			card.style.position = 'relative';
+
+			// Accessibility: color-only selection indicators fail for ~5% of
+			// users + screen readers. Add a checkmark glyph in the corner of
+			// the selected card so the state is communicated by shape too.
+			if (isSelected) {
+				const check = card.createSpan({ text: '✓' });
+				check.style.position = 'absolute';
+				check.style.top = '0.25em';
+				check.style.right = '0.4em';
+				check.style.color = 'var(--interactive-accent)';
+				check.style.fontWeight = 'bold';
+			}
 
 			const name = card.createDiv();
 			name.style.fontWeight = '600';
@@ -773,6 +846,14 @@ export class GuidedRuleEditorModal extends Modal {
 				this.state.transferOp = op;
 				this.renderTransferSubOptions();
 				this.notify();
+			});
+			card.addEventListener('keydown', (e) => {
+				if (e.key === 'Enter' || e.key === ' ') {
+					e.preventDefault();
+					this.state.transferOp = op;
+					this.renderTransferSubOptions();
+					this.notify();
+				}
 			});
 		}
 
@@ -855,9 +936,12 @@ export class GuidedRuleEditorModal extends Modal {
 
 		for (const w of warnings) {
 			const row = this.warningsEl.createDiv({ cls: 'dtf-guided-warning' });
+			// Use Obsidian's standard inline-warning pattern — readable in both
+			// light and dark themes, doesn't require text-on-accent contrast.
 			row.style.padding = '0.5em 0.75em';
-			row.style.background = 'var(--background-modifier-error)';
-			row.style.color = 'var(--text-error)';
+			row.style.background = 'var(--background-modifier-error-hover)';
+			row.style.color = 'var(--text-normal)';
+			row.style.borderLeft = '3px solid var(--text-error)';
 			row.style.borderRadius = '4px';
 			row.style.marginBottom = '0.3em';
 			row.style.display = 'flex';
@@ -867,9 +951,11 @@ export class GuidedRuleEditorModal extends Modal {
 
 			const msg = row.createSpan({ text: `⚠ ${w.message}` });
 			msg.style.flex = '1';
+			msg.style.fontSize = '0.9em';
 
 			if (w.fix) {
 				const fixBtn = row.createEl('button', { text: w.fix.label });
+				fixBtn.style.flexShrink = '0';
 				fixBtn.addEventListener('click', () => {
 					w.fix!.apply(this.state);
 					this.notify();
@@ -908,6 +994,14 @@ export class GuidedRuleEditorModal extends Modal {
 
 	private renderVaultTest(): void {
 		this.vaultTestEl.empty();
+
+		if (!entriesPopulated(this.state)) {
+			this.vaultTestEl.createEl('em', {
+				text: 'Fill folder entry and tag entry to see sample matches.',
+			});
+			return;
+		}
+
 		try {
 			const spec = buildSpec(this.state);
 			const rule = deriveRule(spec);
@@ -1015,15 +1109,26 @@ export class GuidedRuleEditorModal extends Modal {
 		const actions = parent.createDiv({ cls: 'dtf-guided-actions' });
 		actions.style.display = 'flex';
 		actions.style.gap = '0.5em';
-		actions.style.justifyContent = 'flex-end';
+		actions.style.justifyContent = 'space-between';
+		actions.style.alignItems = 'center';
 		actions.style.marginTop = '1em';
 		actions.style.paddingTop = '0.6em';
 		actions.style.borderTop = '1px solid var(--background-modifier-border)';
 
-		const cancelBtn = actions.createEl('button', { text: 'Cancel' });
+		// Keyboard hint — left-aligned, low-emphasis
+		const kbHint = actions.createDiv();
+		kbHint.style.fontSize = '0.78em';
+		kbHint.style.color = 'var(--text-muted)';
+		kbHint.setText('Esc to cancel · Cmd/Ctrl+Enter to create');
+
+		const buttons = actions.createDiv();
+		buttons.style.display = 'flex';
+		buttons.style.gap = '0.5em';
+
+		const cancelBtn = buttons.createEl('button', { text: 'Cancel' });
 		cancelBtn.addEventListener('click', () => this.close());
 
-		this.saveBtn = actions.createEl('button', { text: 'Create rule', cls: 'mod-cta' });
+		this.saveBtn = buttons.createEl('button', { text: 'Create rule', cls: 'mod-cta' });
 		this.saveBtn.addEventListener('click', () => this.attemptSave());
 	}
 

@@ -1,0 +1,107 @@
+{
+	"id": "para",
+	"name": "PARA",
+	"description": "Tiago Forte's PARA method — four canonical Work buckets: Projects, Areas, Resources, Archive. Identity transfer between folder hierarchy and tag hierarchy.",
+	"version": "1.0.0",
+	"author": "Cybersader",
+
+	"axes": ["work"],
+	"compatibleWith": ["seacow-outer", "jd-output"],
+	"exclusiveWith": ["gtd"],
+
+	"detection": {
+		"anyOf": [
+			{ "folderRegex": "^Projects$", "scope": "name", "label": "Projects/ root" },
+			{ "folderRegex": "^Areas$", "scope": "name", "label": "Areas/ root" },
+			{ "folderRegex": "^Resources$", "scope": "name", "label": "Resources/ root" },
+			{ "folderRegex": "^Archive$", "scope": "name", "label": "Archive/ root" }
+		],
+		"minSignals": 2,
+		"scopedUnder": null
+	},
+
+	"establish": {
+		"createFolders": ["Projects/", "Areas/", "Resources/", "Archive/"],
+		"summary": "Four top-level Work folders: active Projects, ongoing Areas of responsibility, reference Resources, and Archive."
+	},
+
+	"rules": [
+		{
+			"id": "para-projects",
+			"name": "PARA: Projects",
+			"description": "Projects/ ↔ #projects/* — identity transfer, bidirectional",
+			"enabled": true,
+			"priority": 10,
+			"direction": "bidirectional",
+			"folderPattern": "^Projects/",
+			"folderEntryPoint": "Projects",
+			"folderTransforms": { "caseTransform": "Title Case", "emojiHandling": "keep" },
+			"tagPattern": "^projects/",
+			"tagEntryPoint": "projects",
+			"tagTransforms": { "caseTransform": "kebab-case", "emojiHandling": "keep" },
+			"options": {
+				"createFolders": true, "addTags": true, "removeOrphanedTags": false,
+				"syncOnFileCreate": true, "syncOnFileMove": true, "syncOnFileRename": true,
+				"onConflict": "prompt", "tagSpecificity": "narrower",
+				"keepDestinationTag": true, "keepRelationTags": true, "moveAttachments": true
+			}
+		},
+		{
+			"id": "para-areas",
+			"name": "PARA: Areas",
+			"description": "Areas/ ↔ #areas/* — identity transfer, bidirectional",
+			"enabled": true,
+			"priority": 20,
+			"direction": "bidirectional",
+			"folderPattern": "^Areas/",
+			"folderEntryPoint": "Areas",
+			"folderTransforms": { "caseTransform": "Title Case", "emojiHandling": "keep" },
+			"tagPattern": "^areas/",
+			"tagEntryPoint": "areas",
+			"tagTransforms": { "caseTransform": "kebab-case", "emojiHandling": "keep" },
+			"options": {
+				"createFolders": true, "addTags": true, "removeOrphanedTags": false,
+				"syncOnFileCreate": true, "syncOnFileMove": true, "syncOnFileRename": true,
+				"keepDestinationTag": true, "keepRelationTags": true, "moveAttachments": true
+			}
+		},
+		{
+			"id": "para-resources",
+			"name": "PARA: Resources",
+			"description": "Resources/ ↔ #resources/* — identity transfer, bidirectional",
+			"enabled": true,
+			"priority": 30,
+			"direction": "bidirectional",
+			"folderPattern": "^Resources/",
+			"folderEntryPoint": "Resources",
+			"folderTransforms": { "caseTransform": "Title Case", "emojiHandling": "keep" },
+			"tagPattern": "^resources/",
+			"tagEntryPoint": "resources",
+			"tagTransforms": { "caseTransform": "kebab-case", "emojiHandling": "keep" },
+			"options": {
+				"createFolders": true, "addTags": true, "removeOrphanedTags": false,
+				"syncOnFileCreate": true, "syncOnFileMove": true, "syncOnFileRename": true,
+				"keepDestinationTag": true, "keepRelationTags": true, "moveAttachments": true
+			}
+		},
+		{
+			"id": "para-archive",
+			"name": "PARA: Archive",
+			"description": "Archive/ ↔ #archive/* — identity transfer, bidirectional",
+			"enabled": true,
+			"priority": 40,
+			"direction": "bidirectional",
+			"folderPattern": "^Archive/",
+			"folderEntryPoint": "Archive",
+			"folderTransforms": { "caseTransform": "Title Case", "emojiHandling": "keep" },
+			"tagPattern": "^archive/",
+			"tagEntryPoint": "archive",
+			"tagTransforms": { "caseTransform": "kebab-case", "emojiHandling": "keep" },
+			"options": {
+				"createFolders": true, "addTags": true, "removeOrphanedTags": false,
+				"syncOnFileCreate": true, "syncOnFileMove": true, "syncOnFileRename": true,
+				"keepDestinationTag": true, "keepRelationTags": true, "moveAttachments": true
+			}
+		}
+	]
+}

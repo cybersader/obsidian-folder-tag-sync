@@ -17,9 +17,44 @@
  */
 
 import type { MappingRule } from '../types/settings';
-import type { TypedRuleSpec } from '../types/typed';
+import type { Axis, TypedRuleSpec } from '../types/typed';
 import { deriveRule } from './derive';
 import { inferTypedModel } from './inferTyped';
+
+// ─── Phase 2C extensions ─────────────────────────────────────────────────
+//
+// All new fields are OPTIONAL — existing community packs without these
+// metadata fields keep loading. The fields enable: catalog grouping by
+// SEACOW axis, vault-shape detection, composition (compatibleWith /
+// exclusiveWith), and bootstrap (establish.createFolders).
+
+/** A single signal pattern matched against vault folder names. */
+export interface DetectionSignal {
+	/** Regex matched (case-insensitive) against folder name, full path, or both. */
+	folderRegex: string;
+	/** Where to apply the regex. Default: name. */
+	scope?: 'name' | 'path' | 'leafName';
+	/** Optional human description for the detect modal. */
+	label?: string;
+}
+
+/** Vault-shape detection rules for a pack. */
+export interface PackDetection {
+	/** Match if at least `minSignals` of these patterns hit. */
+	anyOf: DetectionSignal[];
+	/** Threshold to surface in detect results. Default: 1. */
+	minSignals?: number;
+	/** If set, this pack only fires when `scopedUnder` (a parent pack id) also matches. */
+	scopedUnder?: string;
+}
+
+/** What to create when bootstrapping a new vault from this pack. */
+export interface PackEstablish {
+	/** Folder paths to create (with trailing slash). */
+	createFolders: string[];
+	/** One-line natural-language description for the wizard. */
+	summary?: string;
+}
 
 export interface RulePack {
 	name: string;
@@ -28,6 +63,21 @@ export interface RulePack {
 	author: string;
 	rules: MappingRule[];
 	notes?: string[];
+
+	// Phase 2C metadata (all optional)
+
+	/** Stable identifier — used by manifest, compatibleWith, scopedUnder. Defaults to file basename if absent. */
+	id?: string;
+	/** Which SEACOW axes this pack covers. */
+	axes?: Axis[];
+	/** Pack ids this pack composes cleanly with. */
+	compatibleWith?: string[];
+	/** Pack ids this pack should not be installed alongside. */
+	exclusiveWith?: string[];
+	/** Vault-shape detection signals. */
+	detection?: PackDetection;
+	/** Bootstrap (Establish-mode) instructions. */
+	establish?: PackEstablish;
 }
 
 export interface LoadResult {
@@ -105,6 +155,10 @@ export function loadRulePackFromJSON(json: string): LoadResult | LoadError {
 		}
 	}
 
+	// Validate optional Phase 2C metadata. Each block is independently
+	// validated; absence is fine. Bad values become hard errors.
+	const phase2cMeta = validatePhase2CMeta(obj, errors);
+
 	if (errors.length) return { ok: false, errors };
 
 	return {
@@ -116,8 +170,83 @@ export function loadRulePackFromJSON(json: string): LoadResult | LoadError {
 			author: author!,
 			rules,
 			notes: Array.isArray(obj.notes) ? (obj.notes as string[]) : undefined,
+			...phase2cMeta,
 		},
 	};
+}
+
+/**
+ * Pull and validate the optional Phase 2C metadata blocks. Returns the
+ * validated subset of fields suitable for spreading into the RulePack.
+ * Pushes errors onto the shared `errors` array on validation failure.
+ */
+function validatePhase2CMeta(
+	obj: Record<string, unknown>,
+	errors: string[],
+): Partial<RulePack> {
+	const out: Partial<RulePack> = {};
+
+	if (typeof obj.id === 'string' && obj.id.trim()) out.id = obj.id;
+
+	if (Array.isArray(obj.axes)) {
+		const axes = obj.axes.filter((a): a is Axis =>
+			typeof a === 'string' &&
+			['system', 'entity', 'capture', 'output', 'work', 'relation'].includes(a),
+		);
+		out.axes = axes;
+	}
+
+	if (Array.isArray(obj.compatibleWith)) {
+		out.compatibleWith = obj.compatibleWith.filter((s): s is string => typeof s === 'string');
+	}
+	if (Array.isArray(obj.exclusiveWith)) {
+		out.exclusiveWith = obj.exclusiveWith.filter((s): s is string => typeof s === 'string');
+	}
+
+	if (obj.detection !== undefined) {
+		const det = obj.detection as Record<string, unknown>;
+		if (!Array.isArray(det.anyOf)) {
+			errors.push("'detection.anyOf' must be an array of signals");
+		} else {
+			const signals: DetectionSignal[] = [];
+			for (const [i, s] of (det.anyOf as Record<string, unknown>[]).entries()) {
+				if (typeof s.folderRegex !== 'string' || !s.folderRegex) {
+					errors.push(`detection.anyOf[${i}].folderRegex must be a non-empty string`);
+					continue;
+				}
+				try {
+					new RegExp(s.folderRegex, 'i');
+				} catch (err) {
+					errors.push(`detection.anyOf[${i}].folderRegex invalid: ${(err as Error).message}`);
+					continue;
+				}
+				signals.push({
+					folderRegex: s.folderRegex,
+					scope: s.scope === 'path' || s.scope === 'leafName' ? s.scope : 'name',
+					label: typeof s.label === 'string' ? s.label : undefined,
+				});
+			}
+			out.detection = {
+				anyOf: signals,
+				minSignals: typeof det.minSignals === 'number' ? det.minSignals : 1,
+				scopedUnder: typeof det.scopedUnder === 'string' ? det.scopedUnder : undefined,
+			};
+		}
+	}
+
+	if (obj.establish !== undefined) {
+		const est = obj.establish as Record<string, unknown>;
+		if (!Array.isArray(est.createFolders)) {
+			errors.push("'establish.createFolders' must be an array of paths");
+		} else {
+			out.establish = {
+				createFolders: est.createFolders.filter((p): p is string => typeof p === 'string'),
+				summary: typeof est.summary === 'string' ? est.summary : undefined,
+			};
+		}
+	}
+
+	return out;
 }
 
 function validateAndNormalizeRule(

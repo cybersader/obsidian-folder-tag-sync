@@ -682,6 +682,49 @@ describe('folder-tag-sync — Phase 2 typed model E2E', function () {
       });
     });
 
+    describe('Phase 2C — Detect-mode UI', function () {
+      it('Scan command opens detect modal with detected packs ranked', async function () {
+        // Stage some folders that match the SEACOW outer signal pattern
+        // (Capture/, Entity/, Output/, System/) so detection surfaces the pack.
+        await browser.executeObsidian(async ({ app }) => {
+          const adapter = app.vault.adapter;
+          const dirs = ['Capture', 'Capture/Inbox', 'Entity', 'Output', 'Output/Main', 'System'];
+          for (const d of dirs) {
+            if (!(await adapter.exists(d))) await adapter.mkdir(d);
+          }
+        });
+        await browser.pause(200);
+
+        // Run the scan command via command palette executeCommandById
+        await browser.executeObsidian(({ app }) => {
+          (app as unknown as {
+            commands: { executeCommandById(id: string): boolean };
+          }).commands.executeCommandById('folder-tag-sync:scan-vault-for-systems');
+        });
+        await browser.pause(700);
+
+        const surfaced = await browser.executeObsidian(() => {
+          // Check that the detect modal rendered AND that seacow-outer surfaced
+          const modal = document.querySelector('.dtf-detect-modal');
+          if (!modal) return { hasModal: false, packs: [] as string[] };
+          const cards = Array.from(modal.querySelectorAll('.dtf-detect-result strong'));
+          return {
+            hasModal: true,
+            packs: cards.map((c) => c.textContent ?? ''),
+          };
+        });
+        expect(surfaced.hasModal).toBe(true);
+        // SEACOW outer should surface; PARA/JD won't unless we created their roots
+        expect(surfaced.packs.some((p) => p.toLowerCase().includes('seacow'))).toBe(true);
+
+        await snap('11-detect-modal-seacow-surfaced');
+
+        // Close modal with Escape
+        await browser.keys(['Escape']);
+        await browser.pause(150);
+      });
+    });
+
     it('command palette — import-rule-pack command surfaces', async function () {
       // Distinct surface: open the command palette and verify the new
       // command appears. Captures a different state than settings tab,

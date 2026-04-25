@@ -1,0 +1,137 @@
+{
+	"id": "seacow-outer",
+	"name": "SEACOW outer shell",
+	"description": "Just the SEACOW outer structure — Capture, Entity, Output, System — without committing to specific inner systems. Compose with PARA, Johnny Decimal, or Zettelkasten packs to fill the inner axes.",
+	"version": "1.0.0",
+	"author": "Cybersader",
+
+	"axes": ["system", "entity", "capture", "output"],
+	"compatibleWith": ["para", "jd", "zettelkasten"],
+	"exclusiveWith": [],
+
+	"detection": {
+		"anyOf": [
+			{ "folderRegex": "^Capture$", "scope": "name", "label": "Capture/ root" },
+			{ "folderRegex": "^Entity$", "scope": "name", "label": "Entity/ root" },
+			{ "folderRegex": "^Output$", "scope": "name", "label": "Output/ root" },
+			{ "folderRegex": "^System$", "scope": "name", "label": "System/ root" },
+			{ "folderRegex": "^Capture/(Inbox|Clips)$", "scope": "path", "label": "Capture/Inbox or Capture/Clips" },
+			{ "folderRegex": "^Output/(Main|Public)$", "scope": "path", "label": "Output/Main or Output/Public" }
+		],
+		"minSignals": 2,
+		"scopedUnder": null
+	},
+
+	"establish": {
+		"createFolders": ["Capture/Inbox/", "Capture/Clips/", "Entity/", "Output/Main/", "Output/Public/", "System/Templates/"],
+		"summary": "Lays down the four SEACOW outer roots — Capture, Entity, Output, System — with conventional sub-folders. Pick component packs (PARA, JD, etc.) to fill the inner axes."
+	},
+
+	"notes": [
+		"This pack is the canonical 6-rule SEACOW shell published in seacow-cyberbase.json.",
+		"Compose with PARA-as-Work or JD-as-Output for fuller systems."
+	],
+
+	"rules": [
+		{
+			"id": "capture-clip",
+			"name": "CAPTURE: Clip folder sync",
+			"description": "Sync -clip/ tags to Capture/Clips folder structure",
+			"enabled": true,
+			"priority": 1,
+			"direction": "tag-to-folder",
+			"tagPattern": "^-clip/",
+			"tagEntryPoint": "-clip",
+			"tagTransforms": { "caseTransform": "kebab-case", "emojiHandling": "keep", "numberPrefixHandling": "keep" },
+			"folderEntryPoint": "Capture/Clips",
+			"folderTransforms": { "caseTransform": "Title Case", "emojiHandling": "keep", "numberPrefixHandling": "keep" },
+			"options": {
+				"createFolders": true, "addTags": false, "removeOrphanedTags": false,
+				"syncOnFileCreate": true, "syncOnFileMove": true, "syncOnFileRename": true,
+				"onConflict": "prompt", "removeSourceTag": false, "keepDestinationTag": true,
+				"handleFolderNote": false, "moveAttachments": true
+			}
+		},
+		{
+			"id": "capture-inbox",
+			"name": "CAPTURE: Inbox flat marker",
+			"description": "Files under Capture/Inbox emit a single flat #-inbox tag",
+			"enabled": true,
+			"priority": 2,
+			"direction": "tag-to-folder",
+			"tagPattern": "^-inbox$",
+			"tagEntryPoint": "-inbox",
+			"tagTransforms": { "caseTransform": "none" },
+			"folderEntryPoint": "Capture/Inbox",
+			"folderTransforms": { "caseTransform": "Title Case" },
+			"options": {
+				"createFolders": true, "addTags": false, "removeOrphanedTags": false,
+				"syncOnFileCreate": true, "syncOnFileMove": true, "syncOnFileRename": false,
+				"onConflict": "prompt", "removeSourceTag": false, "keepDestinationTag": true,
+				"handleFolderNote": false, "moveAttachments": true
+			}
+		},
+		{
+			"id": "output-main-public",
+			"name": "OUTPUT: Main public-facing",
+			"description": "Sync _/ tags to Output/Main folder",
+			"enabled": true,
+			"priority": 5,
+			"direction": "bidirectional",
+			"tagPattern": "^_/",
+			"tagEntryPoint": "_",
+			"tagTransforms": { "caseTransform": "kebab-case", "emojiHandling": "keep", "numberPrefixHandling": "strip" },
+			"folderPattern": "^Output/Main/",
+			"folderEntryPoint": "Output/Main",
+			"folderTransforms": { "caseTransform": "Title Case", "emojiHandling": "keep", "numberPrefixHandling": "strip" },
+			"options": {
+				"createFolders": true, "addTags": true, "removeOrphanedTags": true,
+				"syncOnFileCreate": true, "syncOnFileMove": true, "syncOnFileRename": true,
+				"onConflict": "auto-resolve", "tagSpecificity": "broader",
+				"removeSourceTag": false, "keepDestinationTag": true, "keepRelationTags": true,
+				"handleFolderNote": true, "moveAttachments": true
+			}
+		},
+		{
+			"id": "output-public-taxonomy",
+			"name": "OUTPUT: Public Taxonomy",
+			"description": "Sync _publicTaxonomy/ tags to Output/Public folder (deep nesting)",
+			"enabled": true,
+			"priority": 4,
+			"direction": "bidirectional",
+			"tagPattern": "^_publicTaxonomy/",
+			"tagEntryPoint": "_publicTaxonomy",
+			"tagTransforms": { "caseTransform": "kebab-case", "emojiHandling": "keep", "numberPrefixHandling": "keep" },
+			"folderPattern": "^Output/Public/",
+			"folderEntryPoint": "Output/Public",
+			"folderTransforms": { "caseTransform": "Title Case", "emojiHandling": "keep", "numberPrefixHandling": "keep" },
+			"options": {
+				"createFolders": true, "addTags": true, "removeOrphanedTags": true,
+				"syncOnFileCreate": true, "syncOnFileMove": true, "syncOnFileRename": true,
+				"onConflict": "auto-resolve", "tagSpecificity": "broader",
+				"removeSourceTag": false, "keepDestinationTag": true, "keepRelationTags": true,
+				"handleFolderNote": true, "moveAttachments": true
+			}
+		},
+		{
+			"id": "system-templates",
+			"name": "SYSTEM: Templates and config",
+			"description": "Sync /-prefixed tags to System folder",
+			"enabled": true,
+			"priority": 6,
+			"direction": "bidirectional",
+			"tagPattern": "^/",
+			"tagEntryPoint": "/",
+			"tagTransforms": { "caseTransform": "kebab-case" },
+			"folderPattern": "^System/",
+			"folderEntryPoint": "System",
+			"folderTransforms": { "caseTransform": "Title Case" },
+			"options": {
+				"createFolders": true, "addTags": true, "removeOrphanedTags": true,
+				"syncOnFileCreate": true, "syncOnFileMove": true, "syncOnFileRename": true,
+				"onConflict": "skip", "removeSourceTag": false, "keepDestinationTag": true,
+				"handleFolderNote": false, "moveAttachments": false
+			}
+		}
+	]
+}

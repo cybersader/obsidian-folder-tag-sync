@@ -2,6 +2,7 @@ import { Plugin, TFile, Notice, Modal } from 'obsidian';
 import { DynamicTagsFoldersSettings, DEFAULT_SETTINGS, MappingRule } from './types/settings';
 import { SettingsTab } from './ui/SettingsTab';
 import { RulePackPickerModal } from './ui/RulePackPickerModal';
+import { DetectVaultModal } from './ui/DetectVaultModal';
 import { DebugLogger } from './utils/debug';
 import { FolderToTagSync } from './sync/FolderToTagSync';
 import { TagToFolderSync } from './sync/TagToFolderSync';
@@ -71,6 +72,14 @@ export default class DynamicTagsFoldersPlugin extends Plugin {
 			}
 		});
 
+		this.addCommand({
+			id: 'scan-vault-for-systems',
+			name: 'Scan vault for organizational systems',
+			callback: () => {
+				void this.scanVaultForSystems();
+			}
+		});
+
 		// TODO: Register event listeners for automatic sync
 		// this.registerEvent(
 		// 	this.app.vault.on('create', this.onFileCreated.bind(this))
@@ -136,6 +145,24 @@ export default class DynamicTagsFoldersPlugin extends Plugin {
 	/**
 	 * Sync tags to folder location for a file
 	 */
+	/**
+	 * Open the Detect-mode modal — scans the vault for organizational
+	 * patterns, lists detected packs ranked by confidence, applies on click.
+	 */
+	scanVaultForSystems(): void {
+		const modal = new DetectVaultModal(this.app, async (newRules) => {
+			const existingIds = new Set(this.settings.rules.map((r) => r.id));
+			const toAdd = newRules.filter((r) => !existingIds.has(r.id));
+			this.settings.rules = [...this.settings.rules, ...toAdd];
+			await this.saveSettings();
+			await this.debugLogger.info('Detect-mode pack applied', {
+				rulesAdded: toAdd.length,
+				skippedDuplicates: newRules.length - toAdd.length,
+			});
+		});
+		modal.open();
+	}
+
 	/**
 	 * Discover every `*.json` file under `rule-packs/` inside the plugin's
 	 * own directory, parse each with `loadRulePackFromJSON`, and open a

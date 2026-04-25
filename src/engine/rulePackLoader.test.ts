@@ -124,6 +124,127 @@ describe('error cases', () => {
 	});
 });
 
+// ─── Phase 2C metadata extension ─────────────────────────────────────────
+
+describe('Phase 2C metadata extension — anchor packs', () => {
+	test('seacow-outer.json loads with full Phase 2C metadata', () => {
+		const json = readFileSync(join(__dirname, '../../rule-packs/seacow-outer.json'), 'utf-8');
+		const result = loadRulePackFromJSON(json);
+		expect(result.ok).toBe(true);
+		if (!result.ok) throw new Error(result.errors.join('; '));
+
+		expect(result.pack.id).toBe('seacow-outer');
+		expect(result.pack.axes).toEqual(['system', 'entity', 'capture', 'output']);
+		expect(result.pack.compatibleWith).toContain('para');
+		expect(result.pack.detection?.anyOf.length).toBeGreaterThan(2);
+		expect(result.pack.detection?.minSignals).toBe(2);
+		expect(result.pack.establish?.createFolders.length).toBeGreaterThan(0);
+	});
+
+	test('para.json loads with detection signals over PARA roots', () => {
+		const json = readFileSync(join(__dirname, '../../rule-packs/para.json'), 'utf-8');
+		const result = loadRulePackFromJSON(json);
+		if (!result.ok) throw new Error(result.errors.join('; '));
+
+		expect(result.pack.id).toBe('para');
+		expect(result.pack.axes).toEqual(['work']);
+		expect(result.pack.exclusiveWith).toContain('gtd');
+		expect(result.pack.detection?.anyOf.map((s) => s.label)).toEqual([
+			'Projects/ root',
+			'Areas/ root',
+			'Resources/ root',
+			'Archive/ root',
+		]);
+	});
+
+	test('jd.json detection regex compiles', () => {
+		const json = readFileSync(join(__dirname, '../../rule-packs/jd.json'), 'utf-8');
+		const result = loadRulePackFromJSON(json);
+		if (!result.ok) throw new Error(result.errors.join('; '));
+
+		expect(result.pack.id).toBe('jd');
+		const sigs = result.pack.detection?.anyOf ?? [];
+		// Both signals should compile and match canonical JD folder names
+		const re0 = new RegExp(sigs[0].folderRegex, 'i');
+		const re1 = new RegExp(sigs[1].folderRegex, 'i');
+		expect(re0.test('10 - Projects')).toBe(true);
+		expect(re0.test('Projects')).toBe(false); // no number = no match
+		expect(re1.test('10-projects')).toBe(true);
+	});
+});
+
+describe('Phase 2C metadata — backwards compatibility', () => {
+	test("legacy pack without Phase 2C fields still loads (seacow-cyberbase.json)", () => {
+		const json = readFileSync(
+			join(__dirname, '../../rule-packs/seacow-cyberbase.json'),
+			'utf-8',
+		);
+		const result = loadRulePackFromJSON(json);
+		expect(result.ok).toBe(true);
+		if (!result.ok) throw new Error(result.errors.join('; '));
+		// No Phase 2C fields → fields are simply absent on the pack object
+		expect(result.pack.axes).toBeUndefined();
+		expect(result.pack.detection).toBeUndefined();
+		expect(result.pack.establish).toBeUndefined();
+	});
+});
+
+describe('Phase 2C metadata — validation rejects malformed input', () => {
+	const baseValid = {
+		name: 'Test',
+		description: 'd',
+		version: '1',
+		author: 'a',
+		rules: [],
+	};
+
+	test('detection.anyOf with invalid regex → error', () => {
+		const json = JSON.stringify({
+			...baseValid,
+			detection: {
+				anyOf: [{ folderRegex: '[unclosed', scope: 'name' }],
+				minSignals: 1,
+			},
+		});
+		const result = loadRulePackFromJSON(json);
+		expect(result.ok).toBe(false);
+		if (!result.ok) {
+			expect(result.errors.some((e) => e.includes('folderRegex invalid'))).toBe(true);
+		}
+	});
+
+	test('detection.anyOf must be an array', () => {
+		const json = JSON.stringify({ ...baseValid, detection: { anyOf: 'nope' } });
+		const result = loadRulePackFromJSON(json);
+		expect(result.ok).toBe(false);
+		if (!result.ok) {
+			expect(result.errors.some((e) => e.includes("'detection.anyOf'"))).toBe(true);
+		}
+	});
+
+	test('establish.createFolders must be an array', () => {
+		const json = JSON.stringify({
+			...baseValid,
+			establish: { createFolders: 'oops' },
+		});
+		const result = loadRulePackFromJSON(json);
+		expect(result.ok).toBe(false);
+		if (!result.ok) {
+			expect(result.errors.some((e) => e.includes('createFolders'))).toBe(true);
+		}
+	});
+
+	test('non-axis values in axes array are filtered out, not errored', () => {
+		const json = JSON.stringify({
+			...baseValid,
+			axes: ['work', 'bogus', 'capture', 42],
+		});
+		const result = loadRulePackFromJSON(json);
+		if (!result.ok) throw new Error(result.errors.join('; '));
+		expect(result.pack.axes).toEqual(['work', 'capture']);
+	});
+});
+
 describe('typedSpec path — rules authored in Layer 2', () => {
 	test('a rule with typedSpec gets derived into full Layer 1 + Layer 2', () => {
 		const pack = {

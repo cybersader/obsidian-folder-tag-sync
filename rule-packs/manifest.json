@@ -1,0 +1,103 @@
+{
+  "version": 1,
+  "generatedAt": "2026-04-25T13:38:51.271Z",
+  "packCount": 5,
+  "totalBytes": 35149,
+  "packs": [
+    {
+      "id": "cyberbase-actual",
+      "file": "cyberbase-actual.json",
+      "name": "Cyberbase Actual Structure",
+      "description": "Rule pack for actual Cyberbase vault structure with emoji-controlled sorting, Johnny Decimal OUTPUT folders, and optional entity support for testing multi-user scenarios.",
+      "version": "1.0.0",
+      "author": "Cybersader",
+      "axes": [],
+      "compatibleWith": [],
+      "exclusiveWith": [],
+      "ruleCount": 10,
+      "hasDetection": false,
+      "hasEstablish": false,
+      "sizeBytes": 15202
+    },
+    {
+      "id": "jd",
+      "file": "jd.json",
+      "name": "Johnny Decimal",
+      "description": "Numeric two-digit prefixes per sibling at each depth. Each numbered area maps identity-style to tags, preserving the prefix.",
+      "version": "1.0.0",
+      "author": "Cybersader",
+      "axes": [
+        "work"
+      ],
+      "compatibleWith": [
+        "seacow-outer"
+      ],
+      "exclusiveWith": [],
+      "ruleCount": 1,
+      "hasDetection": true,
+      "hasEstablish": true,
+      "sizeBytes": 1688
+    },
+    {
+      "id": "para",
+      "file": "para.json",
+      "name": "PARA",
+      "description": "Tiago Forte's PARA method — four canonical Work buckets: Projects, Areas, Resources, Archive. Identity transfer between folder hierarchy and tag hierarchy.",
+      "version": "1.0.0",
+      "author": "Cybersader",
+      "axes": [
+        "work"
+      ],
+      "compatibleWith": [
+        "seacow-outer",
+        "jd-output"
+      ],
+      "exclusiveWith": [
+        "gtd"
+      ],
+      "ruleCount": 4,
+      "hasDetection": true,
+      "hasEstablish": true,
+      "sizeBytes": 4101
+    },
+    {
+      "id": "seacow-cyberbase",
+      "file": "seacow-cyberbase.json",
+      "name": "SEACOW(r) Cyberbase Structure",
+      "description": "Rule pack for SEACOW(r) framework: System, Entity, Activities (Capture, Output, Work, relation). Syncs tags to folders while preserving the knowledge organization meta-framework.",
+      "version": "1.0.0",
+      "author": "Cybersader",
+      "axes": [],
+      "compatibleWith": [],
+      "exclusiveWith": [],
+      "ruleCount": 6,
+      "hasDetection": false,
+      "hasEstablish": false,
+      "sizeBytes": 8319
+    },
+    {
+      "id": "seacow-outer",
+      "file": "seacow-outer.json",
+      "name": "SEACOW outer shell",
+      "description": "Just the SEACOW outer structure — Capture, Entity, Output, System — without committing to specific inner systems. Compose with PARA, Johnny Decimal, or Zettelkasten packs to fill the inner axes.",
+      "version": "1.0.0",
+      "author": "Cybersader",
+      "axes": [
+        "system",
+        "entity",
+        "capture",
+        "output"
+      ],
+      "compatibleWith": [
+        "para",
+        "jd",
+        "zettelkasten"
+      ],
+      "exclusiveWith": [],
+      "ruleCount": 5,
+      "hasDetection": true,
+      "hasEstablish": true,
+      "sizeBytes": 5839
+    }
+  ]
+}

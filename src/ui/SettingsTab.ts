@@ -2,6 +2,7 @@ import { App, PluginSettingTab, Setting, Notice, TFolder } from 'obsidian';
 import DynamicTagsFoldersPlugin from '../main';
 import { RuleEditorModal } from './RuleEditorModal';
 import { GuidedRuleEditorModal } from './GuidedRuleEditorModal';
+import { DetectVaultModal } from './DetectVaultModal';
 import { MappingRule } from '../types/settings';
 import { previewRule, RulePreview } from '../engine/rulePreview';
 
@@ -354,6 +355,22 @@ export class SettingsTab extends PluginSettingTab {
 	}
 
 	/**
+	 * Open the Detect-mode modal — scans the vault, runs detection against
+	 * the bundled rule-packs, lists matches with Apply buttons.
+	 */
+	private openDetectVault() {
+		const modal = new DetectVaultModal(this.app, async (newRules) => {
+			// Append, skipping any rule whose id already exists in settings
+			const existingIds = new Set(this.plugin.settings.rules.map((r) => r.id));
+			const toAdd = newRules.filter((r) => !existingIds.has(r.id));
+			this.plugin.settings.rules = [...this.plugin.settings.rules, ...toAdd];
+			await this.plugin.saveSettings();
+			this.display();
+		});
+		modal.open();
+	}
+
+	/**
 	 * Open the guided rule editor — axis-first form with live derivation
 	 * preview and a "test against vault" panel. Save persists the rule
 	 * with full Layer 1 + Layer 2 fields populated by `deriveRule()`.
@@ -405,11 +422,21 @@ export class SettingsTab extends PluginSettingTab {
 		new Setting(section).setName('Import / export').setHeading();
 
 		new Setting(section)
+			.setName('Scan vault for organizational systems')
+			.setDesc('Detect known organizational patterns already present in your vault and apply matching rule packs.')
+			.addButton(btn => btn
+				.setButtonText('Scan')
+				.setCta()
+				.onClick(() => {
+					this.openDetectVault();
+				})
+			);
+
+		new Setting(section)
 			.setName('Browse bundled rule packs')
 			.setDesc('Pick a pre-configured rule pack and import its rules into your settings.')
 			.addButton(btn => btn
 				.setButtonText('Browse')
-				.setCta()
 				.onClick(() => {
 					void this.plugin.browseRulePacks().then(() => this.display());
 				})

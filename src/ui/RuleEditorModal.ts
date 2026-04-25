@@ -447,6 +447,34 @@ export class RuleEditorModal extends Modal {
 				})
 			);
 
+		// Symmetric with folderTransforms — TransformConfig type supports
+		// emoji and number-prefix handling on both sides; only the folder
+		// side was previously exposed in the UI.
+		new Setting(tagSection)
+			.setName('Emoji handling')
+			.setDesc('How to handle emoji in tag names')
+			.addDropdown(dropdown => dropdown
+				.addOption('keep', 'Keep emoji')
+				.addOption('strip', 'Strip emoji')
+				.setValue(tagTransforms.emojiHandling || 'keep')
+				.onChange((value) => {
+					this.rule.tagTransforms!.emojiHandling = value as 'keep' | 'strip';
+				})
+			);
+
+		new Setting(tagSection)
+			.setName('Number prefix handling')
+			.setDesc('How to handle number prefixes in tag names')
+			.addDropdown(dropdown => dropdown
+				.addOption('keep', 'Keep numbers')
+				.addOption('strip', 'Strip numbers')
+				.addOption('extract', 'Extract numbers separately')
+				.setValue(tagTransforms.numberPrefixHandling || 'keep')
+				.onChange((value) => {
+					this.rule.tagTransforms!.numberPrefixHandling = value as 'keep' | 'strip' | 'extract';
+				})
+			);
+
 		// Show reversibility warning
 		const reversibility = isTransformReversible(this.rule.folderTransforms);
 		if (!reversibility.reversible && reversibility.warnings.length > 0) {

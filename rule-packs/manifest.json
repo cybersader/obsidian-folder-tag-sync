@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generatedAt": "2026-04-25T13:38:51.271Z",
+  "generatedAt": "2026-04-25T13:51:42.250Z",
   "packCount": 5,
   "totalBytes": 35149,
   "packs": [
@@ -15,8 +15,8 @@
       "compatibleWith": [],
       "exclusiveWith": [],
       "ruleCount": 10,
-      "hasDetection": false,
-      "hasEstablish": false,
+      "detection": null,
+      "establish": null,
       "sizeBytes": 15202
     },
     {
@@ -34,8 +34,31 @@
       ],
       "exclusiveWith": [],
       "ruleCount": 1,
-      "hasDetection": true,
-      "hasEstablish": true,
+      "detection": {
+        "anyOf": [
+          {
+            "folderRegex": "^\\d{2} - [A-Za-z]",
+            "scope": "name",
+            "label": "Numbered area (e.g. '10 - Projects')"
+          },
+          {
+            "folderRegex": "^\\d{2}-[a-z]",
+            "scope": "name",
+            "label": "Numbered area (compact, e.g. '10-projects')"
+          }
+        ],
+        "minSignals": 2,
+        "scopedUnder": null
+      },
+      "establish": {
+        "createFolders": [
+          "10 - Projects/",
+          "20 - Areas/",
+          "30 - Resources/",
+          "90 - Archive/"
+        ],
+        "summary": "Numbered top-level areas (10-, 20-, …, 90-). Each area can subdivide further with two-digit numeric prefixes."
+      },
       "sizeBytes": 1688
     },
     {
@@ -56,8 +79,41 @@
         "gtd"
       ],
       "ruleCount": 4,
-      "hasDetection": true,
-      "hasEstablish": true,
+      "detection": {
+        "anyOf": [
+          {
+            "folderRegex": "^Projects$",
+            "scope": "name",
+            "label": "Projects/ root"
+          },
+          {
+            "folderRegex": "^Areas$",
+            "scope": "name",
+            "label": "Areas/ root"
+          },
+          {
+            "folderRegex": "^Resources$",
+            "scope": "name",
+            "label": "Resources/ root"
+          },
+          {
+            "folderRegex": "^Archive$",
+            "scope": "name",
+            "label": "Archive/ root"
+          }
+        ],
+        "minSignals": 2,
+        "scopedUnder": null
+      },
+      "establish": {
+        "createFolders": [
+          "Projects/",
+          "Areas/",
+          "Resources/",
+          "Archive/"
+        ],
+        "summary": "Four top-level Work folders: active Projects, ongoing Areas of responsibility, reference Resources, and Archive."
+      },
       "sizeBytes": 4101
     },
     {
@@ -71,8 +127,8 @@
       "compatibleWith": [],
       "exclusiveWith": [],
       "ruleCount": 6,
-      "hasDetection": false,
-      "hasEstablish": false,
+      "detection": null,
+      "establish": null,
       "sizeBytes": 8319
     },
     {
@@ -95,8 +151,53 @@
       ],
       "exclusiveWith": [],
       "ruleCount": 5,
-      "hasDetection": true,
-      "hasEstablish": true,
+      "detection": {
+        "anyOf": [
+          {
+            "folderRegex": "^Capture$",
+            "scope": "name",
+            "label": "Capture/ root"
+          },
+          {
+            "folderRegex": "^Entity$",
+            "scope": "name",
+            "label": "Entity/ root"
+          },
+          {
+            "folderRegex": "^Output$",
+            "scope": "name",
+            "label": "Output/ root"
+          },
+          {
+            "folderRegex": "^System$",
+            "scope": "name",
+            "label": "System/ root"
+          },
+          {
+            "folderRegex": "^Capture/(Inbox|Clips)$",
+            "scope": "path",
+            "label": "Capture/Inbox or Capture/Clips"
+          },
+          {
+            "folderRegex": "^Output/(Main|Public)$",
+            "scope": "path",
+            "label": "Output/Main or Output/Public"
+          }
+        ],
+        "minSignals": 2,
+        "scopedUnder": null
+      },
+      "establish": {
+        "createFolders": [
+          "Capture/Inbox/",
+          "Capture/Clips/",
+          "Entity/",
+          "Output/Main/",
+          "Output/Public/",
+          "System/Templates/"
+        ],
+        "summary": "Lays down the four SEACOW outer roots — Capture, Entity, Output, System — with conventional sub-folders. Pick component packs (PARA, JD, etc.) to fill the inner axes."
+      },
       "sizeBytes": 5839
     }
   ]

@@ -83,8 +83,12 @@ for (const entry of entries) {
 		compatibleWith: pack.compatibleWith ?? [],
 		exclusiveWith: pack.exclusiveWith ?? [],
 		ruleCount: Array.isArray(pack.rules) ? pack.rules.length : 0,
-		hasDetection: Boolean(pack.detection),
-		hasEstablish: Boolean(pack.establish),
+		// Include detection signals + establish summary directly in the
+		// manifest so the bundled-into-main.js manifest carries enough info
+		// to run detection without re-reading per-pack JSON files. Adds a
+		// few hundred bytes per pack — well under the 25KB-per-pack budget.
+		detection: pack.detection ?? null,
+		establish: pack.establish ?? null,
 		sizeBytes: stat.size,
 	});
 }

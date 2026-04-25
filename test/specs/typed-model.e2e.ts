@@ -230,6 +230,236 @@ describe('folder-tag-sync — Phase 2 typed model E2E', function () {
       });
     });
 
+    it('end-to-end runtime: each transfer primitive emits the right tag in real Obsidian', async function () {
+      // Stage a small "primitives" rule pack that exercises identity,
+      // truncation(drop), marker-only, and the user's documented compound
+      // case truncation(aggregate). For each rule, create a fixture file
+      // at the expected folder, run sync, read frontmatter, assert the
+      // emitted tag matches expectation.
+      //
+      // This is the spec-as-oracle pattern in real Obsidian — minus the
+      // fixtures plugin (avoiding cross-plugin coupling in the wdio
+      // vault). The rule pack and the test fixtures live in this spec.
+
+      const cases: Array<{
+        ruleId: string;
+        rule: Record<string, unknown>;
+        filePath: string;
+        expectedTag: string;
+      }> = [
+        {
+          ruleId: 'e2e-prim-identity',
+          rule: {
+            id: 'e2e-prim-identity',
+            name: 'identity',
+            priority: 100,
+            direction: 'folder-to-tag',
+            enabled: true,
+            folder: { axes: ['work'], scheme: 'enumerative', naming: 'word', subdivisionDepth: 'unbounded', siblingUniformity: 'parallel' },
+            tag: { axis: 'work', coordination: 'pre-coordinated', prefixMarker: null, authority: 'mutual' },
+            transfer: { op: 'identity' },
+            inverseTransfer: { op: 'identity' },
+            folderEntry: 'PrimTest/Identity',
+            tagEntry: 'prim-identity',
+            options: { createFolders: true, addTags: true, removeOrphanedTags: false, syncOnFileCreate: true, syncOnFileMove: true, syncOnFileRename: true },
+          },
+          filePath: 'PrimTest/Identity/Alpha/Beta/note.md',
+          expectedTag: '#prim-identity/alpha/beta',
+        },
+        {
+          ruleId: 'e2e-prim-marker',
+          rule: {
+            id: 'e2e-prim-marker',
+            name: 'marker-only',
+            priority: 101,
+            direction: 'folder-to-tag',
+            enabled: true,
+            folder: { axes: ['capture'], scheme: 'container-only', naming: 'word', subdivisionDepth: 0, siblingUniformity: 'unique' },
+            tag: { axis: 'capture', coordination: 'flat-keyword', prefixMarker: '-', authority: 'tag-authoritative' },
+            transfer: { op: 'marker-only', marker: '-prim-marker' },
+            inverseTransfer: { op: 'marker-only', marker: '-prim-marker' },
+            folderEntry: 'PrimTest/Marker',
+            tagEntry: '-prim-marker',
+            options: { createFolders: true, addTags: true, removeOrphanedTags: false, syncOnFileCreate: true, syncOnFileMove: true, syncOnFileRename: true },
+          },
+          filePath: 'PrimTest/Marker/Anywhere/Deep/note.md',
+          expectedTag: '#-prim-marker',
+        },
+        {
+          ruleId: 'e2e-prim-truncation-drop',
+          rule: {
+            id: 'e2e-prim-truncation-drop',
+            name: 'truncation drop',
+            priority: 102,
+            direction: 'folder-to-tag',
+            enabled: true,
+            folder: { axes: ['capture'], scheme: 'hierarchical', naming: 'word', subdivisionDepth: 2, siblingUniformity: 'unique' },
+            tag: { axis: 'capture', coordination: 'pre-coordinated', prefixMarker: '-', authority: 'tag-authoritative' },
+            transfer: { op: 'truncation', depth: 2, tailHandling: 'drop' },
+            inverseTransfer: { op: 'truncation', depth: 2, tailHandling: 'drop' },
+            folderEntry: 'PrimTest/TruncDrop',
+            tagEntry: '-prim-trunc-drop',
+            options: { createFolders: true, addTags: true, removeOrphanedTags: false, syncOnFileCreate: true, syncOnFileMove: true, syncOnFileRename: true },
+          },
+          filePath: 'PrimTest/TruncDrop/Web/React/note.md',
+          expectedTag: '#-prim-trunc-drop/web/react',
+        },
+        {
+          ruleId: 'e2e-prim-truncation-aggregate',
+          rule: {
+            id: 'e2e-prim-truncation-aggregate',
+            name: 'truncation aggregate (the user\'s compound case)',
+            priority: 103,
+            direction: 'folder-to-tag',
+            enabled: true,
+            folder: { axes: ['capture'], scheme: 'hierarchical', naming: 'word', subdivisionDepth: 2, siblingUniformity: 'unique' },
+            tag: { axis: 'capture', coordination: 'pre-coordinated', prefixMarker: '-', authority: 'tag-authoritative' },
+            transfer: { op: 'truncation', depth: 2, tailHandling: 'aggregate', separator: '-' },
+            inverseTransfer: { op: 'truncation', depth: 2, tailHandling: 'aggregate', separator: '-' },
+            folderEntry: 'PrimTest/TruncAgg',
+            tagEntry: '-prim-trunc-agg',
+            options: { createFolders: true, addTags: true, removeOrphanedTags: false, syncOnFileCreate: true, syncOnFileMove: true, syncOnFileRename: true },
+          },
+          // 5 levels deep — depth 2 (Web, Tutorials) preserved, tail (React, Hooks, Detail) aggregated.
+          filePath: 'PrimTest/TruncAgg/Web/Tutorials/React/Hooks/Detail/note.md',
+          expectedTag: '#-prim-trunc-agg/web/tutorials/react-hooks-detail',
+        },
+      ];
+
+      // Install all rules + create the fixture files. We bypass the picker
+      // UI by writing settings directly — the picker is exercised in the
+      // earlier "UI surfaces" specs.
+      await browser.executeObsidian(async ({ app }, casesArg: typeof cases) => {
+        const adapter = app.vault.adapter;
+        const plugin = (
+          app as unknown as {
+            plugins: { plugins: Record<string, unknown> };
+          }
+        ).plugins.plugins['folder-tag-sync'] as unknown as {
+          settings: { rules: unknown[] };
+          saveSettings: () => Promise<void>;
+        };
+
+        // Derive Layer 1 fields locally — same shape as deriveRule produces.
+        for (const c of casesArg) {
+          const r = c.rule as Record<string, unknown>;
+          const tagEntry = r.tagEntry as string;
+          const folderEntry = r.folderEntry as string;
+          const transfer = r.transfer as { op: string; depth?: number; tailHandling?: string };
+
+          let folderPattern = `^${folderEntry}/`;
+          let tagPattern = `^${tagEntry}/`;
+
+          if (transfer.op === 'marker-only') {
+            const marker = (transfer as unknown as { marker: string }).marker;
+            folderPattern = `^${folderEntry}(?:/.*)?$`;
+            tagPattern = `^${marker}$`;
+          } else if (transfer.op === 'truncation' && transfer.tailHandling === 'drop') {
+            // depth 2 cap: matches entry/X or entry/X/Y, rejects deeper
+            folderPattern = `^${folderEntry}/([^/]+)(?:/([^/]+))?$`;
+          }
+
+          const derivedRule = {
+            id: r.id,
+            name: r.name,
+            enabled: true,
+            priority: r.priority,
+            direction: r.direction,
+            folderPattern,
+            folderEntryPoint: folderEntry,
+            folderTransforms: { caseTransform: 'Title Case' },
+            tagPattern,
+            tagEntryPoint: tagEntry,
+            tagTransforms: {
+              caseTransform: transfer.op === 'marker-only' ? 'none' : 'kebab-case',
+            },
+            options: r.options,
+            folder: r.folder,
+            tag: r.tag,
+            transfer: r.transfer,
+            inverseTransfer: r.inverseTransfer,
+          };
+
+          // Drop existing rule with same id, then add
+          plugin.settings.rules = (plugin.settings.rules as Array<{ id: string }>).filter(
+            (x) => x.id !== c.ruleId,
+          );
+          plugin.settings.rules.push(derivedRule);
+
+          // Create the fixture file with empty body (no frontmatter — sync will add tags)
+          const folderPath = c.filePath.split('/').slice(0, -1).join('/');
+          if (!(await adapter.exists(folderPath))) {
+            await adapter.mkdir(folderPath);
+          }
+          await adapter.write(c.filePath, '');
+        }
+        await plugin.saveSettings();
+      }, cases);
+
+      // Run sync on each fixture file and read back the tag(s).
+      const results = await browser.executeObsidian(
+        async ({ app }, casesArg: typeof cases) => {
+          const out: Array<{ ruleId: string; expected: string; tags: string[]; ok: boolean }> = [];
+          const plugin = (
+            app as unknown as {
+              plugins: { plugins: Record<string, unknown> };
+            }
+          ).plugins.plugins['folder-tag-sync'] as unknown as {
+            syncFolderToTags: (file: unknown) => Promise<void>;
+          };
+
+          for (const c of casesArg) {
+            const file = app.vault.getAbstractFileByPath(c.filePath);
+            if (!file) {
+              out.push({ ruleId: c.ruleId, expected: c.expectedTag, tags: [], ok: false });
+              continue;
+            }
+            await plugin.syncFolderToTags(file as unknown as never);
+
+            // Read back the file's frontmatter
+            const content = await app.vault.read(file as unknown as never);
+            const fmMatch = content.match(/^---\n([\s\S]*?)\n---/);
+            const fm = fmMatch?.[1] ?? '';
+            // Crude tag extraction: lines starting with "  - " or YAML inline `tags: [...]`
+            const blockTags = Array.from(fm.matchAll(/^\s*-\s*(?:"|')?(#[^"'\n]+?)(?:"|')?$/gm))
+              .map((m) => m[1].trim());
+            const inlineMatch = fm.match(/^tags:\s*\[(.*?)\]/m);
+            const inlineTags = inlineMatch
+              ? inlineMatch[1]
+                  .split(',')
+                  .map((s) => s.replace(/['"]/g, '').trim())
+                  .filter((s) => s.startsWith('#'))
+              : [];
+            const tags = [...blockTags, ...inlineTags];
+
+            out.push({
+              ruleId: c.ruleId,
+              expected: c.expectedTag,
+              tags,
+              ok: tags.includes(c.expectedTag),
+            });
+          }
+          return out;
+        },
+        cases,
+      );
+
+      // Diagnostic dump before assertions
+      for (const r of results) {
+        if (!r.ok) {
+          console.error(
+            `[primitive E2E FAIL] ${r.ruleId}\n  expected: ${r.expected}\n  got tags: ${r.tags.join(', ') || '(none)'}`,
+          );
+        }
+      }
+
+      await snap('04-primitives-after-sync');
+
+      for (const r of results) {
+        expect(r.ok, `rule ${r.ruleId}: expected ${r.expected} in tags ${JSON.stringify(r.tags)}`).toBe(true);
+      }
+    });
+
     it('command palette — import-rule-pack command surfaces', async function () {
       // Distinct surface: open the command palette and verify the new
       // command appears. Captures a different state than settings tab,

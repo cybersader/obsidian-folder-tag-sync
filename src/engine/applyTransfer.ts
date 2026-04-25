@@ -190,7 +190,7 @@ export function applyRuleForward(folderPath: string, rule: MappingRule): Forward
 		if (isMarker) {
 			tag = transformed;
 		} else if (rule.tagEntryPoint) {
-			tag = transformed ? `${rule.tagEntryPoint}/${transformed}` : rule.tagEntryPoint;
+			tag = transformed ? joinEntry(rule.tagEntryPoint, transformed) : rule.tagEntryPoint;
 		} else {
 			tag = transformed;
 		}
@@ -199,6 +199,17 @@ export function applyRuleForward(folderPath: string, rule: MappingRule): Forward
 	}
 
 	return { tags, lossy: recoordinated.lossy };
+}
+
+/**
+ * Join an entry-point string with a recoordinated remainder, tolerant of
+ * either trailing-slash or no-trailing-slash entry conventions. Both
+ * `--cybersader/` + `10-projects` and `--cybersader` + `10-projects`
+ * produce `--cybersader/10-projects`. Prevents `//` artifacts in tags.
+ */
+function joinEntry(entry: string, remainder: string): string {
+	if (entry.endsWith('/')) return `${entry}${remainder}`;
+	return `${entry}/${remainder}`;
 }
 
 /**
@@ -237,7 +248,7 @@ export function applyRuleInverse(tag: string, rule: MappingRule): InverseResult 
 
 	const folderPath = rule.folderEntryPoint
 		? transformed
-			? `${rule.folderEntryPoint}/${transformed}`
+			? joinEntry(rule.folderEntryPoint, transformed)
 			: rule.folderEntryPoint
 		: transformed;
 

@@ -918,6 +918,21 @@ export class GuidedRuleEditorModal extends Modal {
 				return;
 			}
 
+			// Summary line — repeats the headline numbers so the user can quickly
+			// confirm the rule's blast radius without re-reading the status strip.
+			const summary = this.vaultTestEl.createDiv();
+			summary.style.marginBottom = '0.4em';
+			summary.style.fontWeight = '500';
+			if (preview.opaqueByDesign) {
+				summary.setText(
+					`${preview.matchCount} folder(s) match — opaque, no tag emitted.`,
+				);
+			} else {
+				summary.setText(
+					`${preview.matchCount} folder(s) match → ${preview.emittedTags.length} distinct tag(s).`,
+				);
+			}
+
 			const tagsBlock = this.vaultTestEl.createDiv();
 			tagsBlock.createSpan({ text: 'Tags emitted: ' });
 			if (preview.emittedTags.length === 0) {

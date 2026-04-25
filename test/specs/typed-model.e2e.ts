@@ -610,18 +610,13 @@ describe('folder-tag-sync — Phase 2 typed model E2E', function () {
 
       it('inconsistency warnings appear for marker-only + pre-coordinated', async function () {
         await openGuided();
-        // Switch transfer op to marker-only via the dropdown
+        // Switch transfer op by clicking the marker-only card. The form was
+        // restructured in iter 2 to use cards instead of a dropdown.
         await browser.executeObsidian(() => {
-          const selects = Array.from(
-            document.querySelectorAll('.modal-content select'),
-          ) as HTMLSelectElement[];
-          const transferOpSelect = selects.find((s) =>
-            Array.from(s.options).some((o) => o.value === 'truncation'),
-          );
-          if (transferOpSelect) {
-            transferOpSelect.value = 'marker-only';
-            transferOpSelect.dispatchEvent(new Event('change', { bubbles: true }));
-          }
+          const card = document.querySelector(
+            '.dtf-guided-transfer-card[data-op="marker-only"]',
+          ) as HTMLElement | null;
+          card?.click();
         });
         await browser.pause(250);
 

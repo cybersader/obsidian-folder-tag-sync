@@ -10,16 +10,25 @@ import { validateRule } from '../engine/ruleMatcher';
 import { isTransformReversible } from '../transformers/pipeline';
 import { validateRegexPattern } from '../transformers/regexTransformers';
 import { previewRule } from '../engine/rulePreview';
+import { inferTypedModel } from '../engine/inferTyped';
 import {
 	EntryPathSuggest,
 	collectFolderSources,
 	collectTagSources,
 } from './suggest/EntryPathSuggest';
 
+/**
+ * Optional callback for the "Try guided" return-link in the advanced
+ * modal header. Wired by SettingsTab — closes the advanced modal and
+ * reopens the rule in the guided editor (in edit-from-inferred mode).
+ */
+export type SwitchToGuidedFn = (rule: MappingRule) => void;
+
 export class RuleEditorModal extends Modal {
 	rule: MappingRule;
 	onSave: (rule: MappingRule) => void;
 	isNew: boolean;
+	private readonly onSwitchToGuided?: SwitchToGuidedFn;
 
 	// Invalid-regex tracking — set on input, checked on save. Keyed by
 	// pattern field name so we can unblock save once both go valid.
@@ -36,11 +45,13 @@ export class RuleEditorModal extends Modal {
 	constructor(
 		app: App,
 		rule: MappingRule | null,
-		onSave: (rule: MappingRule) => void
+		onSave: (rule: MappingRule) => void,
+		onSwitchToGuided?: SwitchToGuidedFn,
 	) {
 		super(app);
 		this.onSave = onSave;
 		this.isNew = rule === null;
+		this.onSwitchToGuided = onSwitchToGuided;
 
 		// Initialize with default values if new rule
 		this.rule = rule || this.createDefaultRule();
@@ -86,9 +97,16 @@ export class RuleEditorModal extends Modal {
 		};
 		walk(this.app.vault.getRoot());
 
-		new Setting(contentEl)
+		// Title row + optional "Try guided" return link.
+		const titleRow = contentEl.createDiv();
+		titleRow.style.display = 'flex';
+		titleRow.style.alignItems = 'baseline';
+		titleRow.style.justifyContent = 'space-between';
+		titleRow.style.gap = '0.5em';
+		new Setting(titleRow)
 			.setName(this.isNew ? 'Create new rule' : 'Edit rule')
 			.setHeading();
+		this.renderTryGuidedLink(titleRow);
 
 		// Basic Information Section
 		this.buildBasicInfoSection(contentEl);
@@ -521,6 +539,44 @@ export class RuleEditorModal extends Modal {
 		this.previewPanelEl.style.background = 'var(--background-secondary)';
 		this.previewPanelEl.style.borderRadius = '4px';
 		this.previewPanelEl.style.fontSize = '0.9em';
+	}
+
+	/**
+	 * Render the "Try guided" return-link in the modal header. Symmetric
+	 * to the "Open in advanced (regex)" link in the guided modal.
+	 *
+	 * Visibility gating:
+	 *   - No callback wired → no link (e.g., direct programmatic open)
+	 *   - inferTypedModel returns full folder + tag + transfer → strong CTA
+	 *     ("Try guided")
+	 *   - Inference is partial → muted link with explanatory copy
+	 *     ("Try guided (best-effort import)") — user is told what they're
+	 *     getting before they click.
+	 */
+	private renderTryGuidedLink(parentEl: HTMLElement): void {
+		if (!this.onSwitchToGuided) return;
+
+		const inferred = inferTypedModel(this.rule);
+		const fullyInferable = Boolean(inferred.folder && inferred.tag && inferred.transfer);
+		const partial = Boolean(inferred.folder || inferred.tag || inferred.transfer);
+
+		// If inference yields nothing at all, hide the link — guided would
+		// open with empty fields and the user would just be confused.
+		if (!fullyInferable && !partial) return;
+
+		const link = parentEl.createEl('a', {
+			text: fullyInferable ? 'Try guided' : 'Try guided (best-effort import)',
+		});
+		link.style.fontSize = '0.85em';
+		link.style.cursor = 'pointer';
+		link.style.color = fullyInferable ? 'var(--text-accent)' : 'var(--text-muted)';
+		link.addEventListener('click', (e) => {
+			e.preventDefault();
+			if (this.onSwitchToGuided) {
+				this.onSwitchToGuided(this.rule);
+				this.close();
+			}
+		});
 	}
 
 	private renderVaultTestPreview(): void {

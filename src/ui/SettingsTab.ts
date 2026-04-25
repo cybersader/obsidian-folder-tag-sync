@@ -484,7 +484,17 @@ export class SettingsTab extends PluginSettingTab {
 						void this.plugin.saveSettings().then(() => this.display());
 					}
 				}
-			}
+			},
+			// Symmetric escape hatch — clicking "Try guided" inside the
+			// advanced modal closes advanced and opens the guided editor
+			// (in edit-from-inferred mode) against the same rule. Only
+			// available for existing rules; for `null` (new rule) the
+			// guided editor has its own create flow.
+			rule
+				? (forwardedRule) => {
+					this.openGuidedEditMode(forwardedRule, 'edit-from-inferred');
+				}
+				: undefined,
 		);
 
 		modal.open();

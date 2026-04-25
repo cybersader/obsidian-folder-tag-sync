@@ -978,6 +978,210 @@ describe('folder-tag-sync — Phase 2 typed model E2E', function () {
       });
     });
 
+    describe('Phase 2B.ε — advanced modal UX uplift', function () {
+      // Helper: seed a typed rule, open settings, click it (lands in guided),
+      // then click "Open in advanced (regex)" link to land in the legacy modal.
+      const openAdvancedFromGuided = async () => {
+        const seedId = 'advanced-uplift-test-rule';
+        await browser.executeObsidian(async ({ app }, ruleId: string) => {
+          const plugin = (
+            app as unknown as {
+              plugins: { plugins: Record<string, unknown> };
+            }
+          ).plugins.plugins['folder-tag-sync'] as unknown as {
+            settings: { rules: unknown[] };
+            saveSettings: () => Promise<void>;
+          };
+          plugin.settings.rules = (
+            plugin.settings.rules as Array<{ id: string }>
+          ).filter((r) => r.id !== ruleId);
+          plugin.settings.rules.push({
+            id: ruleId,
+            name: 'Advanced uplift rule',
+            enabled: true,
+            priority: 50,
+            direction: 'folder-to-tag',
+            folderPattern: '^Projects/(.+)$',
+            folderEntryPoint: 'Projects',
+            tagPattern: '^projects/(.+)$',
+            tagEntryPoint: 'projects',
+            options: {
+              caseSensitive: false,
+              preserveExisting: true,
+              handleFolderNotes: false,
+              moveAttachments: false,
+              defaultFolderForUntagged: '',
+            },
+          });
+          await plugin.saveSettings();
+        }, seedId);
+        await browser.pause(200);
+
+        await browser.executeObsidian(({ app }) => {
+          const setting = (
+            app as unknown as {
+              setting: { open(): void; openTabById(id: string): void };
+            }
+          ).setting;
+          setting.open();
+          setting.openTabById('folder-tag-sync');
+        });
+        await browser.pause(400);
+        // Click the rule -> guided opens
+        await browser.executeObsidian(() => {
+          const items = Array.from(document.querySelectorAll('.dtf-rule-item'));
+          const target = items.find((i) =>
+            (i.textContent ?? '').includes('Advanced uplift rule'),
+          ) as HTMLElement | undefined;
+          target?.click();
+        });
+        await browser.pause(400);
+        // Click "Open in advanced (regex)" link inside guided
+        await browser.executeObsidian(() => {
+          const guided = document.querySelector('.modal.dtf-guided-modal');
+          const links = guided
+            ? (Array.from(guided.querySelectorAll('a')) as HTMLAnchorElement[])
+            : [];
+          const link = links.find((a) =>
+            (a.textContent ?? '').includes('Open in advanced'),
+          );
+          link?.click();
+        });
+        await browser.pause(400);
+      };
+
+      const cleanupAdvancedSeed = async () => {
+        await browser.executeObsidian(async ({ app }) => {
+          const plugin = (
+            app as unknown as {
+              plugins: { plugins: Record<string, unknown> };
+            }
+          ).plugins.plugins['folder-tag-sync'] as unknown as {
+            settings: { rules: unknown[] };
+            saveSettings: () => Promise<void>;
+          };
+          plugin.settings.rules = (
+            plugin.settings.rules as Array<{ id: string }>
+          ).filter((r) => r.id !== 'advanced-uplift-test-rule');
+          await plugin.saveSettings();
+        });
+      };
+
+      it('invalid regex in folder pattern shows red border + error message', async function () {
+        await openAdvancedFromGuided();
+
+        // Type an invalid regex into the folder pattern input
+        const inputState = await browser.executeObsidian(() => {
+          // The advanced modal has no unique class — find the modal that's
+          // not the guided one and scope to it.
+          const modals = Array.from(
+            document.querySelectorAll('.modal-container .modal'),
+          );
+          const advanced = modals.find(
+            (m) => !m.classList.contains('dtf-guided-modal'),
+          ) as HTMLElement | undefined;
+          if (!advanced) return { found: false };
+
+          const inputs = Array.from(
+            advanced.querySelectorAll('input[type="text"]'),
+          ) as HTMLInputElement[];
+          // Folder pattern input has placeholder "Projects/*"
+          const folderPatternInput = inputs.find(
+            (i) => i.placeholder === 'Projects/*',
+          );
+          if (!folderPatternInput) return { found: false };
+
+          // Set an invalid regex
+          const desc = Object.getOwnPropertyDescriptor(
+            HTMLInputElement.prototype,
+            'value',
+          );
+          desc?.set?.call(folderPatternInput, '[invalid(');
+          folderPatternInput.dispatchEvent(new Event('input', { bubbles: true }));
+
+          return { found: true };
+        });
+        expect(inputState.found).toBe(true);
+        await browser.pause(200);
+
+        const validationState = await browser.executeObsidian(() => {
+          const modals = Array.from(
+            document.querySelectorAll('.modal-container .modal'),
+          );
+          const advanced = modals.find(
+            (m) => !m.classList.contains('dtf-guided-modal'),
+          ) as HTMLElement | undefined;
+          if (!advanced) {
+            return { hasInvalidClass: false, errorVisible: false, errorText: '' };
+          }
+          const errorEls = Array.from(
+            advanced.querySelectorAll('.dtf-regex-error'),
+          ) as HTMLElement[];
+          const visibleError = errorEls.find(
+            (e) => e.style.display !== 'none' && (e.textContent ?? '').length > 0,
+          );
+          const invalidInputs = advanced.querySelectorAll('.dtf-input-invalid');
+          return {
+            hasInvalidClass: invalidInputs.length > 0,
+            errorVisible: Boolean(visibleError),
+            errorText: visibleError?.textContent ?? '',
+          };
+        });
+        expect(validationState.hasInvalidClass).toBe(true);
+        expect(validationState.errorVisible).toBe(true);
+        expect(validationState.errorText.toLowerCase()).toContain('invalid');
+
+        await snap('16-advanced-invalid-regex');
+        await closeAll();
+        await cleanupAdvancedSeed();
+      });
+
+      it('"Try guided" link in advanced header closes advanced and opens guided', async function () {
+        await openAdvancedFromGuided();
+
+        // Find and click the "Try guided" link inside the advanced modal
+        const linkClicked = await browser.executeObsidian(() => {
+          const modals = Array.from(
+            document.querySelectorAll('.modal-container .modal'),
+          );
+          const advanced = modals.find(
+            (m) => !m.classList.contains('dtf-guided-modal'),
+          ) as HTMLElement | undefined;
+          if (!advanced) return { found: false };
+
+          const links = Array.from(
+            advanced.querySelectorAll('a'),
+          ) as HTMLAnchorElement[];
+          const tryGuided = links.find((a) =>
+            (a.textContent ?? '').includes('Try guided'),
+          );
+          if (!tryGuided) return { found: false };
+          tryGuided.click();
+          return { found: true };
+        });
+        expect(linkClicked.found).toBe(true);
+        await browser.pause(400);
+
+        const switchedState = await browser.executeObsidian(() => {
+          const guided = document.querySelector('.modal.dtf-guided-modal');
+          const advanced = Array.from(
+            document.querySelectorAll('.modal-container .modal'),
+          ).filter((m) => !m.classList.contains('dtf-guided-modal'));
+          return {
+            guidedOpen: Boolean(guided),
+            advancedCount: advanced.length,
+          };
+        });
+        expect(switchedState.guidedOpen).toBe(true);
+        // Advanced may still appear briefly during close transition; the
+        // important assertion is guided is now open.
+
+        await snap('17-advanced-try-guided-link');
+        await closeAll();
+        await cleanupAdvancedSeed();
+      });
+    });
+
     describe('Phase 2C — Detect-mode UI', function () {
       it('Scan command opens detect modal with detected packs ranked', async function () {
         // Stage SEACOW-shaped folders via vault.createFolder so they

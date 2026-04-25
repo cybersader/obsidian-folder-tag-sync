@@ -54,6 +54,8 @@ export interface ManifestPackEntry {
 	id: string;
 	name: string;
 	axes?: string[];
+	// JSON `null` is the absence-of-detection signal in the bundled manifest;
+	// allow it so the imported JSON's static type checks.
 	detection?: {
 		anyOf: Array<{
 			folderRegex: string;
@@ -61,8 +63,8 @@ export interface ManifestPackEntry {
 			label?: string;
 		}>;
 		minSignals?: number;
-		scopedUnder?: string;
-	};
+		scopedUnder?: string | null;
+	} | null;
 }
 
 const MAX_EXAMPLES = 3;
@@ -91,12 +93,13 @@ export function detectPacks(
 	// First pass: score every pack against signals (without applying scoping).
 	const rawScores = new Map<string, DetectionResult>();
 	for (const pack of manifest) {
-		if (!pack.detection || !pack.detection.anyOf?.length) continue;
+		const det = pack.detection;
+		if (!det || !det.anyOf?.length) continue;
 
-		const minSignals = pack.detection.minSignals ?? 1;
+		const minSignals = det.minSignals ?? 1;
 		const matchedSignals: DetectionSignalResult[] = [];
 
-		for (const signal of pack.detection.anyOf) {
+		for (const signal of det.anyOf) {
 			let regex: RegExp;
 			try {
 				regex = new RegExp(signal.folderRegex, 'i');
@@ -133,7 +136,7 @@ export function detectPacks(
 			signalsHit: matchedSignals.length,
 			minSignals,
 			matchedSignals,
-			scopedUnder: pack.detection.scopedUnder,
+			scopedUnder: det.scopedUnder ?? undefined,
 		});
 	}
 

@@ -4,15 +4,28 @@
  * Comprehensive UI for creating and editing mapping rules
  */
 
-import { App, Modal, Setting, Notice } from 'obsidian';
+import { App, Modal, Setting, Notice, TFolder } from 'obsidian';
 import { MappingRule, CaseTransformType, RuleDirection } from '../types/settings';
 import { validateRule } from '../engine/ruleMatcher';
 import { folderToTag, tagToFolder, isTransformReversible } from '../transformers/pipeline';
+import { validateRegexPattern } from '../transformers/regexTransformers';
+import {
+	EntryPathSuggest,
+	collectFolderSources,
+	collectTagSources,
+} from './suggest/EntryPathSuggest';
 
 export class RuleEditorModal extends Modal {
 	rule: MappingRule;
 	onSave: (rule: MappingRule) => void;
 	isNew: boolean;
+
+	// Invalid-regex tracking — set on input, checked on save. Keyed by
+	// pattern field name so we can unblock save once both go valid.
+	private regexErrors: Record<'folderPattern' | 'tagPattern', string | null> = {
+		folderPattern: null,
+		tagPattern: null,
+	};
 
 	constructor(
 		app: App,
@@ -158,52 +171,155 @@ export class RuleEditorModal extends Modal {
 		const needsFolderPattern = this.rule.direction === 'folder-to-tag' || this.rule.direction === 'bidirectional';
 		const needsTagPattern = this.rule.direction === 'tag-to-folder' || this.rule.direction === 'bidirectional';
 
+		// Pre-compute autocomplete sources once per render. Cheap on typical
+		// vaults and avoids rebuilding the list on every keystroke.
+		const folderPaths: string[] = [];
+		const walk = (folder: TFolder) => {
+			for (const child of folder.children) {
+				if (child instanceof TFolder) {
+					folderPaths.push(child.path);
+					walk(child);
+				}
+			}
+		};
+		walk(this.app.vault.getRoot());
+		const folderSources = collectFolderSources(folderPaths);
+		const tagSources = collectTagSources(
+			(this.app.metadataCache as unknown as { getTags(): Record<string, number> })
+				.getTags() ?? {},
+		);
+
 		if (needsFolderPattern) {
+			let folderPatternInput: HTMLInputElement | null = null;
+			let folderPatternErrorEl: HTMLElement | null = null;
 			new Setting(section)
 				.setName('Folder pattern')
 				.setDesc('Glob or regex pattern to match folder paths (e.g., "Projects/*" or "^Projects/(.*)$")')
-				.addText(text => text
-					.setPlaceholder('Projects/*')
-					.setValue(this.rule.folderPattern || '')
-					.onChange(value => {
-						this.rule.folderPattern = value;
-					})
-				);
+				.addText(text => {
+					folderPatternInput = text.inputEl;
+					text
+						.setPlaceholder('Projects/*')
+						.setValue(this.rule.folderPattern || '')
+						.onChange(value => {
+							this.rule.folderPattern = value;
+							this.updateRegexValidationUI(
+								'folderPattern',
+								value,
+								folderPatternInput,
+								folderPatternErrorEl,
+							);
+						});
+				});
+			folderPatternErrorEl = section.createDiv({ cls: 'dtf-regex-error' });
+			folderPatternErrorEl.style.color = 'var(--text-error)';
+			folderPatternErrorEl.style.fontSize = '0.8em';
+			folderPatternErrorEl.style.marginTop = '-0.3em';
+			folderPatternErrorEl.style.marginBottom = '0.5em';
+			folderPatternErrorEl.style.paddingLeft = '0.25em';
+			folderPatternErrorEl.style.display = 'none';
+			// Run validation once on mount so an existing invalid pattern is
+			// flagged immediately (matters for edit-mode).
+			this.updateRegexValidationUI(
+				'folderPattern',
+				this.rule.folderPattern || '',
+				folderPatternInput,
+				folderPatternErrorEl,
+			);
 
 			new Setting(section)
 				.setName('Folder entry point')
 				.setDesc('Base folder path where matched folders should live')
-				.addText(text => text
-					.setPlaceholder('Projects/')
-					.setValue(this.rule.folderEntryPoint || '')
-					.onChange(value => {
-						this.rule.folderEntryPoint = value;
-					})
-				);
+				.addText(text => {
+					text
+						.setPlaceholder('Projects/')
+						.setValue(this.rule.folderEntryPoint || '')
+						.onChange(value => {
+							this.rule.folderEntryPoint = value;
+						});
+					new EntryPathSuggest(this.app, text.inputEl, folderSources);
+				});
 		}
 
 		if (needsTagPattern) {
+			let tagPatternInput: HTMLInputElement | null = null;
+			let tagPatternErrorEl: HTMLElement | null = null;
 			new Setting(section)
 				.setName('Tag pattern')
 				.setDesc('Regex pattern to match tags (e.g., "^projects/(.*)$")')
-				.addText(text => text
-					.setPlaceholder('^projects/(.*)$')
-					.setValue(this.rule.tagPattern || '')
-					.onChange(value => {
-						this.rule.tagPattern = value;
-					})
-				);
+				.addText(text => {
+					tagPatternInput = text.inputEl;
+					text
+						.setPlaceholder('^projects/(.*)$')
+						.setValue(this.rule.tagPattern || '')
+						.onChange(value => {
+							this.rule.tagPattern = value;
+							this.updateRegexValidationUI(
+								'tagPattern',
+								value,
+								tagPatternInput,
+								tagPatternErrorEl,
+							);
+						});
+				});
+			tagPatternErrorEl = section.createDiv({ cls: 'dtf-regex-error' });
+			tagPatternErrorEl.style.color = 'var(--text-error)';
+			tagPatternErrorEl.style.fontSize = '0.8em';
+			tagPatternErrorEl.style.marginTop = '-0.3em';
+			tagPatternErrorEl.style.marginBottom = '0.5em';
+			tagPatternErrorEl.style.paddingLeft = '0.25em';
+			tagPatternErrorEl.style.display = 'none';
+			this.updateRegexValidationUI(
+				'tagPattern',
+				this.rule.tagPattern || '',
+				tagPatternInput,
+				tagPatternErrorEl,
+			);
 
 			new Setting(section)
 				.setName('Tag entry point')
 				.setDesc('Tag prefix for matched tags (e.g., "projects/")')
-				.addText(text => text
-					.setPlaceholder('e.g., projects/')
-					.setValue(this.rule.tagEntryPoint || '')
-					.onChange(value => {
-						this.rule.tagEntryPoint = value;
-					})
-				);
+				.addText(text => {
+					text
+						.setPlaceholder('e.g., projects/')
+						.setValue(this.rule.tagEntryPoint || '')
+						.onChange(value => {
+							this.rule.tagEntryPoint = value;
+						});
+					new EntryPathSuggest(this.app, text.inputEl, tagSources);
+				});
+		}
+	}
+
+	private updateRegexValidationUI(
+		field: 'folderPattern' | 'tagPattern',
+		value: string,
+		inputEl: HTMLInputElement | null,
+		errorEl: HTMLElement | null,
+	) {
+		if (!inputEl || !errorEl) return;
+		// Empty is fine — required-field check happens in validateRule() at
+		// save time. Only flag *invalid* regex.
+		if (!value) {
+			this.regexErrors[field] = null;
+			inputEl.removeClass('dtf-input-invalid');
+			inputEl.style.borderColor = '';
+			errorEl.style.display = 'none';
+			errorEl.setText('');
+			return;
+		}
+		const result = validateRegexPattern(value);
+		if (result.valid) {
+			this.regexErrors[field] = null;
+			inputEl.removeClass('dtf-input-invalid');
+			inputEl.style.borderColor = '';
+			errorEl.style.display = 'none';
+			errorEl.setText('');
+		} else {
+			this.regexErrors[field] = result.error ?? 'Invalid regex';
+			inputEl.addClass('dtf-input-invalid');
+			inputEl.style.borderColor = 'var(--text-error)';
+			errorEl.style.display = 'block';
+			errorEl.setText(`Invalid regex: ${result.error ?? 'unknown error'}`);
 		}
 	}
 
@@ -423,6 +539,20 @@ export class RuleEditorModal extends Modal {
 		});
 
 		saveButton.addEventListener('click', () => {
+			// Block save on invalid regex — the user has already been shown
+			// the inline error, so just nudge them with a notice.
+			const regexProblems: string[] = [];
+			if (this.regexErrors.folderPattern) {
+				regexProblems.push(`Folder pattern: ${this.regexErrors.folderPattern}`);
+			}
+			if (this.regexErrors.tagPattern) {
+				regexProblems.push(`Tag pattern: ${this.regexErrors.tagPattern}`);
+			}
+			if (regexProblems.length > 0) {
+				new Notice(`Fix regex errors before saving: ${regexProblems.join('; ')}`);
+				return;
+			}
+
 			const validation = validateRule(this.rule);
 
 			if (!validation.valid) {

@@ -808,6 +808,174 @@ describe('folder-tag-sync — Phase 2 typed model E2E', function () {
         await snap('13-guided-edit-mode-populated');
         await closeAll();
       });
+
+      it('clicking a legacy regex rule (no typed fields) still routes to guided with inferred banner', async function () {
+        // The bug we're locking down: before always-guided routing, a rule
+        // authored as raw regex (no folder/tag/transfer typed fields)
+        // would fall through to the legacy "skinny" RuleEditorModal. The
+        // pivot is: guided is the default for ANY rule. This test seeds
+        // a pure-regex rule directly into settings and asserts that
+        // clicking it opens .modal.dtf-guided-modal.
+        await closeAll();
+        const seedId = 'legacy-regex-test-rule';
+        await browser.executeObsidian(async ({ app }, ruleId: string) => {
+          const plugin = (
+            app as unknown as {
+              plugins: { plugins: Record<string, unknown> };
+            }
+          ).plugins.plugins['folder-tag-sync'] as unknown as {
+            settings: { rules: unknown[] };
+            saveSettings: () => Promise<void>;
+          };
+          plugin.settings.rules = (
+            plugin.settings.rules as Array<{ id: string }>
+          ).filter((r) => r.id !== ruleId);
+          plugin.settings.rules.push({
+            id: ruleId,
+            name: 'Legacy regex rule',
+            enabled: true,
+            priority: 50,
+            direction: 'folder-to-tag',
+            folderPattern: '^Legacy/(.+)$',
+            folderEntryPoint: 'Legacy',
+            tagPattern: '^legacy/(.+)$',
+            tagEntryPoint: 'legacy',
+            options: {
+              caseSensitive: false,
+              preserveExisting: true,
+              handleFolderNotes: false,
+              moveAttachments: false,
+              defaultFolderForUntagged: '',
+            },
+          });
+          await plugin.saveSettings();
+        }, seedId);
+        await browser.pause(200);
+
+        // Open settings and click the seeded rule
+        await browser.executeObsidian(({ app }) => {
+          const setting = (
+            app as unknown as {
+              setting: { open(): void; openTabById(id: string): void };
+            }
+          ).setting;
+          setting.open();
+          setting.openTabById('folder-tag-sync');
+        });
+        await browser.pause(400);
+        const clicked = await browser.executeObsidian(() => {
+          const items = Array.from(document.querySelectorAll('.dtf-rule-item'));
+          const target = items.find((i) =>
+            (i.textContent ?? '').includes('Legacy regex rule'),
+          ) as HTMLElement | undefined;
+          target?.click();
+          return Boolean(target);
+        });
+        expect(clicked).toBe(true);
+        await browser.pause(400);
+
+        const routedState = await browser.executeObsidian(() => {
+          const guided = document.querySelector('.modal.dtf-guided-modal');
+          const banner = guided?.textContent ?? '';
+          // The banner copy starts with "Best-effort import"
+          const hasBanner = banner.includes('Best-effort import');
+          // The escape-hatch link should be visible in edit mode
+          const links = guided
+            ? Array.from(guided.querySelectorAll('a'))
+            : [];
+          const hasAdvLink = links.some((a) =>
+            (a.textContent ?? '').includes('Open in advanced'),
+          );
+          return {
+            guidedOpen: Boolean(guided),
+            hasBanner,
+            hasAdvLink,
+          };
+        });
+        expect(routedState.guidedOpen).toBe(true);
+        expect(routedState.hasBanner).toBe(true);
+        expect(routedState.hasAdvLink).toBe(true);
+
+        await snap('14-legacy-regex-routes-to-guided');
+        await closeAll();
+      });
+
+      it('"Open in advanced (regex)" link closes guided and opens the legacy modal', async function () {
+        // Reuse the seeded legacy rule from the previous test (it's still
+        // in settings since closeAll only closes UI, not data).
+        await browser.executeObsidian(({ app }) => {
+          const setting = (
+            app as unknown as {
+              setting: { open(): void; openTabById(id: string): void };
+            }
+          ).setting;
+          setting.open();
+          setting.openTabById('folder-tag-sync');
+        });
+        await browser.pause(400);
+        await browser.executeObsidian(() => {
+          const items = Array.from(document.querySelectorAll('.dtf-rule-item'));
+          const target = items.find((i) =>
+            (i.textContent ?? '').includes('Legacy regex rule'),
+          ) as HTMLElement | undefined;
+          target?.click();
+        });
+        await browser.pause(400);
+
+        // Click the "Open in advanced (regex)" escape-hatch link
+        const linkClicked = await browser.executeObsidian(() => {
+          const guided = document.querySelector('.modal.dtf-guided-modal');
+          const links = guided
+            ? (Array.from(guided.querySelectorAll('a')) as HTMLAnchorElement[])
+            : [];
+          const link = links.find((a) =>
+            (a.textContent ?? '').includes('Open in advanced'),
+          );
+          link?.click();
+          return Boolean(link);
+        });
+        expect(linkClicked).toBe(true);
+        await browser.pause(400);
+
+        const switchedState = await browser.executeObsidian(() => {
+          // Guided should be closed; some legacy modal should be open.
+          // The legacy RuleEditorModal renders text inputs for
+          // folderPattern / tagPattern — we look for *any* modal that
+          // is not the guided one.
+          const guided = document.querySelector('.modal.dtf-guided-modal');
+          const allModals = Array.from(
+            document.querySelectorAll('.modal-container .modal'),
+          );
+          const nonGuidedModals = allModals.filter(
+            (m) => !m.classList.contains('dtf-guided-modal'),
+          );
+          return {
+            guidedStillOpen: Boolean(guided),
+            otherModalCount: nonGuidedModals.length,
+          };
+        });
+        expect(switchedState.guidedStillOpen).toBe(false);
+        expect(switchedState.otherModalCount).toBeGreaterThan(0);
+
+        await snap('15-switch-to-advanced');
+        await closeAll();
+
+        // Cleanup: drop the seeded rule
+        await browser.executeObsidian(async ({ app }) => {
+          const plugin = (
+            app as unknown as {
+              plugins: { plugins: Record<string, unknown> };
+            }
+          ).plugins.plugins['folder-tag-sync'] as unknown as {
+            settings: { rules: unknown[] };
+            saveSettings: () => Promise<void>;
+          };
+          plugin.settings.rules = (
+            plugin.settings.rules as Array<{ id: string }>
+          ).filter((r) => r.id !== 'legacy-regex-test-rule');
+          await plugin.saveSettings();
+        });
+      });
     });
 
     describe('Phase 2C — Detect-mode UI', function () {

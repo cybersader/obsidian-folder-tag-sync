@@ -697,24 +697,54 @@ describe('folder-tag-sync — Phase 2 typed model E2E', function () {
         });
         await browser.pause(200);
 
-        // Run the scan command via command palette executeCommandById
-        await browser.executeObsidian(({ app }) => {
-          (app as unknown as {
-            commands: { executeCommandById(id: string): boolean };
-          }).commands.executeCommandById('folder-tag-sync:scan-vault-for-systems');
+        // Invoke scanVaultForSystems directly on the plugin instance —
+        // more deterministic than command-palette resolution.
+        const invokeResult = await browser.executeObsidian(({ app }) => {
+          const plugin = (app as unknown as {
+            plugins: { plugins: Record<string, { scanVaultForSystems?: () => void }> };
+          }).plugins.plugins['folder-tag-sync'];
+          if (!plugin) return { invoked: false, reason: 'plugin not found' };
+          if (typeof plugin.scanVaultForSystems !== 'function') {
+            return { invoked: false, reason: 'method missing' };
+          }
+          plugin.scanVaultForSystems();
+          return { invoked: true };
         });
+        expect(invokeResult.invoked).toBe(true);
+
         await browser.pause(700);
 
         const surfaced = await browser.executeObsidian(() => {
-          // Check that the detect modal rendered AND that seacow-outer surfaced
-          const modal = document.querySelector('.dtf-detect-modal');
-          if (!modal) return { hasModal: false, packs: [] as string[] };
-          const cards = Array.from(modal.querySelectorAll('.dtf-detect-result strong'));
+          // Check both possible selectors — the modal class is applied to modalEl
+          const modalDirect = document.querySelector('.dtf-detect-modal');
+          const modalContainer = document.querySelector('.modal-container .modal.dtf-detect-modal');
+          const modalAny = document.querySelector('.modal.dtf-detect-modal') ?? modalDirect ?? modalContainer;
+          const allModals = Array.from(document.querySelectorAll('.modal-container .modal'));
+          if (!modalAny) {
+            return {
+              hasModal: false,
+              packs: [] as string[],
+              diagnostic: {
+                modalCount: allModals.length,
+                modalClasses: allModals.map((m) => m.className).slice(0, 3),
+              },
+            };
+          }
+          const cards = Array.from(modalAny.querySelectorAll('.dtf-detect-result strong'));
           return {
             hasModal: true,
             packs: cards.map((c) => c.textContent ?? ''),
+            diagnostic: {
+              modalCount: allModals.length,
+              modalClasses: allModals.map((m) => m.className).slice(0, 3),
+            },
           };
         });
+        if (!surfaced.hasModal) {
+          console.error(
+            `[detect modal] not found. Open modals: ${JSON.stringify(surfaced.diagnostic)}`,
+          );
+        }
         expect(surfaced.hasModal).toBe(true);
         // SEACOW outer should surface; PARA/JD won't unless we created their roots
         expect(surfaced.packs.some((p) => p.toLowerCase().includes('seacow'))).toBe(true);

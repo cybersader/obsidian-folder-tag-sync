@@ -521,34 +521,38 @@ describe('folder-tag-sync — Phase 2 typed model E2E', function () {
       });
     });
 
-    describe('Phase 2B — guided rule editor', function () {
-      const openGuided = async () => {
-        await browser.executeObsidian(({ app }) => {
-          const setting = (
-            app as unknown as {
-              setting: { open(): void; openTabById(id: string): void };
-            }
-          ).setting;
-          setting.open();
-          setting.openTabById('folder-tag-sync');
-        });
-        await browser.pause(400);
-        await browser.executeObsidian(() => {
-          const btns = Array.from(document.querySelectorAll('.dtf-add-rule-button'));
-          const guidedBtn = btns[0] as HTMLButtonElement | undefined;
-          guidedBtn?.click();
-        });
-        await browser.pause(400);
-      };
+    // Shared helpers — used across multiple sibling describe blocks. Defined
+    // at the outer-describe scope so Phase 2B.γ + Phase 2B.δ + Phase 2C
+    // sub-specs can all reuse without redefining.
+    const openGuided = async () => {
+      await browser.executeObsidian(({ app }) => {
+        const setting = (
+          app as unknown as {
+            setting: { open(): void; openTabById(id: string): void };
+          }
+        ).setting;
+        setting.open();
+        setting.openTabById('folder-tag-sync');
+      });
+      await browser.pause(400);
+      await browser.executeObsidian(() => {
+        const btns = Array.from(document.querySelectorAll('.dtf-add-rule-button'));
+        const guidedBtn = btns[0] as HTMLButtonElement | undefined;
+        guidedBtn?.click();
+      });
+      await browser.pause(400);
+    };
 
-      const closeAll = async () => {
-        await browser.keys(['Escape']);
-        await browser.pause(150);
-        await browser.executeObsidian(({ app }) => {
-          (app as unknown as { setting: { close(): void } }).setting.close();
-        });
-        await browser.pause(150);
-      };
+    const closeAll = async () => {
+      await browser.keys(['Escape']);
+      await browser.pause(150);
+      await browser.executeObsidian(({ app }) => {
+        (app as unknown as { setting: { close(): void } }).setting.close();
+      });
+      await browser.pause(150);
+    };
+
+    describe('Phase 2B — guided rule editor', function () {
 
       it('opens with empty form and shows the live preview scaffolding', async function () {
         await openGuided();

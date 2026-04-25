@@ -469,8 +469,12 @@ describe('folder-tag-sync — Phase 2 typed model E2E', function () {
 
       await snap('04-primitives-after-sync');
 
+      // Note: @wdio/globals' expect does NOT accept a message arg
+      // (`expect(val, msg).toBe(...)` throws "Expect takes at most one argument").
+      // Diagnostics live in the console.error block above; this assertion
+      // only carries a boolean.
       for (const r of results) {
-        expect(r.ok, `rule ${r.ruleId}: expected ${r.expected} in tags ${JSON.stringify(r.tags)}`).toBe(true);
+        expect(r.ok).toBe(true);
       }
     });
 

@@ -83,7 +83,7 @@
         "emojiHandling": "keep",
         "numberPrefixHandling": "keep"
       },
-      "folderPattern": "^Entity/Cybersader/",
+      "folderPattern": "^Entity/Cybersader(?:/|$)",
       "folderEntryPoint": "Entity/Cybersader",
       "folderTransforms": {
         "caseTransform": "Title Case",
@@ -120,7 +120,7 @@
         "emojiHandling": "keep",
         "numberPrefixHandling": "keep"
       },
-      "folderPattern": "^Output/Public/",
+      "folderPattern": "^Output/Public(?:/|$)",
       "folderEntryPoint": "Output/Public",
       "folderTransforms": {
         "caseTransform": "Title Case",
@@ -157,7 +157,7 @@
         "emojiHandling": "keep",
         "numberPrefixHandling": "strip"
       },
-      "folderPattern": "^Output/Main/",
+      "folderPattern": "^Output/Main(?:/|$)",
       "folderEntryPoint": "Output/Main",
       "folderTransforms": {
         "caseTransform": "Title Case",
@@ -192,7 +192,7 @@
       "tagTransforms": {
         "caseTransform": "kebab-case"
       },
-      "folderPattern": "^System/",
+      "folderPattern": "^System(?:/|$)",
       "folderEntryPoint": "System",
       "folderTransforms": {
         "caseTransform": "Title Case"

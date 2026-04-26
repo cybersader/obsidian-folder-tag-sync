@@ -31,7 +31,7 @@
 			"enabled": true,
 			"priority": 10,
 			"direction": "bidirectional",
-			"folderPattern": "^\\d{2} - [^/]+/",
+			"folderPattern": "^\\d{2} - [^/]+(?:/|$)",
 			"folderEntryPoint": "",
 			"folderTransforms": { "caseTransform": "Title Case", "numberPrefixHandling": "keep" },
 			"tagPattern": "^\\d{2}-[a-z0-9-]+",

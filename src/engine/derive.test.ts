@@ -357,7 +357,7 @@ describe('additional framework rules (PARA/JD/ZK shapes)', () => {
 			options: baseOptions,
 		};
 		const r = deriveRule(spec);
-		expect(r.folderPattern).toBe('^Projects/');
+		expect(r.folderPattern).toBe('^Projects(?:/|$)');
 		expect(r.tagPattern).toBe('^projects/');
 		expect(r.folder?.axes).toEqual(['work']);
 		expect(r.bijective).toBe(true);
@@ -402,7 +402,7 @@ describe('additional framework rules (PARA/JD/ZK shapes)', () => {
 			options: baseOptions,
 		};
 		const r = deriveRule(spec);
-		expect(r.folderPattern).toBe('^10 - Projects/');
+		expect(r.folderPattern).toBe('^10 - Projects(?:/|$)');
 		expect(r.tagPattern).toBe('^10-projects/');
 		expect(r.folderTransforms?.numberPrefixHandling).toBe('keep');
 	});

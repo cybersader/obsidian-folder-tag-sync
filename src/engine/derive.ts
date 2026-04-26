@@ -60,9 +60,18 @@ export function deriveFolderPattern(spec: TypedRuleSpec): string {
 		return buildDepthCappedPattern(entry, sep, spec.transfer.depth);
 	}
 
-	// All remaining ops: loose anchor-prefix. Depth/shape semantics (if any)
-	// are enforced by the transform pipeline, not the regex.
-	return `^${entry}${sep}`;
+	// All remaining ops: loose anchor-prefix that matches the bare entry
+	// folder OR anything beneath it. Depth/shape semantics (if any) are
+	// enforced by the transform pipeline, not the regex.
+	//
+	// `(?:${sep}|$)` covers both forms:
+	//   `Projects`        — bare entry folder (no children yet)
+	//   `Projects/Web`    — nested below entry
+	// The previous `^${entry}${sep}` required a trailing separator, which
+	// silently excluded the bare-entry case — users with a top-level
+	// folder but no subfolders saw "0 matches" from the preview surfaces
+	// and assumed the rule was broken.
+	return `^${entry}(?:${sep}|$)`;
 }
 
 /**

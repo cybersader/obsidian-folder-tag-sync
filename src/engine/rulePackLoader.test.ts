@@ -294,7 +294,7 @@ describe('typedSpec path — rules authored in Layer 2', () => {
 		if (!result.ok) return;
 		const [r] = result.pack.rules;
 		expect(r.id).toBe('typed-projects');
-		expect(r.folderPattern).toBe('^Projects/');
+		expect(r.folderPattern).toBe('^Projects(?:/|$)');
 		expect(r.tagPattern).toBe('^projects/');
 		expect(r.transfer?.op).toBe('identity');
 		expect(r.bijective).toBe(true);

@@ -1,8 +1,8 @@
 {
   "version": 1,
-  "generatedAt": "2026-04-25T21:54:35.701Z",
+  "generatedAt": "2026-04-26T13:19:03.895Z",
   "packCount": 5,
-  "totalBytes": 35149,
+  "totalBytes": 35221,
   "packs": [
     {
       "id": "cyberbase-actual",
@@ -59,7 +59,7 @@
         ],
         "summary": "Numbered top-level areas (10-, 20-, …, 90-). Each area can subdivide further with two-digit numeric prefixes."
       },
-      "sizeBytes": 1688
+      "sizeBytes": 1694
     },
     {
       "id": "para",
@@ -114,7 +114,7 @@
         ],
         "summary": "Four top-level Work folders: active Projects, ongoing Areas of responsibility, reference Resources, and Archive."
       },
-      "sizeBytes": 4101
+      "sizeBytes": 4125
     },
     {
       "id": "seacow-cyberbase",
@@ -129,7 +129,7 @@
       "ruleCount": 6,
       "detection": null,
       "establish": null,
-      "sizeBytes": 8319
+      "sizeBytes": 8343
     },
     {
       "id": "seacow-outer",
@@ -198,7 +198,7 @@
         ],
         "summary": "Lays down the four SEACOW outer roots — Capture, Entity, Output, System — with conventional sub-folders. Pick component packs (PARA, JD, etc.) to fill the inner axes."
       },
-      "sizeBytes": 5839
+      "sizeBytes": 5857
     }
   ]
 }

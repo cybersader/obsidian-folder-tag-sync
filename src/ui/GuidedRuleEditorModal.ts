@@ -197,7 +197,7 @@ export type GuidedEditorMode =
 	| { kind: 'edit-from-inferred'; existingRule: MappingRule };
 
 /** Optional callback for the "Open in advanced (regex)" escape-hatch link. */
-export type SwitchToAdvancedFn = (rule: MappingRule) => void;
+export type SwitchToAdvancedFn = (rule: MappingRule | null) => void;
 
 export class GuidedRuleEditorModal extends Modal {
 	private state: FormState;
@@ -280,8 +280,11 @@ export class GuidedRuleEditorModal extends Modal {
 
 		new Setting(titleRow).setName(titleText).setHeading();
 
-		// Escape hatch — present whenever the user might want raw regex
-		if (this.mode.kind !== 'create' && this.onSwitchToAdvanced) {
+		// Escape hatch — present whenever the user might want raw regex.
+		// Available in both edit and create modes: in create mode the link
+		// forwards `null` to the advanced editor (signaling "open for a new
+		// rule"); the SettingsTab.openRuleEditor(null) flow handles that.
+		if (this.onSwitchToAdvanced) {
 			const switchLink = titleRow.createEl('a', { text: 'Open in advanced (regex)' });
 			switchLink.style.fontSize = '0.85em';
 			switchLink.style.cursor = 'pointer';
@@ -289,7 +292,7 @@ export class GuidedRuleEditorModal extends Modal {
 			switchLink.addEventListener('click', (e) => {
 				e.preventDefault();
 				const rule = this.mode.kind !== 'create' ? this.mode.existingRule : null;
-				if (rule && this.onSwitchToAdvanced) {
+				if (this.onSwitchToAdvanced) {
 					this.onSwitchToAdvanced(rule);
 					this.close();
 				}

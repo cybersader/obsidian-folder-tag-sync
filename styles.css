@@ -83,15 +83,15 @@
 }
 
 /* Settings Tab */
-.dtf-settings-header {
-	display: flex;
-	justify-content: space-between;
-	align-items: center;
-	margin-bottom: 1em;
-}
 
-.dtf-add-rule-button {
-	padding: 0.5em 1em;
+/* Visual separator between major settings sections — applied to non-first
+ * section wrappers. Mirrors the section rhythm in Obsidian's own settings
+ * (heading-typography + whitespace) but adds a thin divider line so dense
+ * plugin settings don't blur together. */
+.dtf-section-divider {
+	margin-top: 1.5em;
+	padding-top: 1em;
+	border-top: 1px solid var(--background-modifier-border);
 }
 
 .dtf-rule-list {
@@ -157,10 +157,13 @@
 	font-style: italic;
 }
 
-/* Preview action row inside the rule list — gives the toggle button
- * breathing room above and inside the rule card. Without this it sat
- * flush against the patterns text. */
+/* Preview action row inside the rule list — right-aligns the toggle so
+ * the card reads as "content on the left, action on the right" (same
+ * hierarchy as a typical list-item-with-action pattern). Top margin
+ * keeps it visually separated from the patterns text above. */
 .dtf-rule-actions {
+	display: flex;
+	justify-content: flex-end;
 	margin-top: 0.6em;
 }
 
@@ -175,13 +178,9 @@
 	font-style: italic;
 }
 
-/* Import/Export Section */
-.dtf-import-export {
-	margin-top: 2em;
-	padding-top: 2em;
-	border-top: 1px solid var(--background-modifier-border);
-}
-
+/* Import/Export Section — layout rhythm comes from .dtf-section-divider
+ * (applied alongside this class in SettingsTab); only textarea-specific
+ * styling lives here. */
 .dtf-import-export textarea {
 	width: 100%;
 	min-height: 200px;
@@ -206,11 +205,5 @@
 
 	.rule-editor-buttons button {
 		width: 100%;
-	}
-
-	.dtf-settings-header {
-		flex-direction: column;
-		align-items: flex-start;
-		gap: 1em;
 	}
 }

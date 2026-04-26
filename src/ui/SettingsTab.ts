@@ -82,31 +82,30 @@ export class SettingsTab extends PluginSettingTab {
 	}
 
 	private displayRulesSection(containerEl: HTMLElement) {
-		const header = containerEl.createDiv({ cls: 'dtf-settings-header' });
-		new Setting(header).setName('Mapping rules').setHeading();
+		// Section wrapper — gives the heading a top divider so non-first
+		// sections are visually separated. Uses the same divider class
+		// applied to import/export below so all major sections share rhythm.
+		const section = containerEl.createDiv({ cls: 'dtf-section-divider' });
 
-		const addGuidedButton = header.createEl('button', {
-			text: 'Add rule',
-			cls: 'mod-cta dtf-add-rule-button'
-		});
-		addGuidedButton.addEventListener('click', () => {
-			this.openGuidedRuleEditor();
-		});
+		new Setting(section).setName('Mapping rules').setHeading();
 
-		const addAdvancedButton = header.createEl('button', {
-			text: 'Add rule (advanced)',
-			cls: 'dtf-add-rule-advanced-button'
-		});
-		addAdvancedButton.style.marginLeft = '0.5em';
-		addAdvancedButton.addEventListener('click', () => {
-			this.openRuleEditor(null);
-		});
+		// Idiomatic Obsidian pattern: section heading above, then a Setting
+		// row with description on the left and the primary action on the
+		// right. The advanced editor is reachable from inside the guided
+		// modal via the "Open in advanced (regex)" link in the title row,
+		// so this section only needs one CTA.
+		new Setting(section)
+			.setName('Create new rule')
+			.setDesc('Define rules for mapping between folders and tags. Lower priority numbers are evaluated first.')
+			.addButton(btn => btn
+				.setButtonText('Add rule')
+				.setCta()
+				.onClick(() => this.openGuidedRuleEditor())
+			);
 
-		const rulesDesc = containerEl.createDiv({ cls: 'setting-item-description' });
-		rulesDesc.setText('Define rules for mapping between folders and tags. Lower priority numbers are evaluated first.');
-
-		// Display rule list
-		const ruleListContainer = containerEl.createDiv({ cls: 'dtf-rule-list' });
+		// Rule list — sits inside the section so the divider visually
+		// scopes the whole "rules" block, not just the heading row.
+		const ruleListContainer = section.createDiv({ cls: 'dtf-rule-list' });
 		this.displayRuleList(ruleListContainer);
 	}
 
@@ -469,16 +468,27 @@ export class SettingsTab extends PluginSettingTab {
 	 * with full Layer 1 + Layer 2 fields populated by `deriveRule()`.
 	 */
 	private openGuidedRuleEditor() {
-		const modal = new GuidedRuleEditorModal(this.app, (newRule) => {
-			// Create-mode never receives null (no Delete button in create
-			// mode). Guard for type safety.
-			if (newRule === null) return;
-			this.plugin.settings.rules = [...this.plugin.settings.rules, newRule];
-			void this.plugin.saveSettings().then(() => {
-				this.display();
-				new Notice(`Rule "${newRule.name}" added`);
-			});
-		});
+		const modal = new GuidedRuleEditorModal(
+			this.app,
+			(newRule) => {
+				// Create-mode never receives null (no Delete button in create
+				// mode). Guard for type safety.
+				if (newRule === null) return;
+				this.plugin.settings.rules = [...this.plugin.settings.rules, newRule];
+				void this.plugin.saveSettings().then(() => {
+					this.display();
+					new Notice(`Rule "${newRule.name}" added`);
+				});
+			},
+			undefined,
+			// Escape hatch — the user can switch to the advanced editor at
+			// any time, even before they've started filling fields. In
+			// create mode the link forwards null (open advanced for a new
+			// rule); openRuleEditor(null) handles the new-rule case.
+			(forwardedRule) => {
+				this.openRuleEditor(forwardedRule);
+			},
+		);
 		modal.open();
 	}
 
@@ -524,7 +534,10 @@ export class SettingsTab extends PluginSettingTab {
 	}
 
 	private displayImportExportSection(containerEl: HTMLElement) {
-		const section = containerEl.createDiv({ cls: 'dtf-import-export' });
+		// Same divider class as the Mapping rules section above; the
+		// dtf-import-export class is preserved so the textarea-specific
+		// child styles still apply.
+		const section = containerEl.createDiv({ cls: 'dtf-section-divider dtf-import-export' });
 		new Setting(section).setName('Import / export').setHeading();
 
 		new Setting(section)

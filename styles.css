@@ -157,6 +157,17 @@
 	font-style: italic;
 }
 
+/* Preview action row inside the rule list — gives the toggle button
+ * breathing room above and inside the rule card. Without this it sat
+ * flush against the patterns text. */
+.dtf-rule-actions {
+	margin-top: 0.6em;
+}
+
+.dtf-rule-preview-toggle {
+	font-size: 0.85em;
+}
+
 .dtf-no-rules {
 	text-align: center;
 	padding: 2em;

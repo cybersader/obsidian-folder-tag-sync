@@ -356,6 +356,34 @@ export class GuidedRuleEditorModal extends Modal {
 		this.tagSuggestSources = collectTagSources(tagsRecord);
 	}
 
+	/**
+	 * Pick the rule to preview against. Priority:
+	 *   1. If FormState entries are populated, derive from FormState (the
+	 *      authoritative source while the user is authoring).
+	 *   2. Else if editing an existing rule that has a folderPattern, use
+	 *      that rule directly. This covers scan-imported rules with empty
+	 *      entry points (e.g. JD numbered-row) — the user opens them and
+	 *      should see real samples immediately, before mapping to typed
+	 *      fields.
+	 *   3. Else null — caller renders the "fill entries" hint.
+	 */
+	private currentPreviewRule(): MappingRule | null {
+		if (entriesPopulated(this.state)) {
+			try {
+				const spec = buildSpec(this.state);
+				return deriveRule(spec);
+			} catch {
+				return null;
+			}
+		}
+		if (this.mode.kind === 'edit' || this.mode.kind === 'edit-from-inferred') {
+			if (this.mode.existingRule.folderPattern) {
+				return this.mode.existingRule;
+			}
+		}
+		return null;
+	}
+
 	/** Reactive heartbeat — every field change calls this. */
 	private notify(): void {
 		this.renderFlowDiagram();
@@ -417,14 +445,16 @@ export class GuidedRuleEditorModal extends Modal {
 		grid.style.gap = '0.6em';
 		grid.style.alignItems = 'stretch';
 
-		// Compute samples — gracefully handle the empty-entry case.
+		// Compute samples — picks the right rule (FormState-derived for the
+		// authoring case, existing rule for scan-imported rules with empty
+		// entries) so JD-style rules show real matches without forcing the
+		// user to fill in entry points first.
 		let samples: { folder: string; tags: string[] }[] = [];
 		let hasError = false;
-		if (entriesPopulated(this.state)) {
+		const ruleForPreview = this.currentPreviewRule();
+		if (ruleForPreview) {
 			try {
-				const spec = buildSpec(this.state);
-				const rule = deriveRule(spec);
-				const preview = previewRule(rule, this.vaultFolders, { maxSamples: 3 });
+				const preview = previewRule(ruleForPreview, this.vaultFolders, { maxSamples: 3 });
 				if (preview.invalidRegex) {
 					hasError = true;
 				} else {
@@ -474,7 +504,7 @@ export class GuidedRuleEditorModal extends Modal {
 					: s.folder;
 				row.setText(`${branch}${rel}`);
 			});
-		} else if (!hasError && entriesPopulated(this.state)) {
+		} else if (!hasError && ruleForPreview) {
 			const note = folderCol.createDiv();
 			note.style.fontSize = '0.78em';
 			note.style.fontStyle = 'italic';
@@ -574,7 +604,7 @@ export class GuidedRuleEditorModal extends Modal {
 			note.style.color = 'var(--text-muted)';
 			note.style.marginTop = '0.2em';
 			note.setText('Cannot preview — fix errors below');
-		} else if (!entriesPopulated(this.state)) {
+		} else if (!ruleForPreview) {
 			const note = tagCol.createDiv();
 			note.style.fontSize = '0.78em';
 			note.style.fontStyle = 'italic';
@@ -621,9 +651,10 @@ export class GuidedRuleEditorModal extends Modal {
 		row.style.gap = '0.5em';
 		row.style.flexWrap = 'wrap';
 
-		// Gate on both entries being populated. Vacuous patterns (empty
-		// entry → loose match-anything regex) produce nonsense previews.
-		if (!entriesPopulated(this.state)) {
+		// Use currentPreviewRule so scan-imported rules with empty entries
+		// still get a preview from their existing folderPattern.
+		const ruleForPreview = this.currentPreviewRule();
+		if (!ruleForPreview) {
 			const missing: string[] = [];
 			if (!this.state.folderEntry.trim()) missing.push('folder entry');
 			if (!this.state.tagEntry.trim()) missing.push('tag entry');
@@ -634,9 +665,7 @@ export class GuidedRuleEditorModal extends Modal {
 		}
 
 		try {
-			const spec = buildSpec(this.state);
-			const rule = deriveRule(spec);
-			const preview = previewRule(rule, this.vaultFolders, { maxSamples: 1 });
+			const preview = previewRule(ruleForPreview, this.vaultFolders, { maxSamples: 1 });
 
 			if (preview.samples.length > 0) {
 				const sample = preview.samples[0];
@@ -692,12 +721,13 @@ export class GuidedRuleEditorModal extends Modal {
 			if (title) b.title = title;
 		};
 
-		// When entries are empty, badges are informational placeholders.
+		// When no rule is previewable, badges are informational placeholders.
 		// Cardinality/bijective are computed from settings, not from results,
 		// so they'd show green even with 0 matches — misleading the user
 		// into thinking the rule is "good" before it actually applies anywhere.
 		const NEUTRAL = 'var(--color-base-50)';
-		if (!entriesPopulated(this.state)) {
+		const ruleForPreview = this.currentPreviewRule();
+		if (!ruleForPreview) {
 			badge('matches', '—', NEUTRAL, 'Fill in folder + tag entry to see results');
 			badge('emits', '— tag(s)', NEUTRAL);
 			badge('cardinality', '—', NEUTRAL);
@@ -706,9 +736,7 @@ export class GuidedRuleEditorModal extends Modal {
 		}
 
 		try {
-			const spec = buildSpec(this.state);
-			const rule = deriveRule(spec);
-			const preview = previewRule(rule, this.vaultFolders, { maxSamples: 0 });
+			const preview = previewRule(ruleForPreview, this.vaultFolders, { maxSamples: 0 });
 
 			// `matches` is the only badge derived from VAULT RESULTS, so it's
 			// the only one that earns success-green. Settings-derived badges
@@ -727,15 +755,15 @@ export class GuidedRuleEditorModal extends Modal {
 			);
 			badge(
 				'cardinality',
-				rule.cardinality ?? '?',
+				ruleForPreview.cardinality ?? '?',
 				NEUTRAL,
-				`Mapping shape: ${rule.cardinality === '1:1' ? 'one-to-one (lossless)' : rule.cardinality}`,
+				`Mapping shape: ${ruleForPreview.cardinality === '1:1' ? 'one-to-one (lossless)' : ruleForPreview.cardinality}`,
 			);
 			badge(
-				rule.bijective ? 'bijective' : 'lossy',
-				rule.bijective ? '✓' : '⚠',
+				ruleForPreview.bijective ? 'bijective' : 'lossy',
+				ruleForPreview.bijective ? '✓' : '⚠',
 				NEUTRAL,
-				rule.bijective
+				ruleForPreview.bijective
 					? 'This rule preserves enough info to round-trip folder ↔ tag'
 					: 'This rule is intentionally lossy — some structure cannot be recovered',
 			);
@@ -1283,7 +1311,8 @@ export class GuidedRuleEditorModal extends Modal {
 	private renderVaultTest(): void {
 		this.vaultTestEl.empty();
 
-		if (!entriesPopulated(this.state)) {
+		const ruleForPreview = this.currentPreviewRule();
+		if (!ruleForPreview) {
 			this.vaultTestEl.createEl('em', {
 				text: 'Fill folder entry and tag entry to see sample matches.',
 			});
@@ -1291,9 +1320,7 @@ export class GuidedRuleEditorModal extends Modal {
 		}
 
 		try {
-			const spec = buildSpec(this.state);
-			const rule = deriveRule(spec);
-			const preview = previewRule(rule, this.vaultFolders, { maxSamples: 5 });
+			const preview = previewRule(ruleForPreview, this.vaultFolders, { maxSamples: 5 });
 
 			if (preview.matchCount === 0 && !preview.opaqueByDesign) {
 				this.vaultTestEl.createEl('em', { text: 'No vault folders match yet.' });

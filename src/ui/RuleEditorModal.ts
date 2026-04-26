@@ -47,6 +47,8 @@ export class RuleEditorModal extends Modal {
 	// preview panel on every input change.
 	private vaultFolderPaths: string[] = [];
 	private previewPanelEl: HTMLElement | null = null;
+	// Cleanup hook for window resize listener on the 2-column grid layout.
+	private collapseHandler: (() => void) | null = null;
 
 	constructor(
 		app: App,
@@ -93,6 +95,10 @@ export class RuleEditorModal extends Modal {
 		// without it, .modal-container .modal also matches Obsidian's
 		// settings dialog and tests grab the wrong inputs.
 		modalEl.addClass('dtf-advanced-modal');
+		// Wider modal so the 2-column layout has room. CSS clamps to 95vw
+		// on narrow viewports; the grid below collapses to 1-column under
+		// ~720px container width.
+		modalEl.style.width = 'min(1100px, 95vw)';
 
 		// Walk the vault folder tree once per open. Both the pattern-section
 		// autocomplete and the live preview panel consume this list.
@@ -118,26 +124,53 @@ export class RuleEditorModal extends Modal {
 			.setHeading();
 		this.renderTryGuidedLink(titleRow);
 
-		// Basic Information Section
-		this.buildBasicInfoSection(contentEl);
+		// 2-column wide layout: form on the left, sticky live preview on
+		// the right. On narrow viewports the right column wraps below.
+		// CSS grid auto-fits; preview stays visible while user edits.
+		const grid = contentEl.createDiv({ cls: 'dtf-advanced-grid' });
+		grid.style.display = 'grid';
+		grid.style.gridTemplateColumns = 'minmax(0, 2fr) minmax(0, 1fr)';
+		grid.style.gap = '1em';
+		grid.style.alignItems = 'start';
 
-		// Direction Section
-		this.buildDirectionSection(contentEl);
+		const leftCol = grid.createDiv({ cls: 'dtf-advanced-form-col' });
+		const rightCol = grid.createDiv({ cls: 'dtf-advanced-preview-col' });
+		// Sticky preview — stays in view as the user scrolls the form.
+		// `position: sticky` requires a scroll container above; the modal
+		// content is the scroll container, so this works without extra
+		// wiring.
+		rightCol.style.position = 'sticky';
+		rightCol.style.top = '0';
 
-		// Pattern Section
-		this.buildPatternSection(contentEl);
+		// LEFT — form sections
+		this.buildBasicInfoSection(leftCol);
+		this.buildDirectionSection(leftCol);
+		this.buildPatternSection(leftCol);
+		this.buildTransformationSection(leftCol);
+		this.buildOptionsSection(leftCol);
 
-		// Transformation Section
-		this.buildTransformationSection(contentEl);
+		// RIGHT — live preview panel (sticky)
+		this.buildPreviewSection(rightCol);
 
-		// Options Section
-		this.buildOptionsSection(contentEl);
-
-		// Testing/Preview Section
-		this.buildPreviewSection(contentEl);
-
-		// Action Buttons
+		// Action buttons span both columns at the bottom.
 		this.buildActionButtons(contentEl);
+
+		// Collapse to single column on narrow viewports — done via a
+		// container query proxy: if the modal is below ~720px, drop the
+		// right column inline. Re-render hook below also accounts for it.
+		const collapseIfNarrow = () => {
+			if (modalEl.clientWidth < 720) {
+				grid.style.gridTemplateColumns = '1fr';
+				rightCol.style.position = 'static';
+			} else {
+				grid.style.gridTemplateColumns = 'minmax(0, 2fr) minmax(0, 1fr)';
+				rightCol.style.position = 'sticky';
+				rightCol.style.top = '0';
+			}
+		};
+		collapseIfNarrow();
+		window.addEventListener('resize', collapseIfNarrow);
+		this.collapseHandler = collapseIfNarrow;
 
 		// Reactive preview — any input or change inside the modal triggers
 		// a preview re-render. Single integration point instead of plumbing
@@ -764,5 +797,11 @@ export class RuleEditorModal extends Modal {
 	onClose() {
 		const { contentEl } = this;
 		contentEl.empty();
+		// Detach the resize listener that drives the 2-column → 1-column
+		// collapse — would otherwise leak across modal opens.
+		if (this.collapseHandler) {
+			window.removeEventListener('resize', this.collapseHandler);
+			this.collapseHandler = null;
+		}
 	}
 }

@@ -249,6 +249,31 @@ function validatePhase2CMeta(
 	return out;
 }
 
+/**
+ * Validate the optional `folderAnchor` field shape. Returns an error string
+ * (for accumulation in the surrounding errors list) if malformed, or null if
+ * absent / well-formed. Phase G — pack JSONs can declare anchor explicitly,
+ * but the value must conform to `FolderAnchor` (string literal or
+ * `{ under: non-empty-string }`).
+ */
+function validateFolderAnchor(value: unknown, prefix: string): string | null {
+	if (value === undefined) return null;
+	if (value === 'root' || value === 'any-segment') return null;
+	if (
+		value !== null &&
+		typeof value === 'object' &&
+		typeof (value as { under?: unknown }).under === 'string' &&
+		(value as { under: string }).under.trim() !== ''
+	) {
+		const under = (value as { under: string }).under;
+		if (under.startsWith('/') || under.endsWith('/')) {
+			return `${prefix} folderAnchor.under must not start or end with '/' (got '${under}')`;
+		}
+		return null;
+	}
+	return `${prefix} folderAnchor must be 'root', 'any-segment', or { under: '<path>' }`;
+}
+
 function validateAndNormalizeRule(
 	raw: RawRule,
 	idx: number,
@@ -256,8 +281,17 @@ function validateAndNormalizeRule(
 	const errors: string[] = [];
 	const prefix = `Rule #${idx}${raw.id ? ` (${raw.id})` : ''}:`;
 
-	// Path A: typedSpec present → derive
+	// Path A: typedSpec present → derive (anchor flows through deriveFolderPattern)
 	if (raw.typedSpec) {
+		// Validate anchor on the typedSpec before derivation
+		const anchorErr = validateFolderAnchor(
+			(raw.typedSpec as { folderAnchor?: unknown }).folderAnchor,
+			prefix,
+		);
+		if (anchorErr) {
+			errors.push(anchorErr);
+			return { ok: false, errors };
+		}
 		try {
 			const derived = deriveRule(raw.typedSpec);
 			return { ok: true, rule: derived };
@@ -294,6 +328,12 @@ function validateAndNormalizeRule(
 			errors.push(`${prefix} invalid folderPattern: ${(err as Error).message}`);
 		}
 	}
+
+	// Layer 1 rules can carry an explicit folderAnchor. The pattern is the
+	// source of truth at runtime (sync engine consumes it as-is), so the
+	// anchor here is metadata for the UI / typed-model round-trip.
+	const anchorErr = validateFolderAnchor(raw.folderAnchor, prefix);
+	if (anchorErr) errors.push(anchorErr);
 	if (raw.tagPattern) {
 		try {
 			new RegExp(raw.tagPattern);

@@ -248,13 +248,31 @@ export class GuidedRuleEditorModal extends Modal {
 		// Wider modal — layout is two/three columns, needs the room
 		modalEl.style.width = 'min(900px, 95vw)';
 
+		// Sticky bottom action bar pattern: contentEl becomes a flex column
+		// with bounded height. The body wrapper scrolls; the action bar sits
+		// outside the scroll area so Save/Cancel/Delete are always visible
+		// regardless of how far down the form the user has scrolled. This
+		// matches the convention used by GitHub, Linear, Notion, Figma, and
+		// most modern form modals.
+		contentEl.style.display = 'flex';
+		contentEl.style.flexDirection = 'column';
+		contentEl.style.maxHeight = '85vh';
+		contentEl.style.padding = '0';
+		contentEl.style.overflow = 'hidden';
+
+		const bodyEl = contentEl.createDiv({ cls: 'dtf-guided-body' });
+		bodyEl.style.flex = '1';
+		bodyEl.style.overflowY = 'auto';
+		bodyEl.style.minHeight = '0';
+		bodyEl.style.padding = '1.5em';
+
 		this.collectVaultFolders();
 
 		// 1. Title row — adapts to mode, with optional escape-hatch link
 		const titleText =
 			this.mode.kind === 'create' ? 'Create rule (guided)' : 'Edit rule (guided)';
 
-		const titleRow = contentEl.createDiv();
+		const titleRow = bodyEl.createDiv();
 		titleRow.style.display = 'flex';
 		titleRow.style.alignItems = 'baseline';
 		titleRow.style.justifyContent = 'space-between';
@@ -282,7 +300,7 @@ export class GuidedRuleEditorModal extends Modal {
 		// user's eye lands on it. Heading does the work; body is context
 		// for users who want it.
 		if (this.mode.kind === 'edit-from-inferred') {
-			const banner = contentEl.createDiv({ cls: 'dtf-inferred-banner' });
+			const banner = bodyEl.createDiv({ cls: 'dtf-inferred-banner' });
 			banner.style.padding = '0.6em 0.8em';
 			banner.style.background = 'var(--background-modifier-form-field)';
 			banner.style.borderLeft = '3px solid var(--text-accent)';
@@ -309,32 +327,32 @@ export class GuidedRuleEditorModal extends Modal {
 		// 2a. High-level flow diagram — visual "what does this rule do?"
 		// Three columns: folders → transfer-glyph → tags. Direction-aware
 		// arrows (folder-to-tag / tag-to-folder / bidirectional).
-		this.buildFlowDiagram(contentEl);
+		this.buildFlowDiagram(bodyEl);
 
-		this.buildLivePreviewStrip(contentEl);
+		this.buildLivePreviewStrip(bodyEl);
 
 		// 3. Status strip — match count + cardinality + bijective
-		this.buildStatusStrip(contentEl);
+		this.buildStatusStrip(bodyEl);
 
 		// 4. Compact basic row
-		this.buildBasicRow(contentEl);
+		this.buildBasicRow(bodyEl);
 
 		// 5. Axis tile selector — 6 SEACOW tiles
-		this.buildAxisSection(contentEl);
+		this.buildAxisSection(bodyEl);
 
 		// 6. Two-column folder | tag split (transfer ops are below in their own row)
-		this.buildSplitPanel(contentEl);
+		this.buildSplitPanel(bodyEl);
 
 		// 7. Transfer op cards — 4×2 grid of selectable mini-diagrams
-		this.buildTransferCards(contentEl);
+		this.buildTransferCards(bodyEl);
 
 		// 8. Inconsistency warnings (renders only when present)
-		this.warningsEl = contentEl.createDiv({ cls: 'dtf-guided-warnings' });
+		this.warningsEl = bodyEl.createDiv({ cls: 'dtf-guided-warnings' });
 
 		// 9. Vault test (sample mappings) + derived regex (collapsible)
-		this.buildDisclosureSections(contentEl);
+		this.buildDisclosureSections(bodyEl);
 
-		// 10. Action buttons
+		// 10. Action buttons — outside the scroll body, sticky to bottom
 		this.buildActions(contentEl);
 
 		this.bindKeyboard();
@@ -1432,8 +1450,14 @@ export class GuidedRuleEditorModal extends Modal {
 		actions.style.gap = '0.5em';
 		actions.style.justifyContent = 'space-between';
 		actions.style.alignItems = 'center';
-		actions.style.marginTop = '1em';
-		actions.style.paddingTop = '0.6em';
+		// Sticky bottom: flex-shrink: 0 keeps the bar at full height even if
+		// the body is short; opaque background prevents scrolled body content
+		// from bleeding through. Padding replaces the previous marginTop +
+		// paddingTop now that the bar is a sibling of the scroll body rather
+		// than the last child of a single scrolling column.
+		actions.style.flexShrink = '0';
+		actions.style.padding = '0.7em 1.5em';
+		actions.style.background = 'var(--background-primary)';
 		actions.style.borderTop = '1px solid var(--background-modifier-border)';
 
 		// Keyboard hint — left-aligned, low-emphasis

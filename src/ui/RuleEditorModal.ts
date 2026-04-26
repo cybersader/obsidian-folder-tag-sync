@@ -101,6 +101,22 @@ export class RuleEditorModal extends Modal {
 		// ~720px container width.
 		modalEl.style.width = 'min(1100px, 95vw)';
 
+		// Sticky bottom action bar: contentEl is a flex column with bounded
+		// height; bodyEl scrolls; the action row stays pinned. Same pattern
+		// as the guided modal, same rationale (Save/Cancel/Delete should
+		// never require scroll-hunting on a tall form).
+		contentEl.style.display = 'flex';
+		contentEl.style.flexDirection = 'column';
+		contentEl.style.maxHeight = '85vh';
+		contentEl.style.padding = '0';
+		contentEl.style.overflow = 'hidden';
+
+		const bodyEl = contentEl.createDiv({ cls: 'dtf-advanced-body' });
+		bodyEl.style.flex = '1';
+		bodyEl.style.overflowY = 'auto';
+		bodyEl.style.minHeight = '0';
+		bodyEl.style.padding = '1.5em';
+
 		// Walk the vault folder tree once per open. Both the pattern-section
 		// autocomplete and the live preview panel consume this list.
 		this.vaultFolderPaths = [];
@@ -115,7 +131,7 @@ export class RuleEditorModal extends Modal {
 		walk(this.app.vault.getRoot());
 
 		// Title row + optional "Try guided" return link.
-		const titleRow = contentEl.createDiv();
+		const titleRow = bodyEl.createDiv();
 		titleRow.style.display = 'flex';
 		titleRow.style.alignItems = 'baseline';
 		titleRow.style.justifyContent = 'space-between';
@@ -128,7 +144,7 @@ export class RuleEditorModal extends Modal {
 		// 2-column wide layout: form on the left, sticky live preview on
 		// the right. On narrow viewports the right column wraps below.
 		// CSS grid auto-fits; preview stays visible while user edits.
-		const grid = contentEl.createDiv({ cls: 'dtf-advanced-grid' });
+		const grid = bodyEl.createDiv({ cls: 'dtf-advanced-grid' });
 		grid.style.display = 'grid';
 		grid.style.gridTemplateColumns = 'minmax(0, 2fr) minmax(0, 1fr)';
 		grid.style.gap = '1em';
@@ -729,6 +745,18 @@ export class RuleEditorModal extends Modal {
 
 	private buildActionButtons(containerEl: HTMLElement) {
 		const buttonContainer = containerEl.createDiv({ cls: 'rule-editor-buttons' });
+		// Sticky bottom: flex-shrink: 0 holds full height even on short forms;
+		// opaque background prevents scrolled body content from bleeding
+		// through; flex layout puts buttons in a row instead of stacking
+		// (browser default for buttons is inline-block but each click
+		// handler used to render with no spacing in some Obsidian themes).
+		buttonContainer.style.flexShrink = '0';
+		buttonContainer.style.display = 'flex';
+		buttonContainer.style.gap = '0.5em';
+		buttonContainer.style.justifyContent = 'flex-end';
+		buttonContainer.style.padding = '0.7em 1.5em';
+		buttonContainer.style.background = 'var(--background-primary)';
+		buttonContainer.style.borderTop = '1px solid var(--background-modifier-border)';
 
 		// Save button
 		const saveButton = buttonContainer.createEl('button', {

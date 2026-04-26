@@ -3,6 +3,7 @@
  */
 
 import type {
+	FolderAnchor,
 	FolderClassifier,
 	TagVocabulary,
 	TransferOp,
@@ -46,6 +47,12 @@ export interface MappingRule {
 	// Folder side (Layer 1 — raw regex / glob + transform pipeline)
 	folderPattern?: string; // Regex or glob pattern
 	folderEntryPoint?: string; // Base folder path
+	/**
+	 * Where this rule anchors in the vault tree. See `FolderAnchor` in
+	 * `types/typed.ts`. Defaults to `'root'` when absent — preserves the
+	 * pre-Phase-G behavior for legacy rules and unmodified packs.
+	 */
+	folderAnchor?: FolderAnchor;
 	folderTransforms?: TransformConfig;
 
 	// Tag side (Layer 1 — raw regex + transform pipeline)

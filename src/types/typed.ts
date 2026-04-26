@@ -179,6 +179,33 @@ export type Cardinality = '1:1' | '1:many' | 'many:1';
  * For a tag entry with a prefix marker like `-clip`, include the marker —
  * the vocab.prefixMarker field is metadata, not a transformation input.
  */
+/**
+ * Where in the vault tree a rule anchors. Phase G — makes the layer at
+ * which an organizational system lives a first-class concept rather than
+ * an implicit `^` (vault root) assumption.
+ *
+ * - `'root'` (default if absent): pattern anchors to vault root.
+ *   Compiles to `^Entry(?:/|$)`. Matches `Entry`, `Entry/foo`.
+ * - `'any-segment'`: pattern matches at any path-segment boundary.
+ *   Compiles to `(?:^|/)Entry(?:/|$)`. Matches `Entry`, `parent/Entry`,
+ *   `a/b/Entry`, etc. Useful for org systems that can appear anywhere
+ *   (e.g., a numbered-folder convention applied at multiple depths).
+ * - `{ under: 'Prefix' }`: pattern anchors to a parent prefix.
+ *   Compiles to `^Prefix/Entry(?:/|$)`. Matches `Prefix/Entry`,
+ *   `Prefix/Entry/foo`. Useful for nested deployments — JD under
+ *   `Output/`, PARA under `Work/`, etc.
+ *
+ * Sync engines (`applyTransfer`, `ruleMatcher`, `previewRule`) consume
+ * the compiled `folderPattern` regex and don't care which anchor mode
+ * produced it; they're pattern-agnostic. The anchor field exists so the
+ * derivation/inference round-trip and the guided modal can talk about
+ * the layer concept directly.
+ */
+export type FolderAnchor =
+	| 'root'
+	| 'any-segment'
+	| { under: string };
+
 export interface TypedRuleSpec {
 	id: string;
 	name: string;
@@ -193,6 +220,8 @@ export interface TypedRuleSpec {
 	inverseTransfer: TransferOp;
 
 	folderEntry: string;
+	/** See `FolderAnchor`. Defaults to `'root'` when absent. */
+	folderAnchor?: FolderAnchor;
 	tagEntry: string;
 
 	/** Override anything derivation can't predict (custom regex, unusual case). */

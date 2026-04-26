@@ -83,6 +83,108 @@ const OP_DIAGRAMS: Record<TransferOp['op'], { gloss: string; output: string }> =
 	opaque: { gloss: 'no tag emitted', output: '(none)' },
 };
 
+/**
+ * Plain-English glosses + concrete examples for each option in the four
+ * jargon dropdowns (folder Scheme, folder Naming, tag Coordination,
+ * tag Prefix marker). Rendered as an inline panel under each dropdown
+ * that updates when the value changes — teaches the library-science
+ * primitives in context, without forcing the user to read external
+ * docs or guess from the term alone.
+ *
+ * Format per option: { explain: 1-line plain English, example: concrete folder/tag }
+ */
+const GLOSS: {
+	folderScheme: Record<FolderScheme, { explain: string; example: string }>;
+	folderNaming: Record<FolderNaming, { explain: string; example: string }>;
+	tagCoordination: Record<TagCoordination, { explain: string; example: string }>;
+	tagPrefixMarker: Record<string, { explain: string; example: string }>;
+} = {
+	folderScheme: {
+		hierarchical: {
+			explain: 'Each child folder is a sub-category of its parent.',
+			example: 'Projects/Web/auth → #projects/web/auth',
+		},
+		enumerative: {
+			explain: 'Flat list of independent categories — no nesting semantics.',
+			example: 'Books, Articles, Notes',
+		},
+		faceted: {
+			explain: 'Folders capture orthogonal attributes; one item belongs to many.',
+			example: 'by-author/Borges + by-topic/Fiction',
+		},
+		'authority-root': {
+			explain: 'Single canonical root list; files live under their authoritative form.',
+			example: 'Authors/Borges, Authors/Calvino',
+		},
+		'container-only': {
+			explain: 'Folder is just a container; the folder name itself is not a concept.',
+			example: '_Templates/, _Attachments/ (not tagged from name)',
+		},
+	},
+	folderNaming: {
+		word: {
+			explain: 'Plain words. Simplest convention.',
+			example: 'Projects, Capture, Inbox',
+		},
+		ordinal: {
+			explain: 'Numbered prefix establishes a fixed display order.',
+			example: '01-Inbox, 02-Active, 03-Archive',
+		},
+		'symbol-prefixed': {
+			explain: 'Special character prefix flags the folder\'s purpose.',
+			example: '_Archive, ⬇️Inbox, !Important',
+		},
+		'emoji-prefixed': {
+			explain: 'Emoji icon at the start helps visual scanning.',
+			example: '📥 Inbox, 📁 Projects, 🗄 Archive',
+		},
+		mixed: {
+			explain: 'Combination of styles within the same scheme.',
+			example: '01-📥 Inbox, _99-Archive',
+		},
+	},
+	tagCoordination: {
+		'pre-coordinated': {
+			explain: 'A single hierarchical tag captures the full path.',
+			example: '#projects/web/auth (one tag, three levels)',
+		},
+		'post-coordinated': {
+			explain: 'Multiple flat tags — combine them at search time.',
+			example: '#projects + #web + #auth (three tags, no hierarchy)',
+		},
+		'flat-keyword': {
+			explain: 'Single fixed keyword; no hierarchy, no combination.',
+			example: '#inbox, #starred (one tag, terminal)',
+		},
+	},
+	tagPrefixMarker: {
+		null: {
+			explain: 'No prefix character — plain Work-axis tags.',
+			example: '#projects, #areas',
+		},
+		'/': {
+			explain: 'Slash convention — System axis (config, templates).',
+			example: '#/templates, #/snippets',
+		},
+		'--': {
+			explain: 'Double-dash convention — Entity axis (workspace owner).',
+			example: '#--workspace, #--client-acme',
+		},
+		'-': {
+			explain: 'Single-dash convention — Capture axis (inbox, clippings).',
+			example: '#-inbox, #-clip',
+		},
+		_: {
+			explain: 'Underscore convention — Output axis (publishable).',
+			example: '#_publish, #_export',
+		},
+		'': {
+			explain: 'Empty string — no prefix, but distinct from "none" for tag generation.',
+			example: '(rare; usually use "None" instead)',
+		},
+	},
+};
+
 // ─── Modal ───────────────────────────────────────────────────────────────
 
 /** Mode the modal opens in. Drives title, CTA label, banner. */
@@ -582,9 +684,12 @@ export class GuidedRuleEditorModal extends Modal {
 					.setValue(this.state.folderScheme)
 					.onChange((v) => {
 						this.state.folderScheme = v as FolderScheme;
+						this.renderGloss(schemeGloss, GLOSS.folderScheme[v as FolderScheme]);
 						this.notify();
 					}),
 			);
+		const schemeGloss = folder.createDiv({ cls: 'dtf-gloss' });
+		this.renderGloss(schemeGloss, GLOSS.folderScheme[this.state.folderScheme]);
 
 		new Setting(folder)
 			.setName('Naming')
@@ -598,9 +703,12 @@ export class GuidedRuleEditorModal extends Modal {
 					.setValue(this.state.folderNaming)
 					.onChange((v) => {
 						this.state.folderNaming = v as FolderNaming;
+						this.renderGloss(namingGloss, GLOSS.folderNaming[v as FolderNaming]);
 						this.notify();
 					}),
 			);
+		const namingGloss = folder.createDiv({ cls: 'dtf-gloss' });
+		this.renderGloss(namingGloss, GLOSS.folderNaming[this.state.folderNaming]);
 
 		// TAG SIDE
 		const tag = split.createDiv({ cls: 'dtf-guided-tag-col' });
@@ -638,9 +746,12 @@ export class GuidedRuleEditorModal extends Modal {
 					.setValue(this.state.tagCoordination)
 					.onChange((v) => {
 						this.state.tagCoordination = v as TagCoordination;
+						this.renderGloss(coordGloss, GLOSS.tagCoordination[v as TagCoordination]);
 						this.notify();
 					}),
 			);
+		const coordGloss = tag.createDiv({ cls: 'dtf-gloss' });
+		this.renderGloss(coordGloss, GLOSS.tagCoordination[this.state.tagCoordination]);
 
 		new Setting(tag)
 			.setName('Prefix marker')
@@ -655,9 +766,41 @@ export class GuidedRuleEditorModal extends Modal {
 					.setValue(this.state.tagPrefixMarker === null ? 'null' : this.state.tagPrefixMarker)
 					.onChange((v) => {
 						this.state.tagPrefixMarker = v === 'null' ? null : (v as TagPrefixMarker);
+						this.renderGloss(markerGloss, GLOSS.tagPrefixMarker[v]);
 						this.notify();
 					}),
 			);
+		const markerGloss = tag.createDiv({ cls: 'dtf-gloss' });
+		this.renderGloss(
+			markerGloss,
+			GLOSS.tagPrefixMarker[this.state.tagPrefixMarker === null ? 'null' : this.state.tagPrefixMarker],
+		);
+	}
+
+	/**
+	 * Render an inline gloss panel below a jargon dropdown — small italic
+	 * muted text on two lines: plain-English explanation + concrete example.
+	 * Updates in place when the dropdown value changes.
+	 */
+	private renderGloss(
+		el: HTMLElement,
+		entry: { explain: string; example: string } | undefined,
+	): void {
+		el.empty();
+		if (!entry) return;
+		el.style.fontSize = '0.78em';
+		el.style.color = 'var(--text-muted)';
+		el.style.lineHeight = '1.4';
+		el.style.marginTop = '-0.1em';
+		el.style.marginBottom = '0.4em';
+		el.style.paddingLeft = '0.2em';
+		const explainLine = el.createDiv();
+		explainLine.setText(entry.explain);
+		const exampleLine = el.createDiv();
+		exampleLine.style.fontFamily = 'var(--font-monospace)';
+		exampleLine.style.fontSize = '0.95em';
+		exampleLine.style.opacity = '0.85';
+		exampleLine.setText(`e.g. ${entry.example}`);
 	}
 
 	// ─── 7. Transfer-op cards ────────────────────────────────────────────

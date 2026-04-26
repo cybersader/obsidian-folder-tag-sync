@@ -97,11 +97,17 @@ export class SettingsTab extends PluginSettingTab {
 		new Setting(section)
 			.setName('Create new rule')
 			.setDesc('Define rules for mapping between folders and tags. Lower priority numbers are evaluated first.')
-			.addButton(btn => btn
-				.setButtonText('Add rule')
-				.setCta()
-				.onClick(() => this.openGuidedRuleEditor())
-			);
+			.addButton(btn => {
+				btn
+					.setButtonText('Add rule')
+					.setCta()
+					.onClick(() => this.openGuidedRuleEditor());
+				// Stable e2e hook — test/specs/typed-model.e2e.ts queries
+				// .dtf-add-rule-button to drive the openGuided helper. The
+				// class no longer carries styling (Setting().addButton()
+				// renders the visual), but the test selector relies on it.
+				btn.buttonEl.addClass('dtf-add-rule-button');
+			});
 
 		// Rule list — sits inside the section so the divider visually
 		// scopes the whole "rules" block, not just the heading row.

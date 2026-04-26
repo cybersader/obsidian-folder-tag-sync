@@ -426,6 +426,14 @@ export class SettingsTab extends PluginSettingTab {
 		const modal = new GuidedRuleEditorModal(
 			this.app,
 			(updatedRule) => {
+				if (updatedRule === null) {
+					// Delete signal from the guided modal's Delete button.
+					this.plugin.settings.rules = this.plugin.settings.rules.filter(
+						(r) => r.id !== rule.id,
+					);
+					void this.plugin.saveSettings().then(() => this.display());
+					return;
+				}
 				this.upsertRule(updatedRule);
 			},
 			{ kind, existingRule: rule },
@@ -462,6 +470,9 @@ export class SettingsTab extends PluginSettingTab {
 	 */
 	private openGuidedRuleEditor() {
 		const modal = new GuidedRuleEditorModal(this.app, (newRule) => {
+			// Create-mode never receives null (no Delete button in create
+			// mode). Guard for type safety.
+			if (newRule === null) return;
 			this.plugin.settings.rules = [...this.plugin.settings.rules, newRule];
 			void this.plugin.saveSettings().then(() => {
 				this.display();

@@ -55,6 +55,7 @@ import {
 	isFormValid,
 } from '../engine/buildSpec';
 import { EntryPathSuggest, collectFolderSources, collectTagSources } from './suggest/EntryPathSuggest';
+import { ConfirmModal } from './ConfirmModal';
 
 // ─── Library-science conventions ─────────────────────────────────────────
 
@@ -200,7 +201,12 @@ export type SwitchToAdvancedFn = (rule: MappingRule) => void;
 
 export class GuidedRuleEditorModal extends Modal {
 	private state: FormState;
-	private readonly onSave: (rule: MappingRule) => void;
+	/**
+	 * Save callback. `null` signals deletion (only fires from the Delete
+	 * button in edit modes); the callback distinguishes save-vs-delete by
+	 * checking for null. SettingsTab.upsertRule routes appropriately.
+	 */
+	private readonly onSave: (rule: MappingRule | null) => void;
 	private readonly mode: GuidedEditorMode;
 	private vaultFolders: string[] = [];
 
@@ -224,7 +230,7 @@ export class GuidedRuleEditorModal extends Modal {
 
 	constructor(
 		app: App,
-		onSave: (rule: MappingRule) => void,
+		onSave: (rule: MappingRule | null) => void,
 		mode: GuidedEditorMode = { kind: 'create' },
 		onSwitchToAdvanced?: SwitchToAdvancedFn,
 	) {
@@ -1439,6 +1445,32 @@ export class GuidedRuleEditorModal extends Modal {
 		const buttons = actions.createDiv();
 		buttons.style.display = 'flex';
 		buttons.style.gap = '0.5em';
+
+		// Delete only in edit modes — has no meaning for a rule that hasn't
+		// been created yet. Routes through ConfirmModal so the user has a
+		// deliberate confirmation step instead of a one-click destructive
+		// action.
+		if (this.mode.kind !== 'create') {
+			const deleteBtn = buttons.createEl('button', {
+				text: 'Delete rule',
+				cls: 'mod-warning',
+			});
+			deleteBtn.addEventListener('click', () => {
+				const rule = this.mode.kind !== 'create' ? this.mode.existingRule : null;
+				if (!rule) return;
+				new ConfirmModal(this.app, {
+					title: 'Delete rule?',
+					body: `"${rule.name}" cannot be recovered.`,
+					confirmLabel: 'Delete',
+					destructive: true,
+					onConfirm: () => {
+						this.onSave(null);
+						new Notice(`Rule "${rule.name}" deleted`);
+						this.close();
+					},
+				}).open();
+			});
+		}
 
 		const cancelBtn = buttons.createEl('button', { text: 'Cancel' });
 		cancelBtn.addEventListener('click', () => this.close());

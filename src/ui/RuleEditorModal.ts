@@ -11,6 +11,7 @@ import { isTransformReversible } from '../transformers/pipeline';
 import { validateRegexPattern } from '../transformers/regexTransformers';
 import { previewRule } from '../engine/rulePreview';
 import { inferTypedModel } from '../engine/inferTyped';
+import { ConfirmModal } from './ConfirmModal';
 import {
 	EntryPathSuggest,
 	collectFolderSources,
@@ -779,17 +780,17 @@ export class RuleEditorModal extends Modal {
 			});
 
 			deleteButton.addEventListener('click', () => {
-				// Confirm before destructive action. Click-once delete on a
-				// big modal button is too easy to fire accidentally; the
-				// confirm dialog is the standard browser native and runs in
-				// Electron without extra plumbing.
-				const ok = confirm(
-					`Delete rule "${this.rule.name}"? This cannot be undone.`,
-				);
-				if (!ok) return;
-				this.onSave(null);
-				new Notice(`Rule "${this.rule.name}" deleted`);
-				this.close();
+				new ConfirmModal(this.app, {
+					title: 'Delete rule?',
+					body: `"${this.rule.name}" cannot be recovered.`,
+					confirmLabel: 'Delete',
+					destructive: true,
+					onConfirm: () => {
+						this.onSave(null);
+						new Notice(`Rule "${this.rule.name}" deleted`);
+						this.close();
+					},
+				}).open();
 			});
 		}
 	}

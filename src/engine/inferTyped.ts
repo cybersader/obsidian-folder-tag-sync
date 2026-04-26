@@ -95,12 +95,22 @@ export function inferTypedModel(rule: MappingRule): Partial<InferredFields> {
 
 function inferEntryFromPattern(pattern?: string): string | undefined {
 	if (!pattern) return undefined;
-	// `^foo/` → `foo`;  `^foo$` → `foo`
-	const anchored = pattern.replace(/^\^/, '').replace(/\$$/, '');
-	const trimmed = anchored.replace(/\/$/, '');
-	// Reject if it still contains regex metacharacters we didn't handle
-	if (/[.*+?()[\]\\|]/.test(trimmed)) return undefined;
-	return trimmed;
+	// Strip leading anchor first.
+	let s = pattern.replace(/^\^/, '');
+	// Strip the two benign loose-anchor suffixes that `derive.ts` emits:
+	//   `^Entry(?:/|$)`     — Phase E loose anchor for non-marker ops
+	//   `^Entry(?:/.*)?$`   — marker-only branch (entry OR anything below)
+	// These are derivation markers, not regex content authored by the user,
+	// so peel them off before the metacharacter rejection check below.
+	// Without these strips, a freshly-derived rule that comes back through
+	// `populateFromRule` would land in the metachar reject branch and
+	// surface a blank folder/tag entry to the guided modal.
+	s = s.replace(/\(\?:\/\|\$\)$/, '').replace(/\(\?:\/\.\*\)\?\$$/, '');
+	// Then the legacy trailing anchors / separators.
+	s = s.replace(/\$$/, '').replace(/\/$/, '');
+	// Reject if it still contains regex metacharacters we didn't handle.
+	if (/[.*+?()[\]\\|]/.test(s)) return undefined;
+	return s;
 }
 
 export function inferPrefixMarker(tagEntry?: string): TagPrefixMarker {

@@ -165,7 +165,7 @@ export function applyRuleForward(folderPath: string, rule: MappingRule): Forward
 
 	let remainder = folderPath;
 	if (rule.folderEntryPoint) {
-		remainder = remainder.replace(new RegExp(`^${rule.folderEntryPoint}/?`), '');
+		remainder = remainder.replace(buildEntryStripPattern(rule), '');
 	}
 
 	const segments = splitSegments(remainder);
@@ -212,6 +212,36 @@ function joinEntry(entry: string, remainder: string): string {
 	return `${entry}/${remainder}`;
 }
 
+/** Escape a string literal for safe inclusion in a regex. */
+function escapeForRegex(s: string): string {
+	return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * Build the regex used to strip the entry-point prefix from a folder path
+ * before recoordination. Phase G — anchor-aware:
+ *
+ * - `'root'` (default): `^Entry/?` — strip from path start (current behavior).
+ * - `'any-segment'`: `^(?:.*?/)?Entry/?` — strip up to and including the
+ *   entry segment, regardless of where it sits in the path.
+ * - `{ under: 'X' }`: `^X/Entry/?` — strip the parent prefix + entry.
+ *
+ * The pattern check (`folderPattern.test(folderPath)`) already guarantees
+ * the path is a candidate; this just finds and removes the entry portion
+ * so the remainder can be recoordinated.
+ */
+function buildEntryStripPattern(rule: MappingRule): RegExp {
+	const entry = escapeForRegex(rule.folderEntryPoint!);
+	const anchor = rule.folderAnchor ?? 'root';
+	if (anchor === 'any-segment') {
+		return new RegExp(`^(?:.*?/)?${entry}/?`);
+	}
+	if (typeof anchor === 'object' && anchor.under) {
+		return new RegExp(`^${escapeForRegex(anchor.under)}/${entry}/?`);
+	}
+	return new RegExp(`^${entry}/?`);
+}
+
 /**
  * Tag → folder. Applies `rule.inverseTransfer` (or `rule.transfer` if no
  * inverse declared, or default identity).
@@ -246,11 +276,20 @@ export function applyRuleInverse(tag: string, rule: MappingRule): InverseResult 
 		? applyTransformPipeline(joined, rule.folderTransforms, { isTagTransform: false })
 		: joined;
 
-	const folderPath = rule.folderEntryPoint
+	const folderBody = rule.folderEntryPoint
 		? transformed
 			? joinEntry(rule.folderEntryPoint, transformed)
 			: rule.folderEntryPoint
 		: transformed;
+
+	// Phase G: prepend `under:` prefix when the rule anchors to a parent path.
+	// For `any-segment` rules the inverse direction has no canonical parent
+	// (the rule fires at *any* segment) — default to root placement; users
+	// who want a specific location should use `under: ...` instead.
+	const folderPath =
+		rule.folderAnchor && typeof rule.folderAnchor === 'object' && rule.folderAnchor.under
+			? `${rule.folderAnchor.under}/${folderBody}`
+			: folderBody;
 
 	return { folder: folderPath || null, lossy: recoordinated.lossy };
 }

@@ -3,6 +3,7 @@ import DynamicTagsFoldersPlugin from '../main';
 import { RuleEditorModal } from './RuleEditorModal';
 import { GuidedRuleEditorModal } from './GuidedRuleEditorModal';
 import { DetectVaultModal } from './DetectVaultModal';
+import { ConfirmModal } from './ConfirmModal';
 import { MappingRule } from '../types/settings';
 import { previewRule, RulePreview } from '../engine/rulePreview';
 
@@ -113,6 +114,35 @@ export class SettingsTab extends PluginSettingTab {
 		// scopes the whole "rules" block, not just the heading row.
 		const ruleListContainer = section.createDiv({ cls: 'dtf-rule-list' });
 		this.displayRuleList(ruleListContainer);
+
+		// Clear all rules — small QA reset button, only visible when there
+		// are rules to clear. Routes through ConfirmModal so accidental
+		// clicks don't nuke the user's rule list.
+		const ruleCount = this.plugin.settings.rules?.length ?? 0;
+		if (ruleCount > 0) {
+			new Setting(section)
+				.setName('Reset rules')
+				.setDesc(`Remove all ${ruleCount} rule${ruleCount === 1 ? '' : 's'}. Useful for re-testing scan-vault detection from a clean slate.`)
+				.addButton(btn => btn
+					.setButtonText('Clear all rules')
+					.setWarning()
+					.onClick(() => {
+						new ConfirmModal(this.app, {
+							title: 'Clear all rules?',
+							body: `This will remove all ${ruleCount} rule${ruleCount === 1 ? '' : 's'}. You can re-import from a rule pack or scan again afterwards.`,
+							confirmLabel: 'Clear all',
+							destructive: true,
+							onConfirm: () => {
+								this.plugin.settings.rules = [];
+								void this.plugin.saveSettings().then(() => {
+									this.display();
+									new Notice('All rules cleared');
+								});
+							},
+						}).open();
+					})
+				);
+		}
 	}
 
 	/**

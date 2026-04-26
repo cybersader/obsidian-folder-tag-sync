@@ -224,6 +224,7 @@ export class GuidedRuleEditorModal extends Modal {
 	private transferCardsEl!: HTMLElement;
 	private transferSubOptionsEl!: HTMLElement;
 	private axisTilesEl!: HTMLElement;
+	private axisDescriptionEl!: HTMLElement;
 	private saveBtn!: HTMLButtonElement;
 
 	private readonly onSwitchToAdvanced?: SwitchToAdvancedFn;
@@ -870,6 +871,20 @@ export class GuidedRuleEditorModal extends Modal {
 		this.axisTilesEl.style.display = 'grid';
 		this.axisTilesEl.style.gridTemplateColumns = 'repeat(6, 1fr)';
 		this.axisTilesEl.style.gap = '0.4em';
+
+		// Inline description of the selected axis. Replaces the previous
+		// hover-only `tile.title` tooltip — invisible on touch devices and
+		// easy to miss on desktop. Updates each render based on the selected
+		// axis. Hovering a tile (via mouseenter) previews that axis's
+		// description without committing to the click.
+		this.axisDescriptionEl = section.createDiv({ cls: 'dtf-guided-axis-description' });
+		this.axisDescriptionEl.style.marginTop = '0.4em';
+		this.axisDescriptionEl.style.padding = '0.4em 0.6em';
+		this.axisDescriptionEl.style.background = 'var(--background-secondary)';
+		this.axisDescriptionEl.style.borderRadius = '4px';
+		this.axisDescriptionEl.style.fontSize = '0.82em';
+		this.axisDescriptionEl.style.color = 'var(--text-muted)';
+		this.axisDescriptionEl.style.minHeight = '1.5em';
 	}
 
 	private renderAxisTiles(): void {
@@ -916,6 +931,8 @@ export class GuidedRuleEditorModal extends Modal {
 				marker.style.color = 'var(--text-accent)';
 			}
 
+			// Keep the title attribute as a screen-reader-friendly fallback;
+			// inline description below the grid handles the visible affordance.
 			tile.title = conv.description;
 
 			const select = () => {
@@ -930,7 +947,31 @@ export class GuidedRuleEditorModal extends Modal {
 					select();
 				}
 			});
+			// Hover previews the axis description without committing the
+			// selection. mouseleave restores the selected axis's description.
+			tile.addEventListener('mouseenter', () => {
+				this.setAxisDescription(conv.label, conv.description);
+			});
+			tile.addEventListener('mouseleave', () => {
+				this.refreshAxisDescription();
+			});
 		}
+
+		this.refreshAxisDescription();
+	}
+
+	private setAxisDescription(label: string, description: string): void {
+		this.axisDescriptionEl.empty();
+		const strong = this.axisDescriptionEl.createEl('strong', { text: `${label}:` });
+		strong.style.color = 'var(--text-normal)';
+		strong.style.marginRight = '0.4em';
+		this.axisDescriptionEl.appendText(description);
+	}
+
+	private refreshAxisDescription(): void {
+		const conv = AXIS_CONVENTIONS[this.state.axis];
+		if (!conv) return;
+		this.setAxisDescription(conv.label, conv.description);
 	}
 
 	// ─── 6. Folder | Tag split panel ─────────────────────────────────────
@@ -1278,13 +1319,21 @@ export class GuidedRuleEditorModal extends Modal {
 		this.warningsEl.style.marginBottom = '0.8em';
 
 		for (const w of warnings) {
+			const isInfo = w.severity === 'info';
 			const row = this.warningsEl.createDiv({ cls: 'dtf-guided-warning' });
-			// Use Obsidian's standard inline-warning pattern — readable in both
-			// light and dark themes, doesn't require text-on-accent contrast.
+			// Two visual flavors:
+			// - 'warning' (default, red accent) for inconsistencies the user
+			//   should resolve — same as before
+			// - 'info' (muted accent) for intentional explainers like
+			//   empty-entry-by-design — no fix button, no red alarm
 			row.style.padding = '0.5em 0.75em';
-			row.style.background = 'var(--background-modifier-error-hover)';
+			row.style.background = isInfo
+				? 'var(--background-modifier-form-field)'
+				: 'var(--background-modifier-error-hover)';
 			row.style.color = 'var(--text-normal)';
-			row.style.borderLeft = '3px solid var(--text-error)';
+			row.style.borderLeft = isInfo
+				? '3px solid var(--text-muted)'
+				: '3px solid var(--text-error)';
 			row.style.borderRadius = '4px';
 			row.style.marginBottom = '0.3em';
 			row.style.display = 'flex';
@@ -1292,7 +1341,8 @@ export class GuidedRuleEditorModal extends Modal {
 			row.style.alignItems = 'center';
 			row.style.justifyContent = 'space-between';
 
-			const msg = row.createSpan({ text: `⚠ ${w.message}` });
+			const glyph = isInfo ? 'ℹ' : '⚠';
+			const msg = row.createSpan({ text: `${glyph} ${w.message}` });
 			msg.style.flex = '1';
 			msg.style.fontSize = '0.9em';
 

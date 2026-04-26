@@ -211,10 +211,34 @@ export interface Warning {
 	field: string;
 	message: string;
 	fix?: { label: string; apply: (state: FormState) => void };
+	/**
+	 * 'warning' (default): inconsistency the user should resolve before save —
+	 *   renders red-ish, suggests a fix.
+	 * 'info': intentional state we want to explain, not flag —
+	 *   renders muted/blue, no fix button. Used for legitimate empty-entry
+	 *   rules (JD-style regex-only patterns) so the user understands the
+	 *   blank fields aren't a bug.
+	 */
+	severity?: 'info' | 'warning';
 }
 
 export function detectWarnings(state: FormState): Warning[] {
 	const out: Warning[] = [];
+
+	// Empty-entry explainer: surfaces in the warnings strip when a rule has
+	// blank folder/tag entries (JD pack, cyberbase-actual numbered-folder
+	// matcher, or any user-authored regex-only rule). Not blocking save —
+	// these rules work by pattern matching alone — but unexplained blank
+	// fields look like a bug. The info-severity message tells the user
+	// what's happening.
+	if (!state.folderEntry.trim() || !state.tagEntry.trim()) {
+		out.push({
+			field: 'folderEntry',
+			severity: 'info',
+			message:
+				'Folder entry and tag entry are blank — this rule will match by regex pattern only. Fill them in to enable typed-model features (axis, transfer-op semantics).',
+		});
+	}
 
 	if (state.transferOp === 'marker-only' && state.tagCoordination === 'pre-coordinated') {
 		out.push({

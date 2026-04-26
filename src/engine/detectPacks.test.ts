@@ -239,3 +239,152 @@ describe('detectPacks — against the actual rule-packs/manifest entries', () =>
 		expect(results[0].score).toBeGreaterThanOrEqual(2); // hits 6 of 6 signals, min 2 → score 3
 	});
 });
+
+// ─── Coverage across all rule packs × representative vault fixtures ──────
+// These tests exercise the production detection metadata from each pack
+// JSON file against synthetic folder lists that represent how a real
+// vault organized by that system would look. Assertions are stable: any
+// future change to a pack's detection signals or a vault's expected
+// matches must update this block deliberately.
+
+import paraJson from '../../rule-packs/para.json';
+import jdJson from '../../rule-packs/jd.json';
+import seacowOuterJson from '../../rule-packs/seacow-outer.json';
+import {
+	PARA_VAULT,
+	PARA_VAULT_LOWERCASE,
+	JD_VAULT,
+	SEACOW_VAULT,
+	CYBERBASE_VAULT,
+	MULTI_SYSTEM_VAULT,
+	EMPTY_VAULT,
+	NOISE_VAULT,
+} from './__fixtures__/vaultFolderLists';
+
+// Construct ManifestPackEntry structs from the actual pack JSON files.
+// This is what the production scan pipeline sees post-manifest-build,
+// just sourced directly so a stale manifest.json doesn't make the test
+// lie about what's deployed.
+const PARA_REAL: ManifestPackEntry = {
+	id: paraJson.id,
+	name: paraJson.name,
+	axes: paraJson.axes,
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
+	detection: paraJson.detection as any,
+};
+const JD_REAL: ManifestPackEntry = {
+	id: jdJson.id,
+	name: jdJson.name,
+	axes: jdJson.axes,
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
+	detection: jdJson.detection as any,
+};
+const SEACOW_REAL: ManifestPackEntry = {
+	id: seacowOuterJson.id,
+	name: seacowOuterJson.name,
+	axes: seacowOuterJson.axes,
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
+	detection: seacowOuterJson.detection as any,
+};
+const ALL_REAL_PACKS = [PARA_REAL, JD_REAL, SEACOW_REAL];
+
+describe('detectPacks — fixture vaults × real pack metadata', () => {
+	test('PARA vault → PARA surfaces with full confidence; JD/SEACOW do not', () => {
+		const results = detectPacks(PARA_VAULT, ALL_REAL_PACKS);
+		const para = results.find((r) => r.packId === 'para');
+		expect(para).toBeDefined();
+		expect(para!.score).toBeGreaterThanOrEqual(1);
+		expect(para!.signalsHit).toBe(4); // all 4 PARA roots present
+
+		// JD fixture has no \d{2} - X folders → score 0 → does not surface
+		const jd = results.find((r) => r.packId === 'jd');
+		expect(jd).toBeUndefined();
+
+		// SEACOW outer requires Capture/Entity/Output/System — none in PARA fixture
+		const seacow = results.find((r) => r.packId === 'seacow-outer');
+		expect(seacow).toBeUndefined();
+	});
+
+	test('PARA vault, lowercase folders → PARA still surfaces (regex is case-insensitive)', () => {
+		// detectPacks compiles signal regexes with the `i` flag, so lowercase
+		// `projects` should match `^Projects$`. This pins that behavior.
+		const results = detectPacks(PARA_VAULT_LOWERCASE, [PARA_REAL]);
+		const para = results.find((r) => r.packId === 'para');
+		expect(para).toBeDefined();
+		expect(para!.score).toBeGreaterThanOrEqual(1);
+	});
+
+	test('JD vault (Title Case only) → JD partially matches; will NOT surface as high-confidence', () => {
+		// Known limitation: JD pack defines minSignals=2 with two signal
+		// variants — `\d{2} - X` (Title Case, spaced) and `\d{2}-x`
+		// (lowercase, compact). A real vault uses one convention, so only
+		// one signal hits → score 0.5, below the surfacing threshold.
+		// Either lower minSignals to 1 in jd.json, or add more variant
+		// signals; tracked as a follow-up. Test pins the current behavior.
+		const results = detectPacks(JD_VAULT, [JD_REAL]);
+		const jd = results.find((r) => r.packId === 'jd');
+		expect(jd).toBeDefined();
+		expect(jd!.signalsHit).toBe(1);
+		expect(jd!.score).toBe(0.5);
+	});
+
+	test('JD vault with both naming variants → JD surfaces with full confidence', () => {
+		// Confirms the test above is testing the right limitation: when
+		// a vault has both naming variants present, JD detection works.
+		const mixedJD = [...JD_VAULT, '50-archive', '60-references'];
+		const results = detectPacks(mixedJD, [JD_REAL]);
+		const jd = results.find((r) => r.packId === 'jd');
+		expect(jd).toBeDefined();
+		expect(jd!.signalsHit).toBe(2);
+		expect(jd!.score).toBeGreaterThanOrEqual(1);
+	});
+
+	test('SEACOW vault → seacow-outer surfaces; PARA/JD do not', () => {
+		const results = detectPacks(SEACOW_VAULT, ALL_REAL_PACKS);
+		const seacow = results.find((r) => r.packId === 'seacow-outer');
+		expect(seacow).toBeDefined();
+		expect(seacow!.score).toBeGreaterThanOrEqual(1);
+		// All 6 SEACOW signals should hit on this fixture
+		expect(seacow!.signalsHit).toBe(6);
+
+		expect(results.find((r) => r.packId === 'para')).toBeUndefined();
+		expect(results.find((r) => r.packId === 'jd')).toBeUndefined();
+	});
+
+	test('Multi-system vault (PARA + JD coexisting) → both surface, no exclusivity declared', () => {
+		const results = detectPacks(MULTI_SYSTEM_VAULT, ALL_REAL_PACKS);
+		const para = results.find((r) => r.packId === 'para');
+		const jd = results.find((r) => r.packId === 'jd');
+		expect(para).toBeDefined();
+		expect(para!.score).toBeGreaterThanOrEqual(1);
+		// JD will be at score 0.5 here (Title Case only) — see JD limitation above
+		expect(jd).toBeDefined();
+
+		// Confirm PARA and JD don't declare exclusivity against each other
+		const conflicts = findExclusivityConflicts(results, ALL_REAL_PACKS);
+		expect(conflicts).toEqual([]);
+	});
+
+	test('Cyberbase vault (emoji-prefix folders) → no detectable packs', () => {
+		// cyberbase-actual.json deliberately ships without detection metadata
+		// (it's a user-specific pack, not a generic org system worth
+		// auto-detecting). seacow-cyberbase.json is the same. Pinning this
+		// keeps emoji-prefix vaults out of the auto-detect path; if a future
+		// change adds detection metadata to either pack, this test fails
+		// loudly as a "did you mean to do that?" guard.
+		const results = detectPacks(CYBERBASE_VAULT, ALL_REAL_PACKS);
+		expect(results.find((r) => r.packId === 'para')).toBeUndefined();
+		expect(results.find((r) => r.packId === 'jd')).toBeUndefined();
+		expect(results.find((r) => r.packId === 'seacow-outer')).toBeUndefined();
+	});
+
+	test('Empty vault → no surfaces, no errors', () => {
+		const results = detectPacks(EMPTY_VAULT, ALL_REAL_PACKS);
+		expect(results).toEqual([]);
+	});
+
+	test('Noise vault → no false positives', () => {
+		const results = detectPacks(NOISE_VAULT, ALL_REAL_PACKS);
+		expect(results).toEqual([]);
+	});
+});

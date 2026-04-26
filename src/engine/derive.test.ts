@@ -407,3 +407,106 @@ describe('additional framework rules (PARA/JD/ZK shapes)', () => {
 		expect(r.folderTransforms?.numberPrefixHandling).toBe('keep');
 	});
 });
+
+// ─── Phase G — folderAnchor modes ─────────────────────────────────────────
+
+describe('deriveFolderPattern × folderAnchor modes', () => {
+	const baseSpec = (overrides: Partial<TypedRuleSpec> = {}): TypedRuleSpec => ({
+		id: 'test',
+		name: 'Test',
+		priority: 1,
+		direction: 'bidirectional',
+		enabled: true,
+		folder: { axes: ['work'], scheme: 'enumerative', naming: 'word', subdivisionDepth: 'unbounded', siblingUniformity: 'parallel' },
+		tag: { axis: 'work', coordination: 'pre-coordinated', prefixMarker: null, authority: 'mutual' },
+		transfer: { op: 'identity' },
+		inverseTransfer: { op: 'identity' },
+		folderEntry: 'Projects',
+		tagEntry: 'projects',
+		options: baseOptions,
+		...overrides,
+	});
+
+	test('absent folderAnchor defaults to root — back-compat', () => {
+		const r = deriveRule(baseSpec());
+		expect(r.folderPattern).toBe('^Projects(?:/|$)');
+		expect(r.folderAnchor).toBeUndefined();
+	});
+
+	test("anchor 'root' explicit → ^Entry(?:/|$)", () => {
+		const r = deriveRule(baseSpec({ folderAnchor: 'root' }));
+		expect(r.folderPattern).toBe('^Projects(?:/|$)');
+	});
+
+	test("anchor 'any-segment' → (?:^|/)Entry(?:/|$)", () => {
+		const r = deriveRule(baseSpec({ folderAnchor: 'any-segment' }));
+		expect(r.folderPattern).toBe('(?:^|/)Projects(?:/|$)');
+		// And the compiled regex must actually match nested paths
+		const re = new RegExp(r.folderPattern!);
+		expect(re.test('Projects')).toBe(true);
+		expect(re.test('Projects/foo')).toBe(true);
+		expect(re.test('parent/Projects')).toBe(true);
+		expect(re.test('a/b/Projects/sub')).toBe(true);
+		expect(re.test('NotProjects')).toBe(false);
+	});
+
+	test("anchor { under: 'Output' } → ^Output/Entry(?:/|$)", () => {
+		const r = deriveRule(baseSpec({ folderAnchor: { under: 'Output' } }));
+		expect(r.folderPattern).toBe('^Output/Projects(?:/|$)');
+		const re = new RegExp(r.folderPattern!);
+		expect(re.test('Output/Projects')).toBe(true);
+		expect(re.test('Output/Projects/sub')).toBe(true);
+		expect(re.test('Projects')).toBe(false); // not at root
+		expect(re.test('Output/NotProjects')).toBe(false);
+	});
+
+	test("anchor with regex-special chars in `under` is escaped", () => {
+		const r = deriveRule(baseSpec({ folderAnchor: { under: 'a.b' } }));
+		// `.` must be escaped — would otherwise match `aXb` / `axb`
+		expect(r.folderPattern).toBe('^a\\.b/Projects(?:/|$)');
+		const re = new RegExp(r.folderPattern!);
+		expect(re.test('a.b/Projects')).toBe(true);
+		expect(re.test('aXb/Projects')).toBe(false);
+	});
+
+	test('marker-only respects folderAnchor', () => {
+		const r = deriveRule(
+			baseSpec({
+				transfer: { op: 'marker-only', marker: 'inbox' },
+				inverseTransfer: { op: 'marker-only', marker: 'inbox' },
+				folderEntry: '0 - Inbox',
+				folderAnchor: 'any-segment',
+			}),
+		);
+		expect(r.folderPattern).toBe('(?:^|/)0 - Inbox(?:/.*)?$');
+		const re = new RegExp(r.folderPattern!);
+		expect(re.test('0 - Inbox')).toBe(true);
+		expect(re.test('Capture/0 - Inbox')).toBe(true);
+		expect(re.test('Capture/0 - Inbox/today.md')).toBe(true);
+	});
+
+	test('depth-capped truncation respects folderAnchor', () => {
+		const r = deriveRule(
+			baseSpec({
+				transfer: { op: 'truncation', depth: 2, tailHandling: 'drop' },
+				inverseTransfer: { op: 'identity' },
+				folderEntry: 'Projects',
+				folderAnchor: { under: 'Work' },
+			}),
+		);
+		// ^Work/Projects/[seg](/[seg])?$ — anchored under Work
+		expect(r.folderPattern).toBe('^Work/Projects/([^/]+)(?:/([^/]+))?$');
+		const re = new RegExp(r.folderPattern!);
+		expect(re.test('Work/Projects/Q4')).toBe(true);
+		expect(re.test('Work/Projects/Q4/foo')).toBe(true);
+		expect(re.test('Work/Projects/Q4/foo/bar')).toBe(false); // depth cap
+		expect(re.test('Projects/Q4')).toBe(false); // not under Work
+	});
+
+	test('tag pattern stays root-anchored regardless of folderAnchor', () => {
+		// Tags don't have a filesystem-layer concept; the folder-anchor
+		// only governs WHERE the rule fires in the vault tree.
+		const r = deriveRule(baseSpec({ folderAnchor: 'any-segment' }));
+		expect(r.tagPattern).toBe('^projects/'); // unchanged by folderAnchor
+	});
+});

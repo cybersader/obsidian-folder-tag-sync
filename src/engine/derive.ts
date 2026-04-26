@@ -11,6 +11,7 @@
 
 import type { MappingRule, TransformConfig } from '../types/settings';
 import type {
+	FolderAnchor,
 	FolderClassifier,
 	TagVocabulary,
 	TransferOp,
@@ -33,6 +34,25 @@ function separatorAfter(entry: string, rawEntry: string): string {
 }
 
 /**
+ * Prepend the right leading anchor to a pattern body. The body is anchor-
+ * agnostic — it describes "the entry shape" (e.g. `Projects(?:/|$)` or
+ * `Projects(?:/.*)?$`). This helper turns it into a path-position-aware
+ * regex per the rule's `folderAnchor`:
+ *
+ *   - `'root'`         → `^${body}`            (vault root only — default)
+ *   - `'any-segment'`  → `(?:^|/)${body}`      (matches at any path-segment boundary)
+ *   - `{ under: 'X' }` → `^X/${body}`          (anchored to a parent prefix)
+ *
+ * Phase G — making layer a first-class concept rather than a hidden `^`
+ * assumption baked into every emitted pattern.
+ */
+function compileWithAnchor(body: string, anchor: FolderAnchor): string {
+	if (anchor === 'root') return `^${body}`;
+	if (anchor === 'any-segment') return `(?:^|/)${body}`;
+	return `^${escapeRegex(anchor.under)}/${body}`;
+}
+
+/**
  * The folder-side regex for a typed spec.
  *
  * For pre-coordinated transfers (identity, truncation-with-loose-tail,
@@ -41,23 +61,28 @@ function separatorAfter(entry: string, rawEntry: string): string {
  * strips the entry point and transforms the remainder. For truncation with
  * `tailHandling: 'drop'`, the pattern also caps depth so paths deeper than
  * N do not match.
+ *
+ * Anchor (`folderAnchor`, defaults to `'root'`) controls where in the path
+ * the entry must appear: vault root, any segment boundary, or under a
+ * specific parent prefix.
  */
 export function deriveFolderPattern(spec: TypedRuleSpec): string {
 	const entry = escapeRegex(spec.folderEntry);
 	const sep = separatorAfter(entry, spec.folderEntry);
 	const op = spec.transfer.op;
+	const anchor: FolderAnchor = spec.folderAnchor ?? 'root';
 
 	if (op === 'marker-only') {
 		// Folder side: any path under the entry point — including the entry
 		// folder ITSELF — is tagged with the marker. (`Capture/Inbox` alone
 		// is the folderPath of a file at `Capture/Inbox/today.md`, so the
 		// rule must match the bare entry string too.)
-		return `^${entry}(?:${sep}.*)?$`;
+		return compileWithAnchor(`${entry}(?:${sep}.*)?$`, anchor);
 	}
 
 	if (op === 'truncation' && spec.transfer.tailHandling === 'drop') {
 		// Strict: match only paths whose depth beneath the entry is ≤ N.
-		return buildDepthCappedPattern(entry, sep, spec.transfer.depth);
+		return buildDepthCappedPattern(entry, sep, spec.transfer.depth, anchor);
 	}
 
 	// All remaining ops: loose anchor-prefix that matches the bare entry
@@ -71,7 +96,7 @@ export function deriveFolderPattern(spec: TypedRuleSpec): string {
 	// silently excluded the bare-entry case — users with a top-level
 	// folder but no subfolders saw "0 matches" from the preview surfaces
 	// and assumed the rule was broken.
-	return `^${entry}(?:${sep}|$)`;
+	return compileWithAnchor(`${entry}(?:${sep}|$)`, anchor);
 }
 
 /**
@@ -90,7 +115,11 @@ export function deriveTagPattern(spec: TypedRuleSpec): string {
 	}
 
 	if (op === 'truncation' && spec.transfer.tailHandling === 'drop') {
-		return buildDepthCappedPattern(entry, sep, spec.transfer.depth);
+		// Tag side stays root-anchored — tag namespaces don't have a
+		// filesystem-layer concept. The folder-anchor only governs where
+		// the rule fires in the vault tree, not how the resulting tag is
+		// shaped.
+		return buildDepthCappedPattern(entry, sep, spec.transfer.depth, 'root');
 	}
 
 	return `^${entry}${sep}`;
@@ -100,11 +129,18 @@ export function deriveTagPattern(spec: TypedRuleSpec): string {
  * Build a pattern that matches `entry{sep}` plus up to `depth` path segments
  * and REJECTS deeper paths. `depth: 2` → matches `entry/a`, `entry/a/b`,
  * but NOT `entry/a/b/c`.
+ *
+ * Anchor (defaults to `'root'`) controls where in the input the match must
+ * begin — same semantics as `compileWithAnchor`. Folder-side callers pass
+ * the rule's `folderAnchor`; tag-side callers pass `'root'` (tags don't
+ * have a layer concept).
  */
-function buildDepthCappedPattern(entry: string, sep: string, depth: number): string {
-	if (depth <= 0) return `^${entry}${sep}?$`;
-	const tail = '(?:/([^/]+))?'.repeat(Math.max(0, depth - 1));
-	return `^${entry}${sep}([^/]+)${tail}$`;
+function buildDepthCappedPattern(entry: string, sep: string, depth: number, anchor: FolderAnchor): string {
+	const body =
+		depth <= 0
+			? `${entry}${sep}?$`
+			: `${entry}${sep}([^/]+)${'(?:/([^/]+))?'.repeat(Math.max(0, depth - 1))}$`;
+	return compileWithAnchor(body, anchor);
 }
 
 // ─── Transform derivation ─────────────────────────────────────────────────
@@ -217,6 +253,13 @@ export function deriveRule(spec: TypedRuleSpec): MappingRule {
 		// Layer 1
 		folderPattern: needsFolderSide ? deriveFolderPattern(spec) : undefined,
 		folderEntryPoint: spec.folderEntry,
+		// Propagate folderAnchor only when explicit and non-default — keeps
+		// existing root-anchored rules visually unchanged in their JSON
+		// serialization (no spurious `folderAnchor: 'root'` clutter).
+		folderAnchor:
+			spec.folderAnchor !== undefined && spec.folderAnchor !== 'root'
+				? spec.folderAnchor
+				: undefined,
 		folderTransforms: deriveFolderTransforms(spec),
 
 		tagPattern: needsTagSide ? deriveTagPattern(spec) : undefined,

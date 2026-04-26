@@ -209,6 +209,7 @@ export class GuidedRuleEditorModal extends Modal {
 	private tagSuggestSources: string[] = [];
 
 	// DOM refs for live updates
+	private flowDiagramEl!: HTMLElement;
 	private livePreviewEl!: HTMLElement;
 	private statusStripEl!: HTMLElement;
 	private warningsEl!: HTMLElement;
@@ -285,6 +286,11 @@ export class GuidedRuleEditorModal extends Modal {
 		}
 
 		// 2. Live preview strip — at the TOP so the user sees output before inputs
+		// 2a. High-level flow diagram — visual "what does this rule do?"
+		// Three columns: folders → transfer-glyph → tags. Direction-aware
+		// arrows (folder-to-tag / tag-to-folder / bidirectional).
+		this.buildFlowDiagram(contentEl);
+
 		this.buildLivePreviewStrip(contentEl);
 
 		// 3. Status strip — match count + cardinality + bijective
@@ -338,6 +344,7 @@ export class GuidedRuleEditorModal extends Modal {
 
 	/** Reactive heartbeat — every field change calls this. */
 	private notify(): void {
+		this.renderFlowDiagram();
 		this.renderLivePreview();
 		this.renderStatusStrip();
 		this.renderTransferCards();
@@ -346,6 +353,228 @@ export class GuidedRuleEditorModal extends Modal {
 		this.renderVaultTest();
 		this.renderDerivedChips();
 		this.updateSaveButtonState();
+	}
+
+	// ─── 2a. High-level flow diagram ─────────────────────────────────────
+
+	/**
+	 * Visual three-column "what does this rule do" panel. Same data the
+	 * status strip + live preview already use, but presented spatially:
+	 *
+	 *   ┌─ FOLDERS ────────┐  TRANSFER  ┌─ TAGS ───────────┐
+	 *   │ 📁 Capture        │   identity │ 🏷 #-              │
+	 *   │   ├ Inbox         │     ⇄      │   ├ #-inbox       │
+	 *   │   ├ Clips/Web     │            │   ├ #-clips/web   │
+	 *   │   └ Quotes        │  bidirect. │   └ #-quotes      │
+	 *   └───────────────────┘            └───────────────────┘
+	 *
+	 * The arrow between columns reflects rule direction (→, ←, or ⇄).
+	 * Sample folders + tags come from previewRule against the real vault,
+	 * capped at 3 to avoid crowding. Updates on every state change.
+	 */
+	private buildFlowDiagram(parent: HTMLElement): void {
+		const wrap = parent.createDiv({ cls: 'dtf-guided-flow' });
+		wrap.style.padding = '0.65em 0.75em';
+		wrap.style.background = 'var(--background-secondary)';
+		wrap.style.border = '1px solid var(--background-modifier-border)';
+		wrap.style.borderRadius = '8px';
+		wrap.style.marginBottom = '0.6em';
+		this.flowDiagramEl = wrap;
+	}
+
+	private renderFlowDiagram(): void {
+		const wrap = this.flowDiagramEl;
+		wrap.empty();
+
+		// Header
+		const header = wrap.createDiv();
+		header.style.fontFamily = 'var(--font-interface)';
+		header.style.fontSize = '0.7em';
+		header.style.opacity = '0.65';
+		header.style.textTransform = 'uppercase';
+		header.style.letterSpacing = '0.08em';
+		header.style.marginBottom = '0.5em';
+		header.setText('Rule overview');
+
+		// 3-column grid: folders | transfer | tags
+		const grid = wrap.createDiv();
+		grid.style.display = 'grid';
+		grid.style.gridTemplateColumns = 'minmax(0, 1fr) auto minmax(0, 1fr)';
+		grid.style.gap = '0.6em';
+		grid.style.alignItems = 'stretch';
+
+		// Compute samples — gracefully handle the empty-entry case.
+		let samples: { folder: string; tags: string[] }[] = [];
+		let hasError = false;
+		if (entriesPopulated(this.state)) {
+			try {
+				const spec = buildSpec(this.state);
+				const rule = deriveRule(spec);
+				const preview = previewRule(rule, this.vaultFolders, { maxSamples: 3 });
+				if (preview.invalidRegex) {
+					hasError = true;
+				} else {
+					samples = preview.samples;
+				}
+			} catch {
+				hasError = true;
+			}
+		}
+
+		// LEFT — folders
+		const folderCol = grid.createDiv();
+		folderCol.style.padding = '0.5em';
+		folderCol.style.background = 'var(--background-primary)';
+		folderCol.style.borderRadius = '6px';
+		folderCol.style.minHeight = '4.5em';
+
+		const folderHead = folderCol.createDiv();
+		folderHead.style.fontSize = '0.72em';
+		folderHead.style.opacity = '0.55';
+		folderHead.style.letterSpacing = '0.06em';
+		folderHead.style.textTransform = 'uppercase';
+		folderHead.style.marginBottom = '0.2em';
+		folderHead.createSpan({ text: '📁 ' });
+		folderHead.createSpan({ text: 'Folders' });
+
+		const folderEntryEl = folderCol.createDiv();
+		folderEntryEl.style.fontFamily = 'var(--font-monospace)';
+		folderEntryEl.style.fontSize = '0.85em';
+		folderEntryEl.style.fontWeight = '600';
+		folderEntryEl.setText(this.state.folderEntry || '(no entry)');
+
+		if (samples.length > 0) {
+			const list = folderCol.createDiv();
+			list.style.fontFamily = 'var(--font-monospace)';
+			list.style.fontSize = '0.78em';
+			list.style.lineHeight = '1.5';
+			list.style.opacity = '0.85';
+			list.style.marginTop = '0.15em';
+			samples.forEach((s, i) => {
+				const row = list.createDiv();
+				const isLast = i === samples.length - 1;
+				const branch = isLast ? '└ ' : '├ ';
+				// Strip the entry prefix to show the relative remainder
+				const rel = s.folder.startsWith(this.state.folderEntry + '/')
+					? s.folder.slice(this.state.folderEntry.length + 1)
+					: s.folder;
+				row.setText(`${branch}${rel}`);
+			});
+		} else if (!hasError && entriesPopulated(this.state)) {
+			const note = folderCol.createDiv();
+			note.style.fontSize = '0.78em';
+			note.style.fontStyle = 'italic';
+			note.style.opacity = '0.55';
+			note.style.marginTop = '0.2em';
+			note.setText('No vault folders match yet');
+		}
+
+		// MIDDLE — transfer + direction
+		const midCol = grid.createDiv();
+		midCol.style.display = 'flex';
+		midCol.style.flexDirection = 'column';
+		midCol.style.alignItems = 'center';
+		midCol.style.justifyContent = 'center';
+		midCol.style.padding = '0 0.4em';
+		midCol.style.minWidth = '6em';
+
+		const arrow = midCol.createDiv();
+		arrow.style.fontSize = '1.4em';
+		arrow.style.lineHeight = '1';
+		arrow.style.color = 'var(--text-accent)';
+		arrow.setText(
+			this.state.direction === 'bidirectional'
+				? '⇄'
+				: this.state.direction === 'folder-to-tag'
+					? '→'
+					: '←',
+		);
+
+		const opName = midCol.createDiv();
+		opName.style.fontSize = '0.78em';
+		opName.style.fontWeight = '600';
+		opName.style.marginTop = '0.2em';
+		opName.style.textAlign = 'center';
+		opName.setText(this.state.transferOp);
+
+		const opGloss = midCol.createDiv();
+		opGloss.style.fontSize = '0.7em';
+		opGloss.style.opacity = '0.6';
+		opGloss.style.fontStyle = 'italic';
+		opGloss.style.textAlign = 'center';
+		opGloss.style.marginTop = '0.1em';
+		opGloss.setText(OP_DIAGRAMS[this.state.transferOp].gloss);
+
+		const dirLabel = midCol.createDiv();
+		dirLabel.style.fontSize = '0.7em';
+		dirLabel.style.opacity = '0.5';
+		dirLabel.style.marginTop = '0.4em';
+		dirLabel.setText(
+			this.state.direction === 'bidirectional'
+				? 'bidirectional'
+				: this.state.direction === 'folder-to-tag'
+					? 'folder → tag'
+					: 'tag → folder',
+		);
+
+		// RIGHT — tags
+		const tagCol = grid.createDiv();
+		tagCol.style.padding = '0.5em';
+		tagCol.style.background = 'var(--background-primary)';
+		tagCol.style.borderRadius = '6px';
+		tagCol.style.minHeight = '4.5em';
+
+		const tagHead = tagCol.createDiv();
+		tagHead.style.fontSize = '0.72em';
+		tagHead.style.opacity = '0.55';
+		tagHead.style.letterSpacing = '0.06em';
+		tagHead.style.textTransform = 'uppercase';
+		tagHead.style.marginBottom = '0.2em';
+		tagHead.createSpan({ text: '🏷 ' });
+		tagHead.createSpan({ text: 'Tags' });
+
+		const tagEntryEl = tagCol.createDiv();
+		tagEntryEl.style.fontFamily = 'var(--font-monospace)';
+		tagEntryEl.style.fontSize = '0.85em';
+		tagEntryEl.style.fontWeight = '600';
+		tagEntryEl.setText(`#${this.state.tagEntry || '(no entry)'}`);
+
+		if (samples.length > 0) {
+			const list = tagCol.createDiv();
+			list.style.fontFamily = 'var(--font-monospace)';
+			list.style.fontSize = '0.78em';
+			list.style.lineHeight = '1.5';
+			list.style.opacity = '0.85';
+			list.style.marginTop = '0.15em';
+			samples.forEach((s, i) => {
+				const row = list.createDiv();
+				const isLast = i === samples.length - 1;
+				const branch = isLast ? '└ ' : '├ ';
+				const tagText = s.tags.length === 0 ? '(opaque — no tag)' : s.tags.join(', ');
+				row.setText(`${branch}${tagText}`);
+			});
+		} else if (hasError) {
+			const note = tagCol.createDiv();
+			note.style.fontSize = '0.78em';
+			note.style.fontStyle = 'italic';
+			note.style.color = 'var(--text-muted)';
+			note.style.marginTop = '0.2em';
+			note.setText('Cannot preview — fix errors below');
+		} else if (!entriesPopulated(this.state)) {
+			const note = tagCol.createDiv();
+			note.style.fontSize = '0.78em';
+			note.style.fontStyle = 'italic';
+			note.style.opacity = '0.55';
+			note.style.marginTop = '0.2em';
+			note.setText('Fill entries to see flow');
+		} else {
+			const note = tagCol.createDiv();
+			note.style.fontSize = '0.78em';
+			note.style.fontStyle = 'italic';
+			note.style.opacity = '0.55';
+			note.style.marginTop = '0.2em';
+			note.setText('No tags emitted yet');
+		}
 	}
 
 	// ─── 2. Live preview strip ───────────────────────────────────────────

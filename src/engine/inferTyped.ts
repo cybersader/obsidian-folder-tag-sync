@@ -13,6 +13,7 @@
 import type { MappingRule } from '../types/settings';
 import type {
 	Axis,
+	FolderAnchor,
 	FolderClassifier,
 	TagPrefixMarker,
 	TagVocabulary,
@@ -22,7 +23,7 @@ import type {
 
 export type InferredFields = Pick<
 	TypedRuleSpec,
-	'folder' | 'tag' | 'transfer' | 'inverseTransfer' | 'folderEntry' | 'tagEntry'
+	'folder' | 'tag' | 'transfer' | 'inverseTransfer' | 'folderEntry' | 'folderAnchor' | 'tagEntry'
 >;
 
 /**
@@ -45,11 +46,19 @@ export type InferredFields = Pick<
 export function inferTypedModel(rule: MappingRule): Partial<InferredFields> {
 	const out: Partial<InferredFields> = {};
 
-	const folderEntry = rule.folderEntryPoint ?? inferEntryFromPattern(rule.folderPattern);
-	const tagEntry = rule.tagEntryPoint ?? inferEntryFromPattern(rule.tagPattern);
+	const folderInferred = inferEntryFromPattern(rule.folderPattern);
+	const tagInferred = inferEntryFromPattern(rule.tagPattern);
+	const folderEntry = rule.folderEntryPoint ?? folderInferred?.entry;
+	const tagEntry = rule.tagEntryPoint ?? tagInferred?.entry;
 
 	if (folderEntry) out.folderEntry = folderEntry;
 	if (tagEntry) out.tagEntry = tagEntry;
+
+	// Folder anchor: prefer explicit, fall back to pattern-shape inference.
+	// Only surface when non-default ('root' is implicit) so callers don't get
+	// noise on the common case.
+	const folderAnchor: FolderAnchor | undefined = rule.folderAnchor ?? folderInferred?.anchor;
+	if (folderAnchor && folderAnchor !== 'root') out.folderAnchor = folderAnchor;
 
 	// Tag vocabulary + axis inference
 	const prefixMarker = inferPrefixMarker(tagEntry);
@@ -93,24 +102,61 @@ export function inferTypedModel(rule: MappingRule): Partial<InferredFields> {
 
 // ─── Sub-inference helpers ────────────────────────────────────────────────
 
-function inferEntryFromPattern(pattern?: string): string | undefined {
+/**
+ * Extract the entry literal AND infer the anchor mode from a folderPattern
+ * regex. Phase G — bidirectional with `derive.ts:compileWithAnchor`.
+ *
+ * Recognized leading shapes (in order of specificity):
+ *   `(?:^|/)X...`  → any-segment anchor, entry = X
+ *   `^X...`        → root anchor, entry = X
+ *
+ * `under: { ... }` anchors CANNOT be inferred from regex shape alone — a
+ * pattern like `^Output/Public(?:/|$)` is ambiguous (could be `under: 'Output'`
+ * with entry `Public`, OR root with multi-segment entry `Output/Public`).
+ * The caller must read `rule.folderAnchor` directly for `under`-anchored
+ * rules; this function only round-trips the unambiguous root vs any-segment
+ * distinction.
+ *
+ * Trailing-suffix peeling handles all three derivation-emitted shapes plus
+ * legacy `^X/` and `^X$` forms:
+ *   `(?:/|$)` — Phase E loose anchor for non-marker ops
+ *   `(?:/.*)?$` — marker-only branch (entry OR anything below)
+ *   bare `/`, `$` — legacy hand-authored shapes
+ *
+ * Returns undefined when the body still contains regex metacharacters that
+ * the heuristic doesn't understand — caller falls back to empty entry, and
+ * the guided modal's empty-entry warning explains why.
+ *
+ * Used for tag patterns too; tag callers ignore the `anchor` field (tags
+ * don't have a filesystem-layer concept).
+ */
+function inferEntryFromPattern(
+	pattern?: string,
+): { entry: string; anchor: 'root' | 'any-segment' } | undefined {
 	if (!pattern) return undefined;
-	// Strip leading anchor first.
-	let s = pattern.replace(/^\^/, '');
-	// Strip the two benign loose-anchor suffixes that `derive.ts` emits:
-	//   `^Entry(?:/|$)`     — Phase E loose anchor for non-marker ops
-	//   `^Entry(?:/.*)?$`   — marker-only branch (entry OR anything below)
-	// These are derivation markers, not regex content authored by the user,
-	// so peel them off before the metacharacter rejection check below.
-	// Without these strips, a freshly-derived rule that comes back through
-	// `populateFromRule` would land in the metachar reject branch and
-	// surface a blank folder/tag entry to the guided modal.
-	s = s.replace(/\(\?:\/\|\$\)$/, '').replace(/\(\?:\/\.\*\)\?\$$/, '');
-	// Then the legacy trailing anchors / separators.
-	s = s.replace(/\$$/, '').replace(/\/$/, '');
-	// Reject if it still contains regex metacharacters we didn't handle.
+
+	// Detect leading anchor — any-segment first (longer prefix).
+	let s = pattern;
+	let anchor: 'root' | 'any-segment';
+	if (s.startsWith('(?:^|/)')) {
+		anchor = 'any-segment';
+		s = s.slice('(?:^|/)'.length);
+	} else if (s.startsWith('^')) {
+		anchor = 'root';
+		s = s.slice(1);
+	} else {
+		return undefined; // unanchored — not a derived shape
+	}
+
+	// Peel known trailing suffixes (most specific first).
+	s = s
+		.replace(/\(\?:\/\|\$\)$/, '') // Phase E loose suffix `(?:/|$)`
+		.replace(/\(\?:\/\.\*\)\?\$$/, '') // marker-only suffix `(?:/.*)?$`
+		.replace(/\$$/, '') // legacy `$`
+		.replace(/\/$/, ''); // legacy trailing `/`
+
 	if (/[.*+?()[\]\\|]/.test(s)) return undefined;
-	return s;
+	return { entry: s, anchor };
 }
 
 export function inferPrefixMarker(tagEntry?: string): TagPrefixMarker {

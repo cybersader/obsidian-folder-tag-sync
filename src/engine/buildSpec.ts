@@ -23,6 +23,7 @@ import type {
 	FolderNaming,
 	TagCoordination,
 	TagPrefixMarker,
+	FolderAnchor,
 	TransferOp,
 	TypedRuleSpec,
 	TruncationTailHandling,
@@ -42,6 +43,13 @@ export interface FormState {
 	axis: Axis;
 
 	folderEntry: string;
+	/**
+	 * Where the rule anchors in the vault tree. See `FolderAnchor` in
+	 * `types/typed.ts`. Default `'root'`. Phase G — surfaced in the guided
+	 * modal as a 3-radio control between Vault root / Any nested location /
+	 * Under a parent path.
+	 */
+	folderAnchor: FolderAnchor;
 	folderScheme: FolderScheme;
 	folderNaming: FolderNaming;
 
@@ -81,6 +89,11 @@ export function populateFromRule(rule: MappingRule): FormState {
 	const axis: Axis = (folder?.axes?.[0] ?? tag?.axis ?? 'work') as Axis;
 	const folderEntry = rule.folderEntryPoint ?? inferred.folderEntry ?? '';
 	const tagEntry = rule.tagEntryPoint ?? inferred.tagEntry ?? '';
+	// Anchor: explicit on rule wins; otherwise inferred from pattern shape;
+	// otherwise 'root' default. Inferred only ever surfaces 'any-segment'
+	// (the only non-default mode unambiguously detectable from regex shape) —
+	// `under: { ... }` requires explicit authoring.
+	const folderAnchor: FolderAnchor = rule.folderAnchor ?? inferred.folderAnchor ?? 'root';
 
 	const state: FormState = {
 		id: rule.id,
@@ -91,6 +104,7 @@ export function populateFromRule(rule: MappingRule): FormState {
 		enabled: rule.enabled,
 		axis,
 		folderEntry,
+		folderAnchor,
 		folderScheme: folder?.scheme ?? 'hierarchical',
 		folderNaming: folder?.naming ?? 'word',
 		tagEntry,
@@ -116,6 +130,7 @@ export function defaultFormState(): FormState {
 		enabled: true,
 		axis: 'work',
 		folderEntry: '',
+		folderAnchor: 'root',
 		folderScheme: 'enumerative',
 		folderNaming: 'word',
 		tagEntry: '',
@@ -190,6 +205,9 @@ export function buildSpec(state: FormState): TypedRuleSpec {
 		// Pass raw entry strings — no '(empty)' substitution. Empty entries
 		// produce loose patterns the live preview can detect and gate on.
 		folderEntry: state.folderEntry,
+		// Only emit folderAnchor when non-default — keeps derived rule JSON
+		// clean for the common (root) case.
+		folderAnchor: state.folderAnchor !== 'root' ? state.folderAnchor : undefined,
 		tagEntry: state.tagEntry,
 		options: { ...DEFAULT_OPTIONS },
 	};

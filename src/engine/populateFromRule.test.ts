@@ -210,3 +210,71 @@ describe('populateFromRule round-trips Phase E derived patterns', () => {
 		expect(state.folderEntry).toBe('');
 	});
 });
+
+// ─── Phase G — folderAnchor round-trip ───────────────────────────────────
+
+describe('populateFromRule × folderAnchor round-trip', () => {
+	const baseRule = (overrides: Partial<MappingRule>): MappingRule => ({
+		id: 'test',
+		name: 'Test',
+		enabled: true,
+		priority: 1,
+		direction: 'bidirectional',
+		options: {
+			createFolders: true,
+			addTags: true,
+			removeOrphanedTags: false,
+			syncOnFileCreate: true,
+			syncOnFileMove: true,
+			syncOnFileRename: true,
+		},
+		...overrides,
+	});
+
+	test('absent folderAnchor → form state defaults to root', () => {
+		const rule = baseRule({ folderPattern: '^Projects(?:/|$)' });
+		const state = populateFromRule(rule);
+		expect(state.folderAnchor).toBe('root');
+	});
+
+	test('explicit folderAnchor on rule → propagated to form state', () => {
+		const rule = baseRule({
+			folderPattern: '^Output/Projects(?:/|$)',
+			folderAnchor: { under: 'Output' },
+		});
+		const state = populateFromRule(rule);
+		expect(state.folderAnchor).toEqual({ under: 'Output' });
+	});
+
+	test('any-segment pattern shape is inferred from regex even without explicit field', () => {
+		// Bidirectional: derive emits `(?:^|/)X(?:/|$)`, then re-loading the
+		// rule should recognize the any-segment shape without requiring
+		// folderAnchor to be re-stored separately.
+		const rule = baseRule({ folderPattern: '(?:^|/)Projects(?:/|$)' });
+		const state = populateFromRule(rule);
+		expect(state.folderAnchor).toBe('any-segment');
+		expect(state.folderEntry).toBe('Projects');
+	});
+
+	test('explicit anchor overrides inferred from pattern', () => {
+		// If both rule.folderAnchor and the pattern shape disagree, the
+		// explicit field wins. (This shouldn't normally happen, but guards
+		// against drift between fields.)
+		const rule = baseRule({
+			folderPattern: '(?:^|/)Projects(?:/|$)', // pattern says any-segment
+			folderAnchor: 'root', // rule says root explicitly
+		});
+		const state = populateFromRule(rule);
+		expect(state.folderAnchor).toBe('root');
+	});
+
+	test('under-anchor cannot be inferred from regex shape — requires explicit field', () => {
+		// `^Output/Projects(?:/|$)` is ambiguous: could be root with multi-
+		// segment entry `Output/Projects`, or under: 'Output' with entry
+		// `Projects`. Inference defaults to root + multi-segment entry.
+		const rule = baseRule({ folderPattern: '^Output/Projects(?:/|$)' });
+		const state = populateFromRule(rule);
+		expect(state.folderAnchor).toBe('root');
+		expect(state.folderEntry).toBe('Output/Projects');
+	});
+});

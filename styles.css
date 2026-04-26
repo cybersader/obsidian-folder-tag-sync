@@ -179,13 +179,21 @@
 }
 
 /* Import/Export Section — layout rhythm comes from .dtf-section-divider
- * (applied alongside this class in SettingsTab); only textarea-specific
- * styling lives here. */
-.dtf-import-export textarea {
+ * (applied alongside this class in SettingsTab); textarea sits in its
+ * own full-width row inside .dtf-import-block, not crammed into a
+ * Setting() row's narrow control cell. */
+.dtf-import-block {
+	margin-top: 0.5em;
+}
+
+.dtf-import-textarea {
 	width: 100%;
-	min-height: 200px;
+	box-sizing: border-box;
+	min-height: 150px;
+	margin: 0.5em 0;
 	font-family: var(--font-monospace);
 	font-size: 0.85em;
+	resize: vertical;
 }
 
 /* Drag and Drop */

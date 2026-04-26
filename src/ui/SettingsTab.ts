@@ -579,24 +579,29 @@ export class SettingsTab extends PluginSettingTab {
 				})
 			);
 
-		new Setting(section)
+		// Import — heading row + full-width textarea + right-aligned button
+		// row. Setting() places name+desc on the left and controls on the
+		// right of a single row, which crushes a textarea into ~30% of the
+		// section width. Splitting into three rows lets the textarea use
+		// the full available width.
+		const importBlock = section.createDiv({ cls: 'dtf-import-block' });
+
+		new Setting(importBlock)
 			.setName('Import settings')
-			.setDesc('Paste JSON settings to import (this will replace current settings)')
-			.addTextArea(text => text
-				.setPlaceholder('Paste JSON settings here')
-				.onChange(() => {
-					// Just for display, actual import happens on button click
-				})
-			)
+			.setDesc('Paste JSON settings to import (this will replace current settings)');
+
+		const importTextarea = importBlock.createEl('textarea', {
+			cls: 'dtf-import-textarea',
+			attr: { placeholder: 'Paste JSON settings here' },
+		});
+
+		new Setting(importBlock)
 			.addButton(btn => btn
 				.setButtonText('Import')
 				.setWarning()
 				.onClick(() => {
-					const textarea = section.querySelector('textarea');
-					if (!textarea) return;
-
 					try {
-						const json = textarea.value;
+						const json = importTextarea.value;
 						const settings = JSON.parse(json);
 
 						// Validate settings structure

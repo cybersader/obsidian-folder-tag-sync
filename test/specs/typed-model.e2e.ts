@@ -876,9 +876,8 @@ describe('folder-tag-sync — Phase 2 typed model E2E', function () {
 
         const routedState = await browser.executeObsidian(() => {
           const guided = document.querySelector('.modal.dtf-guided-modal');
-          const banner = guided?.textContent ?? '';
-          // The banner copy starts with "Best-effort import"
-          const hasBanner = banner.includes('Best-effort import');
+          // Scope to the structural class — decouples test from copy.
+          const hasBanner = Boolean(guided?.querySelector('.dtf-inferred-banner'));
           // The escape-hatch link should be visible in edit mode
           const links = guided
             ? Array.from(guided.querySelectorAll('a'))

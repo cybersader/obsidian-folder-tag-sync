@@ -272,16 +272,30 @@ export class GuidedRuleEditorModal extends Modal {
 			});
 		}
 
-		// Inferred-mode banner: be honest about what's been auto-filled.
+		// Inferred-mode banner — tinted info-card with left accent so the
+		// user's eye lands on it. Heading does the work; body is context
+		// for users who want it.
 		if (this.mode.kind === 'edit-from-inferred') {
-			const banner = contentEl.createDiv();
-			banner.style.padding = '0.5em 0.75em';
-			banner.style.background = 'var(--background-modifier-border)';
+			const banner = contentEl.createDiv({ cls: 'dtf-inferred-banner' });
+			banner.style.padding = '0.6em 0.8em';
+			banner.style.background = 'var(--background-modifier-form-field)';
+			banner.style.borderLeft = '3px solid var(--text-accent)';
 			banner.style.borderRadius = '4px';
 			banner.style.marginBottom = '0.6em';
-			banner.style.fontSize = '0.85em';
-			banner.setText(
-				"Best-effort import — fields below were inferred from this rule's regex patterns. Review each before saving. If the inferred shape doesn't match your intent, switch to the advanced (regex) editor via the link above.",
+			banner.style.display = 'flex';
+			banner.style.flexDirection = 'column';
+			banner.style.gap = '0.2em';
+
+			const heading = banner.createDiv();
+			heading.style.fontWeight = '600';
+			heading.style.fontSize = '0.95em';
+			heading.setText('Imported from regex — review fields');
+
+			const body = banner.createDiv();
+			body.style.fontSize = '0.85em';
+			body.style.color = 'var(--text-muted)';
+			body.setText(
+				"These fields were guessed from the rule's patterns. If the shape's wrong, use the advanced regex editor link above.",
 			);
 		}
 

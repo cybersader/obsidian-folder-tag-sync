@@ -34,6 +34,7 @@ Every agent that works on a project accumulates context bias — it starts agree
 - [Challenge 04: Same name, different layer, different meaning](/obsidian-folder-tag-sync/agent-context/zz-challenges/04-name-collisions-across-hierarchy/)
 - [Challenge 05: Multi-entity vaults and namespace partitioning](/obsidian-folder-tag-sync/agent-context/zz-challenges/05-multi-entity-namespace-partitioning/)
 - [Challenge 06: Compositional rule packs and the layering primitive](/obsidian-folder-tag-sync/agent-context/zz-challenges/06-compositional-rule-packs/)
+- [Challenge 07: Frontmatter as bijection memory — does the design work in practice?](/obsidian-folder-tag-sync/agent-context/zz-challenges/07-frontmatter-as-bijection-memory-validation/)
 
 ## Challenge clusters
 
@@ -44,3 +45,5 @@ Challenges 04, 05, 06 form a connected cluster on the *layering and composition*
 - **06 — Composition** — multiple packs stacking at different layers, with the inner pack auto-anchoring to the outer's matched location
 
 Recommended dispatch: hand each to a separate fresh agent in parallel; cross-reference findings when they all return.
+
+Challenge 07 is a **practical-validation challenge** rather than a design-space challenge. Where 01–06 ask "what should the architecture be?", 07 asks "we have a proposed design — does it actually work when you walk it through?" Recommended dispatch: pair 07 with the [frontmatter-as-bijection-memory research entry](/obsidian-folder-tag-sync/agent-context/zz-log/2026-04-27-frontmatter-as-bijection-memory-research/) so the agent has the full design to validate.

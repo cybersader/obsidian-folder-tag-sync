@@ -104,6 +104,14 @@ Intelligent, rule-based bidirectional mapping that:
 - Maintains a flexible tag system for knowledge connections
 - Automatically synchronizes both views based on rules you define
 
+### Design principles
+
+Three commitments that thread every feature decision:
+
+- **Progressive system** — easy to start (pick a rule pack, defaults work; you don't need to learn regex, templates, anchors, or transfer ops to get value on day one), powerful as you align it (templates, slot transforms, frontmatter memory, group precedence, per-rule status indicators all surface progressively for users who want them).
+- **Honest positioning** — the README and docs reflect what the plugin actually does today. As the architecture evolves (typed model → layer-aware anchors → path templates → opt-in frontmatter memory), the framing keeps up. "Regex" is increasingly an escape hatch in a richer typed system, not the headline.
+- **Testing partnership** — every architectural increment ships with concrete user-testing checkpoints (named scenarios validated against a test vault). See the [development plan](https://cybersader.github.io/obsidian-folder-tag-sync/about/development-plan/) for the per-increment checklist.
+
 ### Unlike Other Plugins
 Unlike simple file movers (like Auto Note Mover), this plugin uses:
 - **Regex patterns** instead of exact string matching, with a typed-model layer on top so most rules don't have to think about regex at all

@@ -9,6 +9,8 @@ Folder Tag Sync runs on regex — that's the low-level. But regex is the wrong l
 
 The typed model is how you make the statement first. Regex stays available as the escape hatch when you need it.
 
+The architecture is built on a **progressive-disclosure** commitment: a novice user picks a rule pack from the catalog (PARA, Johnny Decimal, Zettelkasten, SEACOW-cyberbase) and gets value on day one without ever touching the layers below. As the user aligns the system to their own workflow — custom organizational schemes, multi-entity vaults, opt-in per-file recovery for lossy ops, slot transforms, group precedence — the deeper layers (Layer 2 typed model; Layer 1 raw regex) become available *progressively*. Each increment in the [development plan](/obsidian-folder-tag-sync/about/development-plan/) respects this contract.
+
 ## The three layers
 
 ```

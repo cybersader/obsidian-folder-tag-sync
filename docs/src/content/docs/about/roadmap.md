@@ -8,6 +8,10 @@ sidebar:
 
 This document tracks planned features, UI improvements, and enhancement ideas for the Dynamic Tags & Folders plugin.
 
+This roadmap is the **feature inventory**. The companion [development plan](/obsidian-folder-tag-sync/about/development-plan/) is the *path through* the inventory — UX-first sequencing, with per-increment user-testing checkpoints, organized so the plugin remains a **progressive system**: easy to start (sensible defaults; rule packs work day one without regex literacy), powerful as you align it to your workflow (templates, slot transforms, frontmatter memory, group precedence, per-rule status indicators surface for users who want them).
+
+Each increment in the development plan is independently shippable, validated against the test vault before promotion, and accompanied by docs / positioning updates so the framing stays honest about what the plugin currently does.
+
 ## Immediate UI Improvements
 
 ### 1. Conditional Form Fields Based on Direction

@@ -5,7 +5,7 @@ sidebar:
   order: 3
 ---
 
-A folder is a classification point. The `FolderClassifier` tells the plugin what *kind* of classification it is — so derivation can produce the right regex, transforms, and depth enforcement.
+A folder is a classification point. The `FolderClassifier` tells the plugin what *kind* of classification it is — so derivation (the process of compiling typed metadata down to runtime regex + transforms) can produce the right regex, transforms, and depth enforcement.
 
 ```ts
 interface FolderClassifier {
@@ -17,11 +17,18 @@ interface FolderClassifier {
 }
 ```
 
+The four config fields each capture one structural property:
+
+- **`scheme`** (the classification approach — see "The five schemes" below)
+- **`naming`** (what the folder names look like — words, numbers, symbols, emojis)
+- **`subdivisionDepth`** (how many levels deep the folder system goes — finite N or `'unbounded'`)
+- **`siblingUniformity`** (do all sibling folders follow the same inner structure (`'parallel'`), or each different (`'unique'`)?)
+
 ## The five schemes
 
 ### `enumerative`
 
-Numbered siblings. Order is meaningful. Johnny Decimal lives here.
+Enumerative (numbered siblings; order matters — e.g. Johnny Decimal categories where the number prefix gives ASCII sort order). Johnny Decimal lives here.
 
 - **Examples**: `10 - Projects/`, `20 - Areas/`, `30 - Resources/`
 - **Naming pairing**: usually `ordinal`
@@ -29,7 +36,7 @@ Numbered siblings. Order is meaningful. Johnny Decimal lives here.
 
 ### `hierarchical`
 
-Strict subject tree. Each folder classifies its contents into a subject; subfolders narrow the subject. Deep Output taxonomies are the canonical case.
+Hierarchical (a strict subject tree where each folder classifies its contents into a subject and subfolders narrow it). Deep Output taxonomies (multi-level subject classifications like LCSH-style trees) are the canonical case.
 
 - **Examples**: `Output/Public/Security/Network/...`
 - **Naming pairing**: `word`
@@ -37,7 +44,7 @@ Strict subject tree. Each folder classifies its contents into a subject; subfold
 
 ### `faceted`
 
-Multiple independent sub-axes intermixed under one root. Rare in practice — most faceted vocabularies live on the tag side, not the folder side.
+Faceted (multiple independent sub-axes under one root — e.g. `Research/By-Author/`, `Research/By-Year/`, `Research/By-Topic/` all parallel under one parent). Rare in practice — most faceted vocabularies live on the tag side, not the folder side.
 
 - **Examples**: a `Research/` folder where subfolders are intermixed topic + status + year
 - **Naming pairing**: `mixed`
@@ -45,7 +52,7 @@ Multiple independent sub-axes intermixed under one root. Rare in practice — mo
 
 ### `authority-root`
 
-Per-authority workspace. Each top-level child is a separate identity / owner, and the inner shape repeats per authority.
+Authority-root (per-entity workspace root — like `Entity/Cybersader/` as the scope for one user's content). Each top-level child is a separate identity / owner, and the inner shape repeats per authority.
 
 - **Examples**: `Cybersader/`, `Username1/`, `TeamA/`
 - **Naming pairing**: `word` or `symbol-prefixed`

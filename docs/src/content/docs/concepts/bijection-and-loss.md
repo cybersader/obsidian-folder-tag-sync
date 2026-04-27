@@ -5,7 +5,7 @@ sidebar:
   order: 6
 ---
 
-This page reads bottom-up. It starts from the eight [Transfer operations](/obsidian-folder-tag-sync/concepts/transfer-operations/) you already configure in the rule editor, and builds up to the abstract vocabulary that shows up in the typed-model design (`cardinality`, `bijective`, "lossy direction," "round-trip"). The abstract terms aren't separate ideas — they're properties *of those eight ops*. Reading the ops first makes the rest much shorter.
+This page reads bottom-up. It starts from the eight [Transfer operations](/obsidian-folder-tag-sync/concepts/transfer-operations/) (the library-science primitives you already configure in the rule editor — `identity`, `truncation`, `marker-only`, etc.), and builds up to the abstract vocabulary that shows up in the typed-model design — **cardinality** (the shape of the mapping: 1:1, many:1, or 1:many), **bijective** (round-trip: forward then inverse gets you back to the original), "lossy direction," "round-trip." The abstract terms aren't separate ideas — they're properties *of those eight ops*. Reading the ops first makes the rest much shorter.
 
 ## Start from the primitives
 
@@ -73,7 +73,7 @@ Many distinct folders → one tag, by design. The forward direction throws infor
 
 ## Lossless transformation
 
-A transformation is **lossless** when forward + inverse round-trip without loss. For *every input the rule accepts*: `inverse(forward(folder)) === folder` and `forward(inverse(tag)) === tag`.
+A transformation is **lossless** (the original input can be perfectly reconstructed from the output) when forward + inverse round-trip without loss. For *every input the rule accepts*: `inverse(forward(folder)) === folder` and `forward(inverse(tag)) === tag`.
 
 The **only** operations that are lossless across all of their accepted domain are:
 
@@ -86,7 +86,7 @@ The reversibility caveat for `identity`: if the rule applies `caseTransform: 'ke
 
 ## Lossy transformation — three concrete shapes
 
-Lossy isn't one thing. It comes in flavors corresponding to *what* gets dropped.
+A transformation is **lossy** (information is dropped going forward and can't be reconstructed by the inverse) — but lossy isn't one thing. It comes in flavors corresponding to *what* gets dropped.
 
 ### Flavor 1: collapse to a single tag (many-to-one)
 
@@ -137,7 +137,7 @@ The leaf identity survives; the middle ancestry doesn't.
 
 ## Bijection — when both directions round-trip
 
-A rule is **bijective** when its forward + inverse pair satisfy `inverse(forward(p)) === p` and `forward(inverse(t)) === t` for every input the rule accepts.
+A rule is **bijective** (round-trip perfect: forward then inverse gets you back the original; inverse then forward also gets you back the original) when its forward + inverse pair satisfy `inverse(forward(p)) === p` and `forward(inverse(t)) === t` for every input the rule accepts.
 
 By the table above, bijection in Folder Tag Sync is achieved by:
 
@@ -148,7 +148,7 @@ Everything else has a lossy direction by construction. The `bijective: boolean` 
 
 ## Cardinality — the field that names the shape
 
-The `cardinality` field on a rule is `'1:1'`, `'1:many'`, or `'many:1'`. It names the (forward-direction) mapping shape:
+The `cardinality` field (the shape of the mapping, encoded as a string) on a rule is `'1:1'`, `'1:many'`, or `'many:1'`. It names the (forward-direction) mapping shape:
 
 - **`1:1`** — one folder produces one tag and vice versa. `identity`, `truncation/drop`. Bijective.
 - **`many:1`** — many folders collapse to one tag. `marker-only`, `promotion-to-root`, `flattening-to-leaf`, `aggregation`. Lossy in the forward direction; the inverse direction can recover the *entry folder* (or first segment) but not the specific source path.

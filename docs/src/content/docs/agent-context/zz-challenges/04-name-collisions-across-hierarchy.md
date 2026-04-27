@@ -15,6 +15,23 @@ This implies that two folders with the same leaf name — say `10 - Projects` at
 
 **Is that the right semantics?**
 
+<figure aria-label="The same folder name appears at three different vault depths: 10 - Projects at vault root, Entity/Cybersader/10 - Projects, and Projects/Subprojects/Projects (recursive). A single any-segment rule fires on all three forward, collapsing them to the same tag namespace. The inverse direction, when the user adds the corresponding tag to a file, has three plausible destinations and no built-in way to pick. The forward collision is one failure mode; the inverse ambiguity is another." style="margin: 1.5em 0;">
+<div style="border: 1.5px solid currentColor; border-color: rgba(125,125,125,0.4); border-radius: 12px; padding: 1em 1.25em;"><div style="font-size: 0.7em; font-weight: 700; opacity: 0.6; letter-spacing: 0.1em; margin-bottom: 0.6em;">SAME NAME, DIFFERENT POSITION &middot; the bidirectional ambiguity</div><div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 1em;"><div style="border: 1.5px solid rgba(125,125,125,0.4); border-radius: 8px; padding: 0.7em 0.9em;"><div style="font-size: 0.78em; font-weight: 700; letter-spacing: 0.06em; opacity: 0.75; margin-bottom: 0.4em;">FORWARD &middot; collision</div><pre style="margin: 0; font-family: ui-monospace, monospace; font-size: 0.85em; line-height: 1.55; padding: 0.5em 0.6em; background: rgba(125,125,125,0.1); border-radius: 4px; overflow-x: auto;">Vault/
+&#9500;&#9472; <strong style="color: #c14a3f;">10 - Projects</strong>/Q4-roadmap/note.md
+&#9500;&#9472; Entity/Cybersader/<strong style="color: #c14a3f;">10 - Projects</strong>/x/note.md
+&#9492;&#9472; Projects/Subprojects/<strong style="color: #c14a3f;">Projects</strong>/note.md
+       &darr;
+       any-segment rule fires on all
+       &darr;
+       <strong style="color: #b87333;">#10-projects/...</strong>  (or similar)</pre><div style="font-size: 0.82em; opacity: 0.78; margin-top: 0.5em; font-style: italic;">Three distinct scopes collapse to one tag namespace. The user's mental model said these were separate (Cybersader's projects vs Bob's vs the global bucket); the rule's pattern doesn't capture the parent context.</div></div><div style="border: 1.5px solid #b87333; border-radius: 8px; padding: 0.7em 0.9em;"><div style="font-size: 0.78em; font-weight: 700; letter-spacing: 0.06em; color: #b87333; margin-bottom: 0.4em;">INVERSE &middot; ambiguous</div><pre style="margin: 0; font-family: ui-monospace, monospace; font-size: 0.85em; line-height: 1.55; padding: 0.5em 0.6em; background: rgba(125,125,125,0.1); border-radius: 4px; overflow-x: auto;">user adds <strong style="color: #b87333;">#10-projects/something</strong>
+       &darr;
+       which destination?
+       &darr;
+&#9500;&#9472; 10 - Projects/something/        ?
+&#9500;&#9472; Entity/Cybersader/10 - Projects/  ?
+&#9492;&#9472; Entity/Bob/10 - Projects/         ?</pre><div style="font-size: 0.82em; opacity: 0.78; margin-top: 0.5em; font-style: italic;">One tag, multiple plausible homes. Today's engine picks first-by-priority silently. See <a href="/obsidian-folder-tag-sync/agent-context/zz-log/2026-04-27-tag-to-folder-resolution-research/">tag&rarr;folder resolution research</a> for the broader survey.</div></div></div></div>
+</figure>
+
 ## Why it might not be
 
 A folder name is *syntactically* the same string but *semantically* different at different positions. Three concrete cases:
@@ -74,14 +91,14 @@ Pathological but legal. Phase G's `any-segment` anchor matches *all three* `Proj
 Hand this challenge to a fresh agent with the knowledge base mounted (`docs/src/content/docs/`). The agent should:
 
 1. **Survey prior art for "same name, different context" disambiguation:**
-   - **Filesystem path resolution** — how do shells, file managers, IDEs distinguish `./foo/bar` from `/etc/foo/bar`? (Absolute vs relative, working directory, $PATH lookup precedence)
-   - **CSS specificity** — selectors like `.card .title` vs `.modal .title` distinguish "title in card context" from "title in modal context". The cascading specificity algorithm is exactly this problem.
-   - **XPath / JSONPath / XQuery** — `//div[@class='foo']` matches anywhere; `/root/div[@class='foo']` is rooted. The path-axis vocabulary (`descendant::`, `child::`, `parent::`) gives precise position addressing.
+   - **Filesystem path resolution** — how do shells, file managers, IDEs distinguish `./foo/bar` from `/etc/foo/bar`? (Absolute vs relative paths, working directory, `$PATH` lookup precedence — the OS-level scoping rules.)
+   - **CSS specificity** — selectors like `.card .title` vs `.modal .title` distinguish "title in card context" from "title in modal context". The cascading specificity algorithm (CSS's rule for which selector wins when several match the same element) is exactly this problem.
+   - **XPath / JSONPath / XQuery** (query languages for tree-shaped data — XML and JSON respectively) — `//div[@class='foo']` matches anywhere; `/root/div[@class='foo']` is rooted. The path-axis vocabulary (`descendant::`, `child::`, `parent::`) gives precise position addressing.
    - **ARIA roles + DOM hierarchy** — a `role="button"` inside `role="menubar"` is different from a top-level button. Accessibility tools navigate this routinely.
    - **Kubernetes resource names** — namespaced (`default/my-pod`, `kube-system/my-pod`) — same name, different namespace, different object.
-   - **AWS ARN format** — `arn:aws:iam::123456:role/admin` vs `arn:aws:iam::789012:role/admin` — same role name, different account boundaries.
-   - **Programming-language scoping** — how do nested namespaces / modules / classes resolve identifiers? (Lexical scoping, ADL, hoisting, etc.)
-   - **Library Subject Headings (LCSH)** — `English literature -- 19th century -- History` vs `American literature -- 19th century -- History`. The `--` subdivision separator is an explicit context marker.
+   - **AWS ARN format** (Amazon Resource Names — globally-unique identifier strings for cloud resources) — `arn:aws:iam::123456:role/admin` vs `arn:aws:iam::789012:role/admin` — same role name, different account boundaries.
+   - **Programming-language scoping** — how do nested namespaces / modules / classes resolve identifiers? Lexical scoping (the variable refers to the binding closest in source-code structure), ADL (argument-dependent lookup, mostly C++), hoisting (JavaScript's "declarations float to the top of their scope"), etc.
+   - **Library Subject Headings (LCSH = Library of Congress Subject Headings)** — `English literature -- 19th century -- History` vs `American literature -- 19th century -- History`. The `--` subdivision separator (LCSH's convention for chaining specifying terms) is an explicit context marker.
 
 2. **Map each prior-art approach onto folder-tag-sync:**
    - For each, sketch what the corresponding rule abstraction would look like

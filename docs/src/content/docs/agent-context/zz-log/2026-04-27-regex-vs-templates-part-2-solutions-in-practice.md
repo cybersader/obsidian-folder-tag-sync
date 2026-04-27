@@ -10,7 +10,17 @@ date: 2026-04-27
 
 ## Where Part 1 left off
 
-Part 1 framed the architectural question — *is regex the right primitive for describing bidirectional folder ↔ tag mappings?* — and surveyed prior art (lenses, asymmetric lenses, BiGUL, path templates, glob patterns, tree pattern languages, Datalog). It ended with a leaning toward path templates with named slots, and a sketch of how Phase H would migrate.
+Part 1 framed the architectural question — *is regex the right primitive for describing bidirectional folder ↔ tag mappings?* — and surveyed prior art:
+
+- **lenses** (a forward + backward function pair with formal round-trip laws — academic foundation for bidirectional programming)
+- **asymmetric lenses** (lenses that allow lossy directions — one side preserves info, the other deliberately drops some)
+- **BiGUL** (a Haskell library that derives the forward direction from a hand-written inverse — provably consistent)
+- **path templates** (URL-routing primitives like `/users/:id` that name path segments)
+- **glob patterns** (shell-style `*` and `**` for matching paths)
+- **tree pattern languages** (XPath, JSONPath — query languages for tree-shaped data)
+- **Datalog** (logic-programming foundation for bidirectional reasoning)
+
+It ended with a leaning toward path templates with named slots, and a sketch of how Phase H would migrate.
 
 This entry picks up where that ended. The original framing was implicitly winner-takes-all: pick the better abstraction, migrate. After more thought, that framing is wrong. The real question is **what tooling is needed for the abstraction choice to *not be* binary** — for regex and templates to coexist usefully within the same rule pack, with the tool surfacing the per-rule tradeoffs honestly.
 
@@ -20,7 +30,7 @@ A redirect that landed mid-research: *"I still think regex would potentially be 
 
 Part 1 evaluated candidates on intuitiveness, JSON-friendliness, bijection visibility, and so on. Useful, but those are properties of the abstraction *in isolation*. Part 2 adds two dimensions that swap the meaning of the comparison:
 
-- **Hybrid-friendliness** — does this shape coexist with other shapes in the same pack? What's the loader's job to unify them?
+- **Hybrid-friendliness** (does this shape coexist with other shapes in the same pack — i.e., can a pack mix regex rules and template rules without forcing the engine to fork?). What's the loader's job to unify them?
 - **Tool burden** — to support this shape *alongside* existing regex, what's the surface area added in the loader, inference layer, sync engine, and guided modal?
 
 Under those criteria, the question changes from *"what should we replace regex with?"* to *"which shape(s) should we add as peers, given the cost of supporting more than one?"* The answer might still be "templates" — but it might also be "regex stays, we just make the tool smarter about communicating its limits." This entry honestly evaluates both.

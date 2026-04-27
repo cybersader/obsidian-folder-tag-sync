@@ -7,7 +7,7 @@ sidebar:
 
 A `TransferOp` is the **mapping** between the two sides of a rule — the third of the three typed things (folder side, tag side, transfer). There are eight primitives. Each one answers the question "what happens to hierarchy as this rule's folder matches become tags (and vice versa)?"
 
-All eight are drawn from classification theory's vocabulary for how one scheme compresses or expands onto another. Each one is **runtime-enforced** by the sync engines — when a rule fires, the typed transfer op drives the recoordination of source-side path segments into destination-side tag segments before the transform pipeline (case, emoji, number-prefix) ever sees the strings.
+All eight are drawn from classification theory's vocabulary for how one scheme compresses or expands onto another. Each one is **runtime-enforced** by the sync engines — when a rule fires, the typed transfer op drives the **recoordination** (reshuffle path segments per the transfer op's rules before the cosmetic transforms run) of source-side path segments into destination-side tag segments before the transform pipeline (case, emoji, number-prefix) ever sees the strings.
 
 The pipeline is:
 
@@ -46,10 +46,10 @@ Preserve full depth on both sides.
 
 - **Derived folder pattern**: `^{folderEntry}/`
 - **Derived tag pattern**: `^{tagEntry}/`
-- **Cardinality**: 1:1, bijective when transforms are reversible
-- **Use for**: output taxonomies, entity-root identity transfer, PARA buckets
+- **Cardinality** (the shape of the mapping — 1:1, many:1, or 1:many): 1:1, bijective (round-trip: forward then inverse gets you back to the original) when transforms are reversible
+- **Use for**: output taxonomies, entity-root identity transfer, PARA (Tiago Forte's Projects/Areas/Resources/Archive) buckets
 
-**Worked example** (with `folderEntry = "Output/Public"`, `tagEntry = "_publicTaxonomy"`, kebab-case on tag side):
+**Worked example** (with `folderEntry = "Output/Public"`, `tagEntry = "_publicTaxonomy"`, kebab-case (a-style-name-with-dashes) on tag side):
 
 ```
 forward:
@@ -126,7 +126,7 @@ Use when you care about the leaf identity but not the path that led there.
 
 ## `marker-only`
 
-Flat controlled vocabulary — one fixed tag for everything under the folder (and the folder itself), regardless of sub-path.
+Marker-only (one fixed tag for the entry folder and everything beneath, regardless of sub-path) — a flat controlled-vocabulary term applied to a whole subtree.
 
 ```ts
 { op: 'marker-only'; marker: string }

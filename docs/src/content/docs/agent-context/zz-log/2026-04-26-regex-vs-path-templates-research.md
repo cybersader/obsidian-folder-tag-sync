@@ -84,7 +84,7 @@ These terms are load-bearing for the rest of this document. They're pulled from 
 
 ### Strict hierarchy vs. polyhierarchy
 
-Classification-theory terms. A **strict hierarchy** enforces single parentage at every level (a tree). A **polyhierarchy** permits multi-parent structure (a directed acyclic graph) — the same node can sit under several broader categories without ambiguity. Library Subject Heading systems (LCSH, MeSH) are explicitly polyhierarchical for exactly the reasons Obsidian tags are: real-world concepts don't fit into one parent category. Folder-tag-sync's reason-to-exist is bridging a strict-hierarchy primitive (filesystem) to a polyhierarchical addressing system (tags).
+Classification-theory terms. A **strict hierarchy** (one parent per child — a tree) enforces single parentage at every level. A **polyhierarchy** (multi-parent structure — same item sits under several broader categories at once) permits a directed acyclic graph where the same node can sit under several broader categories without ambiguity. Library Subject Heading systems (LCSH = Library of Congress Subject Headings; MeSH = Medical Subject Headings) are explicitly polyhierarchical for exactly the reasons Obsidian tags are: real-world concepts don't fit into one parent category. Folder-tag-sync's reason-to-exist is bridging a strict-hierarchy primitive (filesystem) to a polyhierarchical addressing system (tags).
 
 ### Pre-coordination vs. post-coordination
 
@@ -128,17 +128,17 @@ Solving one doesn't automatically solve the other. A rule can be perfectly bijec
 
 ### Surjection, injection, bijection
 
-Function-theoretic terms that formalize what "lossless in both directions" means. Given a function `f: A → B`:
+Function-theoretic terms (formal vocabulary from set theory for the shapes a function can take) that formalize what "lossless in both directions" means. Given a function `f: A → B`:
 
-- **Injective** (one-to-one) — distinct inputs go to distinct outputs. Folder→tag of an identity rule is injective: two different folder paths produce two different tags.
-- **Surjective** (onto) — every output is reachable from some input. Tag→folder of a marker-only rule is surjective on its (tiny) image — every tag the rule produces (just one, the marker) corresponds to *many* folders.
-- **Bijective** — both injective and surjective. Perfect 1-to-1 correspondence; the function has a true inverse. Identity rules with no destructive transforms are bijective.
+- **Injective** (one-to-one — distinct inputs always go to distinct outputs; no two inputs collide). Folder→tag of an identity rule is injective: two different folder paths produce two different tags.
+- **Surjective** (onto — every possible output is reached by some input; no "unused" outputs). Tag→folder of a marker-only rule is surjective on its (tiny) image — every tag the rule produces (just one, the marker) corresponds to *many* folders.
+- **Bijective** (both injective and surjective — perfect 1-to-1 correspondence; the function has a true inverse). Identity rules with no destructive transforms are bijective.
 
 The plugin's `bijective: boolean` field on rules is asking exactly this question. Today it's *asserted* by the typed-spec semantics. The point of Phase H is to make it *computable* from the (folder template, tag template) pair — slots that appear on both sides round-trip; slots only on one side document a lossy direction.
 
 ### Homomorphism, isomorphism
 
-Abstract-algebra terms. A **homomorphism** is a structure-preserving map in one direction (e.g., the function preserves "this thing is a sub-part of that thing"). An **isomorphism** is a homomorphism with a structure-preserving inverse — the two structures are formally interchangeable. A perfectly bidirectional rule is asking to be an isomorphism between a folder shape and a tag shape. The lens calculus's three round-trip laws (GetPut, PutGet, PutPut) are the formal version of "this rule defines an isomorphism on its domain."
+Abstract-algebra terms (vocabulary from the math of structure-preserving maps between systems). A **homomorphism** (a structure-preserving map in one direction — e.g., the function preserves "this thing is a sub-part of that thing"). An **isomorphism** (a homomorphism with a structure-preserving inverse — the two structures are formally interchangeable). A perfectly bidirectional rule is asking to be an isomorphism between a folder shape and a tag shape. The lens calculus's three round-trip laws — GetPut (putting back what you got gives the original), PutGet (getting after putting gives what you put), PutPut (putting twice equals putting once) — are the formal version of "this rule defines an isomorphism on its domain."
 
 ### Putting them together: regex vs. templates, in vocabulary
 

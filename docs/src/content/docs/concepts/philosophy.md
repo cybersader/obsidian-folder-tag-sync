@@ -24,9 +24,9 @@ Layer 0 — Obsidian               sync engines, vault API calls
 
 The typed model isn't a single description of a rule. It's **three things**:
 
-1. **How the folder side is structured** — the [`FolderClassifier`](/obsidian-folder-tag-sync/concepts/folder-classifiers/). What [axes](/obsidian-folder-tag-sync/concepts/axes/) does this folder classify? Is it enumerative (JD-style numbered siblings) / hierarchical (deep subject tree) / faceted / authority-root / container-only? How is it named? How deep?
-2. **How the tag side is structured** — the [`TagVocabulary`](/obsidian-folder-tag-sync/concepts/tag-vocabularies/). What axis does this tag carry? Is it pre-coordinated / post-coordinated / flat-keyword? Does it use a prefix marker? Is the tag authoritative, or derived from the folder?
-3. **An explicit mapping between the two sides** — the [`TransferOp`](/obsidian-folder-tag-sync/concepts/transfer-operations/). Identity, truncation, promotion-to-root, flattening-to-leaf, post-coordination, aggregation, marker-only, or opaque.
+1. **How the folder side is structured** — the [`FolderClassifier`](/obsidian-folder-tag-sync/concepts/folder-classifiers/) (a typed description of how this folder organizes content). What [axes](/obsidian-folder-tag-sync/concepts/axes/) (dimensions of classification — "by owner" vs "by project" vs "by date") does this folder classify? Is it enumerative (numbered siblings; order matters — e.g. Johnny Decimal categories) / hierarchical (deep subject tree, narrowing with depth) / faceted (multiple independent sub-axes under one root) / authority-root (per-entity workspace root, like `Entity/Cybersader/`) / container-only (a folder that holds things but doesn't classify them)? How is it named? How deep?
+2. **How the tag side is structured** — the [`TagVocabulary`](/obsidian-folder-tag-sync/concepts/tag-vocabularies/) (a typed description of how this tag is shaped). What axis does this tag carry? Is it pre-coordinated (concepts fused into one term, like `#projects/web-auth`) / post-coordinated (concepts applied separately as multiple tags, like `#projects` + `#web-auth`) / flat-keyword (single-concept tag, no hierarchy)? Does it use a prefix marker (an optional leading character on tags showing axis membership, like `#-clip` or `#--privateAxis`)? Is the tag authoritative (this tag is the source of truth), or derived from the folder?
+3. **An explicit mapping between the two sides** — the [`TransferOp`](/obsidian-folder-tag-sync/concepts/transfer-operations/) (one of eight library-science primitives that says how hierarchy crosses between the sides). Identity, truncation, promotion-to-root, flattening-to-leaf, post-coordination, aggregation, marker-only, or opaque.
 
 Two sides, independently typed, then mapped. Each half is its own statement about a slice of your knowledgebase; the mapping is how they bridge.
 
@@ -37,6 +37,34 @@ Folders and tags are not mirror images. A folder tree can carry, at best, one or
 > SEACOW is a set of orthogonal classification axes. Knowledge has more axes than a folder tree can carry. Tags carry the axes folders can't.
 
 So describing "the folder side" and "the tag side" as separate typed things — and then saying how they cross — lets each side be honest about what it's doing. A container-only folder (`Attachments/`) doesn't pretend to classify anything; a flat-keyword tag (`#urgent`) doesn't pretend to pre-coordinate.
+
+### The structural difference, drawn
+
+Visually: folders form a strict hierarchy (one parent per child); tags form a polyhierarchy (multi-parent reachability — the same item sits under several broader categories at once). The same `notes.md` file lives at *exactly one* folder path, but it's reachable from *several* tag paths simultaneously.
+
+<figure aria-label="Two trees side-by-side. The folder tree shows a strict hierarchy where one file (notes.md) lives at exactly one path from the vault root. The tag tree shows a polyhierarchy where the same file is reachable through three different tag paths simultaneously (#projects/web/auth, #topic/oauth, #owner/cybersader). The visual contrast makes concrete what 'polyhierarchy' means as a structural property." style="margin: 1.5em 0;">
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(290px, 1fr)); gap: 1.25em;"><div style="border: 1.5px solid currentColor; border-color: rgba(125,125,125,0.4); border-radius: 12px; padding: 1em 1.25em;"><div style="font-size: 0.78em; font-weight: 700; letter-spacing: 0.06em; opacity: 0.75; margin-bottom: 0.6em;">FOLDER SIDE &middot; strict hierarchy</div><div style="font-size: 0.85em; opacity: 0.85; margin-bottom: 0.5em;">One parent per child. <strong>Exactly one path</strong> from root to <code dir="auto">notes.md</code>.</div><pre style="margin: 0; font-family: ui-monospace, monospace; font-size: 0.85em; line-height: 1.55; padding: 0.6em 0.7em; background: rgba(125,125,125,0.1); border-radius: 4px; overflow-x: auto;">Vault/
+&#9500;&#9472; Projects/
+&#9474;  &#9500;&#9472; Web/
+&#9474;  &#9474;  &#9492;&#9472; Auth/
+&#9474;  &#9474;     &#9492;&#9472; <strong style="color: #4f8a4a;">notes.md</strong>
+&#9474;  &#9492;&#9472; Mobile/
+&#9474;     &#9492;&#9472; iOS/
+&#9474;        &#9492;&#9472; spec.md
+&#9492;&#9472; Capture/
+   &#9492;&#9472; Inbox/
+      &#9492;&#9472; scratch.md</pre><div style="font-size: 0.82em; opacity: 0.78; margin-top: 0.5em; font-style: italic;">Path to notes.md: <code dir="auto">Projects/Web/Auth/notes.md</code>. Only one. The OS enforces this.</div></div><div style="border: 1.5px solid currentColor; border-color: rgba(125,125,125,0.4); border-radius: 12px; padding: 1em 1.25em;"><div style="font-size: 0.78em; font-weight: 700; letter-spacing: 0.06em; opacity: 0.75; margin-bottom: 0.6em;">TAG SIDE &middot; polyhierarchy</div><div style="font-size: 0.85em; opacity: 0.85; margin-bottom: 0.5em;">Multi-parent reachability. <strong>Three paths</strong> all reach the same <code dir="auto">notes.md</code>.</div><pre style="margin: 0; font-family: ui-monospace, monospace; font-size: 0.85em; line-height: 1.55; padding: 0.6em 0.7em; background: rgba(125,125,125,0.1); border-radius: 4px; overflow-x: auto;">#projects/
+&#9474;  &#9492;&#9472; web/
+&#9474;     &#9492;&#9472; auth &#x2192;&#x2500;&#x2510;
+&#9474;                  &#9474;
+#topic/                  &#9474;
+&#9474;  &#9492;&#9472; oauth &#x2192;&#x2500;&#x2500;&#x2500;&#x2500;&#x2524;&#x2500;&#x2500; <strong style="color: #4f8a4a;">notes.md</strong>
+&#9474;                  &#9474;
+#owner/                  &#9474;
+   &#9492;&#9472; cybersader &#x2192;&#x2524;</pre><div style="font-size: 0.82em; opacity: 0.78; margin-top: 0.5em; font-style: italic;">Same file, three tag paths: <code dir="auto">#projects/web/auth</code>, <code dir="auto">#topic/oauth</code>, <code dir="auto">#owner/cybersader</code>. Each is a different angle on the same content.</div></div></div>
+</figure>
+
+The plugin's job is to bridge these two structurally different things deterministically. Some bridges round-trip cleanly (`identity`, `truncation/drop`); others throw information away by design (`marker-only`, `promotion-to-root`); the typed model surfaces which is which. See [Bijection and loss](/obsidian-folder-tag-sync/concepts/bijection-and-loss/) for the per-op breakdown.
 
 ## Primitives are small. Real rules are primitives *stacked*
 
@@ -62,7 +90,7 @@ Where two primitives really are distinct surfaces — e.g. an entity rule and a 
 
 The vocabulary here — enumerative, hierarchical, faceted, pre-coordinated, post-coordinated, controlled vocabulary, broader-term / narrower-term — is not invented for this plugin. It's drawn from classification theory and knowledge organization (KO) literature. When the types feel principled and durable, that's because they are — they've been refined over a century of thinking about how humans organize subjects into hierarchies, facets, and controlled vocabularies.
 
-The short version: folders look more like **classification schemes** (a single tree), and tags look more like **descriptor-based indexing** (a controlled vocabulary applied as typed edges). The plugin's job is to let you declare which kind of surface each side is, and how they map. Library science already has the vocabulary for that.
+The short version: folders look more like **classification schemes** (a single tree where each item lives at one place), and tags look more like **descriptor-based indexing** (a controlled vocabulary — a pre-approved set of terms — applied as typed edges so each item can be reachable from many places at once). The plugin's job is to let you declare which kind of surface each side is, and how they map. Library science already has the vocabulary for that.
 
 ## When to drop to regex
 

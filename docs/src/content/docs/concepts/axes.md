@@ -5,9 +5,9 @@ sidebar:
   order: 2
 ---
 
-An **axis** is a dimension of classification. Knowledge has more than one — which is exactly why folder trees alone can't express the whole structure of a knowledgebase.
+An **axis** (a dimension of classification — "by owner" vs "by project" vs "by date") is exactly that: one direction along which content can be sorted. Knowledge has more than one axis — which is why folder trees alone can't express the whole structure of a knowledgebase. A folder tree picks *one* axis (whichever one you put at the top of the hierarchy); tags can carry the rest.
 
-Folder Tag Sync adopts the six axes of the SEACOW meta-framework (System / Entity / Activities[Capture, Output, Work] / relation), originally documented in [cybersader/crosswalker](https://cybersader.github.io/crosswalker/agent-context/knowledge-organization/). Every [folder classifier](/obsidian-folder-tag-sync/concepts/folder-classifiers/) and every [tag vocabulary](/obsidian-folder-tag-sync/concepts/tag-vocabularies/) declares which axis (or axes) it participates in.
+Folder Tag Sync adopts the six **orthogonal classification axes** (independent dimensions — moving along one shouldn't require moving along another) from the SEACOW meta-framework (System / Entity / Activities[Capture, Output, Work] / relation), originally documented in [cybersader/crosswalker](https://cybersader.github.io/crosswalker/agent-context/knowledge-organization/). Every [folder classifier](/obsidian-folder-tag-sync/concepts/folder-classifiers/) and every [tag vocabulary](/obsidian-folder-tag-sync/concepts/tag-vocabularies/) declares which axis (or axes) it participates in.
 
 ## The six axes
 
@@ -41,21 +41,21 @@ Publishable, external-facing. The polished side.
 
 ### `work`
 
-Active processing, derivation. PARA / Johnny Decimal / project organization lives here.
+Active processing, derivation. PARA (Projects/Areas/Resources/Archive — Tiago Forte's framework) and Johnny Decimal (numbered category folders for ASCII sort order) and project organization live here.
 
 - **Folder examples**: `Projects/Q4-Roadmap/`, `10 - Projects/11 - Q4 Roadmap/`
 - **Tag conventions**: no prefix — bare words (e.g. `#projects/q4-roadmap`)
 
 ### `relation`
 
-Flat cross-link keywords. Post-coordinated; authored directly on notes, not derived from folder paths.
+Flat cross-link keywords. Post-coordinated (concepts applied separately as multiple independent tags, not fused into one hierarchical term); authored directly on notes, not derived from folder paths.
 
 - **Folder examples**: (none — relation tags don't derive from folder structure)
 - **Tag conventions**: flat keywords (e.g. `#topic/attention`, `#author/kahneman`)
 
 ## Axes as prefix conventions — optional but useful
 
-The prefix-marker convention (`/` `--` `-` `_`) is not mandatory. It's a community-reached agreement that makes axis membership visible in the tag pane and — critically — gives ASCII-sort ordering that groups axes together:
+The **prefix-marker convention** (an optional leading character on tags showing axis membership — `/` `--` `-` `_`) is not mandatory. It's a community-reached agreement that makes axis membership visible in the tag pane and — critically — gives ASCII-sort ordering that groups axes together:
 
 ```
 #--cybersader   (entity)

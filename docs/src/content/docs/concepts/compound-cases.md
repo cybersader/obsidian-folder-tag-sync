@@ -5,7 +5,7 @@ sidebar:
   order: 6
 ---
 
-Most real-world mappings aren't one pure primitive — they're **two primitives composed**. Folder Tag Sync handles this by keeping the primitive set small and letting each primitive carry options that absorb its common compound behaviors.
+Most real-world mappings aren't one pure primitive — they're **two primitives composed** (two of the eight transfer ops working in sequence on different parts of the same path). Folder Tag Sync handles this by keeping the primitive set small and letting each primitive carry options that absorb its common compound behaviors.
 
 The test: *"would a second primitive with a mode flag be clearer than a composition users have to author?"*. If yes → mode flag. If no → author as two rules with priorities.
 
@@ -13,7 +13,7 @@ The test: *"would a second primitive with a mode flag be clearer than a composit
 
 ### "Preserve N levels, stack the rest" → `truncation(tailHandling: 'aggregate')`
 
-Feels like: `truncation(depth: N)` ∘ `aggregation(separator)` on the tail.
+Truncation/aggregate (cap to N segments, then join everything deeper with a separator into one term) feels like two ops stacked: `truncation(depth: N)` ∘ `aggregation(separator)` on the tail.
 
 Actually: one primitive.
 

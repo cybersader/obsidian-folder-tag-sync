@@ -5,7 +5,7 @@ sidebar:
   order: 4
 ---
 
-A tag is a **term in a controlled vocabulary** that points to a concept along one axis. Every tag is axis-pure — one tag, one axis. The `TagVocabulary` captures how a particular tag family behaves.
+A tag is a **term in a controlled vocabulary** (a pre-approved set of allowed terms — not free-form text) that points to a concept along one axis. Every tag is axis-pure — one tag, one axis. The `TagVocabulary` captures how a particular tag family behaves.
 
 ```ts
 interface TagVocabulary {
@@ -18,11 +18,11 @@ interface TagVocabulary {
 
 ## Coordination — how concepts combine in a single tag
 
-Borrowed directly from classification theory.
+**Coordination** (the way concepts get joined together in a tag system) is borrowed directly from classification theory.
 
 ### `pre-coordinated`
 
-Concepts are **fused in the term** itself. `#projects/q4-roadmap` is one pre-coordinated tag: the projects-concept and the q4-roadmap-concept are combined in a single hierarchical term.
+Pre-coordinated (concepts fused into one hierarchical term, like `#projects/web-auth`). `#projects/q4-roadmap` is one pre-coordinated tag: the projects-concept and the q4-roadmap-concept are combined in a single hierarchical term.
 
 - **Examples**: `#projects/q4-roadmap`, `#--cybersader/10-projects/11-q4-roadmap`, `#_publicTaxonomy/security/zero-trust`
 - **Pairs with**: hierarchical or enumerative folder schemes, identity or truncation transfer
@@ -30,7 +30,7 @@ Concepts are **fused in the term** itself. `#projects/q4-roadmap` is one pre-coo
 
 ### `post-coordinated`
 
-Concepts are **applied separately** — multiple independent tags describe one note. `#projects` + `#q4-roadmap` co-exist as separate tags rather than fusing.
+Post-coordinated (concepts applied separately as multiple independent tags, like `#projects` + `#web-auth`). Multiple independent tags describe one note rather than fusing into a single hierarchical term.
 
 - **Examples**: `#topic/attention` + `#author/kahneman` + `#2024` on one note
 - **Pairs with**: faceted folder schemes, `post-coordination` transfer, relation axis
@@ -38,7 +38,7 @@ Concepts are **applied separately** — multiple independent tags describe one n
 
 ### `flat-keyword`
 
-Single-concept tags that don't compound. `#urgent`, `#inbox`, `#draft`.
+Flat-keyword (a single-concept tag with no hierarchy). `#urgent`, `#inbox`, `#draft` — one tag says one thing, no nesting.
 
 - **Examples**: `#-inbox`, `#urgent`, `/template`
 - **Pairs with**: container-only folder schemes, `marker-only` transfer

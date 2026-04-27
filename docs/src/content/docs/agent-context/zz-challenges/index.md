@@ -31,3 +31,16 @@ Every agent that works on a project accumulates context bias — it starts agree
 - [Challenge 01: Does first-match-wins hold under real-world rule stacks?](/obsidian-folder-tag-sync/agent-context/zz-challenges/01-rule-priority-stress-test/)
 - [Challenge 02: Transformation pipeline fidelity under bidirectional round-trips](/obsidian-folder-tag-sync/agent-context/zz-challenges/02-pipeline-reversibility/)
 - [Challenge 03: Performance on a 10K-file vault with 50 rules](/obsidian-folder-tag-sync/agent-context/zz-challenges/03-performance-at-scale/)
+- [Challenge 04: Same name, different layer, different meaning](/obsidian-folder-tag-sync/agent-context/zz-challenges/04-name-collisions-across-hierarchy/)
+- [Challenge 05: Multi-entity vaults and namespace partitioning](/obsidian-folder-tag-sync/agent-context/zz-challenges/05-multi-entity-namespace-partitioning/)
+- [Challenge 06: Compositional rule packs and the layering primitive](/obsidian-folder-tag-sync/agent-context/zz-challenges/06-compositional-rule-packs/)
+
+## Challenge clusters
+
+Challenges 04, 05, 06 form a connected cluster on the *layering and composition* family. They share solution machinery (parameterized anchors, slot capture, scope inheritance) but ask three distinct first-principles questions:
+
+- **04 — Disambiguation** — same syntactic name, different semantic meaning at different positions
+- **05 — Quantification** — one rule shape, many entity instances, no N×M explosion
+- **06 — Composition** — multiple packs stacking at different layers, with the inner pack auto-anchoring to the outer's matched location
+
+Recommended dispatch: hand each to a separate fresh agent in parallel; cross-reference findings when they all return.

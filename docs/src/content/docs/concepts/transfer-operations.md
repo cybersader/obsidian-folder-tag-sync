@@ -278,6 +278,7 @@ See [Compound cases](/obsidian-folder-tag-sync/concepts/compound-cases/) for how
 ## See also
 
 - [Bijection and loss](/obsidian-folder-tag-sync/concepts/bijection-and-loss/) — the bridge from these primitives upward to round-trip behavior, lossy flavors, cardinality, collision-vs-lossy
+- [Bijectivity detection](/obsidian-folder-tag-sync/concepts/bijectivity-detection/) — the algorithm + storage layer the engine uses to compute whether a rule is bijective at runtime, given these primitives + per-filter transform metadata
 - [Compound cases](/obsidian-folder-tag-sync/concepts/compound-cases/) — when two ops would naively stack but collapse into one with a mode flag
 - [Philosophy](/obsidian-folder-tag-sync/concepts/philosophy/) — why these eight ops, and what they mean as part of the typed model
 - [Terminology](/obsidian-folder-tag-sync/concepts/terminology/) — plain-English glossary

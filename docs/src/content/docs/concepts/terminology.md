@@ -154,6 +154,7 @@ Two ways rules get into your settings:
 
 - [Transfer operations](/obsidian-folder-tag-sync/concepts/transfer-operations/) — the eight primitives this glossary's lossy/lossless/bijection terms are properties *of*
 - [Bijection and loss](/obsidian-folder-tag-sync/concepts/bijection-and-loss/) — the bottom-up bridge from transfer-op primitives to round-trip behavior, lossy flavors, cardinality, and the collision-vs-lossy distinction
+- [Bijectivity detection](/obsidian-folder-tag-sync/concepts/bijectivity-detection/) — how the engine computes the bijectivity verdict for a rule (storage layer + algorithm)
 - [Philosophy](/obsidian-folder-tag-sync/concepts/philosophy/) — why the typed-model layers exist; pre/post-coordination explained at length
 - [When to use regex](/obsidian-folder-tag-sync/concepts/when-to-use-regex/) — current escape-hatch guidance
 - [Path abstractions, part 1](/obsidian-folder-tag-sync/agent-context/zz-log/2026-04-26-regex-vs-path-templates-research/) — vocabulary in research-doc context

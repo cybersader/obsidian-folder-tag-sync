@@ -202,6 +202,7 @@ The abstraction question explored in the [research log entries](/obsidian-folder
 
 ## See also
 
+- [Bijectivity detection](/obsidian-folder-tag-sync/concepts/bijectivity-detection/) — how the engine *computes* bijectivity (this page is *why* it matters; that page is the algorithm + storage)
 - [Transfer operations](/obsidian-folder-tag-sync/concepts/transfer-operations/) — the eight primitives this page builds on
 - [Compound cases](/obsidian-folder-tag-sync/concepts/compound-cases/) — where two ops would naively stack but collapse into one
 - [When to use regex](/obsidian-folder-tag-sync/concepts/when-to-use-regex/) — the escape hatch when no transfer op fits

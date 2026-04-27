@@ -8,6 +8,16 @@ sidebar:
 date: 2026-04-27
 ---
 
+## Naming the abstraction — Path Lens
+
+Going forward, the rule abstraction we're designing is called **Path Lens** (or **Folder-Tag Lens** in long form). The name is neutral about which *shape* the lens takes (template / slot-object / explicit get-put pair) — those are syntaxes; the lens is the meta-shape.
+
+Why "lens": the academic lineage is Foster/Pierce's bidirectional lens calculus (Boomerang, BiGUL). A lens is a forward + inverse pair with round-trip laws — exactly what we're building. The name imports the formal vocabulary without forcing the academic syntax on users.
+
+Why this matters: the abstraction *will* morph. The shape we ship next year may not be the shape we ship in three years; per-slot transforms, optional slots, frontmatter property bindings (F4) will all extend it. The name **Path Lens** survives those changes because it describes the *role* (a typed bidirectional path-mapping primitive), not the *syntax* of any particular implementation.
+
+When you see "the lens" / "a lens" / "lens-shape" in the docs going forward, that's this abstraction. Specific syntaxes (template form, slot-object form, etc.) are *renderings* of the lens.
+
 ## What this is
 
 Five real rules, four candidate abstraction shapes, drafted side-by-side. The user reads, reacts, narrows the field. Not picking yet — this is Path 1 of the *"try options in practice and see what sticks"* approach approved at F2 decision-gate Q5.

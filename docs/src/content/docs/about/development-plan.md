@@ -78,9 +78,15 @@ A user opens settings and sees:
 
 The mental model the user maintains is the same — rules + slots + transforms — but the engine *explains itself* at every decision point. Surprises shrink toward zero.
 
-## How to read the increments below
+## How to read the increments below — Foundation / Application / Polish
 
-Each increment is sequenced by **what users notice first**:
+The increments are organized into **three tracks** that run somewhat in parallel:
+
+- **Foundation track (F1—F4)**: load-bearing architectural primitives — what FTSync *is*. The user has been researching these because they affect the core abstraction. **Sequential by dependency** — each item names what it depends on; some pieces can ship in parallel (notably F2 and F3).
+- **Application track (A1—A4)**: UX surfaces built on top of the foundation. Once their dependencies land, these can ship in parallel with each other and with later Foundation work.
+- **Polish track**: long-tail nice-to-haves (rule pack marketplace, analytics, sync history, visual builder). After Foundation + Application stabilize.
+
+Within each track, items are sequenced by **what users notice first**:
 
 - **Invisible-positive** (rules just work better; user notices nothing changed but everything fits intuition more) — cheapest UX shift, lowest risk
 - **Opt-in additive** (a new authoring surface coexists with the old; users adopt at their own pace)
@@ -88,11 +94,24 @@ Each increment is sequenced by **what users notice first**:
 - **Interactive UX** (modals fire when ambiguity arises; users learn by doing)
 - **External boundary** (other plugins integrate; mostly invisible to end users)
 
-Each increment is independently shippable. None block any other except where explicitly noted. The order below is recommended, not required.
+**Mapping increments to F/A/P labels** (used in the [roadmap](/obsidian-folder-tag-sync/about/roadmap/)):
+
+| Increment in this plan | Track label | What it is |
+|---|---|---|
+| Increment 1 | **F1** | Specificity-aware matching + rule groups |
+| Increment 2 | **F2** | Bidirectional path templates |
+| Increment 3 | **F3** | Hybrid frontmatter witness |
+| (was item #15) | **F4** | Frontmatter-property-driven destination |
+| Increment 4 | **A1** | Interactive conflict-resolution UI |
+| Increment 5 | **A2** | Plugin API for Templater / QuickAdd / Dataview |
+| Cross-cutting | **A3** | Attachment + folder-note handling |
+| Cross-cutting | **A4** | Cross-device coordination + Obsidian Sync |
+
+**Parallelism in practice**: F2 and F3 can ship concurrently (different code layers). F1 Step 3 (group field) can ship in parallel with F2 or F3. A1 (conflict UI) needs F1 stable but can ship in parallel with F3. A3 (attachments) is essentially independent — can ship anytime. The "order" below is the *recommended sequence for review*; actual implementation order depends on what's ready and what surfaces blockers.
 
 ---
 
-## Increment 1 — Resolution-engine refinement (invisible-positive)
+## Increment 1 / F1 — Resolution-engine refinement (Foundation, invisible-positive)
 
 **What users see**: nothing changes about how they author rules. Their existing rule lists keep working. But behind the scenes, when several rules could match the same input, the engine picks the *most specific* one rather than the *first by priority number*. Users with PARA-shaped intuition ("more specific should win") stop having to manually re-order priorities.
 
@@ -145,7 +164,9 @@ Increment 2 commits to a specific authoring abstraction (path templates with nam
 
 ---
 
-## Increment 2 — Path templates as a peer to regex (opt-in additive)
+## Increment 2 / F2 — Path templates as a peer to regex (Foundation, opt-in additive)
+
+**Can run in parallel with**: F3 (frontmatter witness) — different code layers, no shared paths.
 
 **What users see**: the rule editor gets a new top-of-pane mode toggle: **"Template" / "Regex"**. Template mode shows a single-line input with named slots (`Projects/{slug}` ↔ `#projects/{slug}`). Regex mode is the existing power-user surface, unchanged. New rules default to Template mode; existing regex rules stay regex.
 
@@ -202,7 +223,9 @@ The [Frontmatter as bijection memory research](/obsidian-folder-tag-sync/agent-c
 
 ---
 
-## Increment 3 — Hybrid frontmatter witness (per-file state, opt-in)
+## Increment 3 / F3 — Hybrid frontmatter witness (Foundation, per-file state, opt-in)
+
+**Can run in parallel with**: F2 (path templates) — different code layers, no shared paths. F3 doesn't depend on templates landing.
 
 **What users see**: a new toggle in the rule editor — *"Remember origin in frontmatter for bidirectional recovery"*. Off by default. When enabled on a lossy rule, files synced via that rule gain a small `fts:` block in their frontmatter:
 
@@ -273,7 +296,9 @@ After **3c (recovery)**:
 
 ---
 
-## Increment 4 — Conflict-resolution UI (interactive UX)
+## Increment 4 / A1 — Conflict-resolution UI (Application, interactive UX)
+
+**Depends on**: F1 (need specificity scoring stable before defining "genuinely close" matches that warrant a prompt). **Composes with**: F3 (witness can show "this candidate has stored origin from previous syncs"). **Can run in parallel with**: F2, F3, A2, A3 once dependency satisfied.
 
 **What users see**: when adding a tag where the inverse direction is genuinely ambiguous (multiple rules match, or a `marker-only` rule with no frontmatter origin and the user wants intentional placement), a modal fires:
 
@@ -312,7 +337,9 @@ The modal is silent for unambiguous cases (single match, or specificity-clear wi
 
 ---
 
-## Increment 5 — Plugin API for external integration (mostly invisible)
+## Increment 5 / A2 — Plugin API for external integration (Application, mostly invisible)
+
+**Depends on**: F1, F2, F3 should all be reasonably stable so the API can commit to behavior it exposes. **Can run in parallel with**: A1, A3, A4 once dependency satisfied.
 
 **What users see**: nothing visible in the FTSync UI. But Templater, QuickAdd, and Dataview plugin integrations gain documented hooks — *"You can call `app.plugins.plugins['folder-tag-sync'].api.getTagsForFolder(path)` from your Templater script."* Third-party plugin developers can build on top.
 
@@ -339,6 +366,39 @@ The modal is silent for unambiguous cases (single match, or specificity-clear wi
 **Composes with**: all prior increments (the API exposes their behavior). Should ship *after* Increments 1–3 because the API has to commit to behavior the implementation supports.
 
 **Where to read more**: [Challenge 10](/obsidian-folder-tag-sync/agent-context/zz-challenges/10-plugin-api-for-templater-and-quickadd/) — when an outside agent runs this challenge, the findings inform the exact API shape.
+
+---
+
+## F4 — Frontmatter-property-driven destination resolution (Foundation, future)
+
+**The fourth foundation iteration.** Not in the original increment list because it depends on F2 (templates) landing first — slots are the natural carrier for property-sourced values. Worth its own research challenge dispatch before scope is fully settled.
+
+**What the user experiences**: a rule's template can pull slot values from the file's frontmatter properties. A user with multi-entity work has files with `entity: cybersader` and others with `entity: bob`; the same tag `#projects/web-auth` routes to `Entity/Cybersader/Projects/Web Auth/` for the first and `Entity/Bob/Projects/Web Auth/` for the second — without authoring two separate rules. The rule editor exposes "this slot reads from frontmatter property X"; missing-property fallback is configurable per rule (default folder, prompt, refuse).
+
+**Depends on**: F2 (templates as the slot carrier). Strongly benefits from F3 (the witness can record which properties were used to populate slots).
+
+**Unlocks**: SEACOW context-as-disambiguator becomes a first-class part of the rule format; per-file destination resolution via arbitrary frontmatter properties beyond what the tag pattern alone can decide. Resolves the "smart context-aware system" thread from the [solution brainstorm](/obsidian-folder-tag-sync/agent-context/zz-log/2026-04-27-the-bidirectional-bijective-solution-work/) at a tractable scope.
+
+**Open questions** (need a research entry before implementation):
+
+- Schema: new `frontmatterConditions` field per rule, or extend slot syntax with property-source markers (`{entity:fromProperty}`)?
+- Behavior on missing property: fall back to default-folder rule? Use a configured default value? Refuse to match? Prompt?
+- Property-value normalization: case-sensitive match? Prefix match? Regex match? Per-rule choice?
+- Composition with templates' filter syntax: does `{entity | kebab}` apply when `entity` is sourced from frontmatter rather than the tag?
+- Composition with the witness (F3): when a file is forward-synced, is the property-value-at-time-of-sync recorded, or only the resulting folder?
+- UX: rule editor surface for declaring property dependencies — per-slot toggle, separate "uses these properties" section, or inline notation?
+
+**User testing checkpoint** (when this lands):
+
+1. **Single-entity workflow** — author a rule with `{owner}` as a frontmatter-sourced slot; create a file with `entity: cybersader` in frontmatter; add the trigger tag; verify the file routes to the entity-scoped folder.
+2. **Multi-entity coexistence** — same rule, files with three different `entity:` values; verify each routes correctly.
+3. **Missing-property fallback** — a file with the tag but no `entity:` property; verify the configured fallback applies (default-folder / prompt / refuse).
+4. **Property edit triggers re-route** — change a file's `entity:` value from `cybersader` to `bob`; verify the file moves to the new entity scope automatically (or stays put, depending on configured behavior).
+5. **Composition with witness** (F3 enabled) — verify the witness records the property values used; subsequent inverse syncs use the recorded values, not current file properties (avoids spurious moves when properties change).
+
+**Estimated scope**: ~150 LOC + UI surface + ~30 LOC tests. Comparable to F2 in size; smaller than F2+F3 combined.
+
+**Cross-cutting**: this is genuinely a research-frontier-adjacent feature (no current tool does context-aware destination resolution at file granularity). Treating it carefully — explicit research entry, decision gate, user testing partnership at every step.
 
 ---
 

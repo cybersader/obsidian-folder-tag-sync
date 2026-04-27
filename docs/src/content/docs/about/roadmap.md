@@ -398,44 +398,170 @@ When the user adds `#projects/web-auth` to a file with `entity: cybersader` in f
 
 ---
 
-## Implementation Phases
+## Implementation tracks — Foundation, Application, Polish
 
-### Phase 1: Core Functionality (Current)
+The previous "Phase 1 / 2 / 3 / 4" framing buried foundational architecture work as polish. The restructure below separates the **load-bearing architectural primitives** (Foundation track — what FTSync *is*) from **UX surfaces built on top** (Application track) from **long-tail nice-to-haves** (Polish track).
+
+**Some Foundation pieces ship in parallel with each other and with Application work where dependencies allow.** This isn't a strict pipeline. Each item explicitly names its `depends on` and what it `unlocks`.
+
+### Phase 1: Core Functionality (Current — legacy reference)
 - ✅ Transformation engine
 - ✅ Rule matching
 - ✅ UI components (basic)
 - ⏳ Folder-to-tag sync engine
 - ⏳ Tag-to-folder sync engine
 
-### Phase 2: UI Polish & Usability
+## How to read this section
+
+Three tracks, **not** a strict pipeline. The Foundation track is sequential by dependency; pieces within Application and Polish run in parallel with each other and with Foundation work where dependencies allow. Each item names its own dependencies and what it unlocks downstream.
+
+### Foundation already shipped (history, not roadmap)
+
+- **Phase 1** — Core Functionality: transformation engine, rule matching, basic UI, folder→tag and tag→folder sync, manual sync commands ✅
+- **Phase 2** — Typed model + rule packs: `FolderClassifier` + `TagVocabulary` + `TransferOp`, eight transfer-op primitives, vault-scan organizational-system detection, four shipped rule packs (PARA, JD, SEACOW-cyberbase, Zettelkasten) ✅
+- **Phase G** — Layer-aware folder anchors (`'root'` / `'any-segment'` / `{ under: 'X' }`) ✅
+- **F1 Steps 1+2** — Specificity-aware matching: refined `calculateMatchConfidence` (Formula 3 with anchor-aware bonuses), swapped sort order in `findBestMatch` (confidence primary, priority tiebreak override) ✅
+
+The shipped foundation is what FTSync is *today*. The Foundation track below continues that lineage; these are the architectural primitives the user is researching and authoring rules against.
+
+---
+
+## Foundation track (next)
+
+These are the **load-bearing architectural primitives**. They're what FTSync is becoming, not features sitting on top. The user has been researching them because they affect the foundations of how rules are authored, evaluated, and stored.
+
+Sequence is mostly determined by dependencies (each item's "depends on" line). Some pieces can ship in parallel; that's noted explicitly.
+
+### F1 — Specificity-aware matching + rule groups
+
+- **What the user experiences**: rules just work better. A user with overlapping rules (`^Projects/(.+)$` and `^Projects/Web/(.+)$`) finds that the more-specific one fires without manually swapping priority numbers. Imported rule packs (PARA + JD + SEACOW) coexist without silent collision. The "Priority" field gets relabeled "Priority (override)" with a tooltip explaining when it actually matters.
+- **Status**: Steps 1+2 shipped (resolves Challenge 01 stress case). Step 3 (group field) ahead.
+- **Depends on**: nothing.
+- **Unlocks**: ergonomic ordering for cross-pack composability; provides the natural specificity score for F2 (slot count = specificity once templates land).
+- **Step 3 — `group` field + cross-pack precedence**: optional `group?: string` on `MappingRule`; default group derived from pack ID; vault-level group-precedence config (drag-to-reorder); rename "Priority" → "Priority (override)" in rule editors.
+- **Can run in parallel with**: any other foundation item; A1 / A3 in Application track.
+
+### F2 — Bidirectional path templates
+
+- **What the user experiences**: the rule editor gets a top-of-pane mode toggle: **"Template" / "Regex"**. Template mode shows a single-line input with named slots (`Projects/{slug}` ↔ `#projects/{slug}`); the user authors without regex literacy. Regex mode is the existing surface, unchanged. New rules default to Template mode; existing regex rules keep working as-is. Each rule shows a per-rule status chip — *"This rule round-trips"* (green) or *"Lossy forward — `{owner}` is matched but discarded"* (orange) — explaining what's reversible. The README + docs reposition at this milestone: "regex" stops being the headline; templates become the default authoring surface.
+- **Status**: researched, decision-gated (see [development plan](/obsidian-folder-tag-sync/about/development-plan/) "Decision gate before Increment 2").
+- **Depends on**: F1 ideally (so slot count can be the natural specificity score when templates land), but not strictly — templates can ship before F1 Step 3 if needed.
+- **Unlocks**: per-slot transforms; bijection visibility from slot overlap; the natural carrier for F4 property-driven destination; deeper specificity heuristic that replaces regex-shape scoring.
+- **Scope**: new `PathTemplate` type, slot syntax (`{slug}` / `{rest...}` decided at decision gate), pure compiler in `src/engine/compileTemplate.ts`, derive.ts extension for template-aware compilation, applyTransfer.ts slot-based extraction, loader validation, rule-editor template-mode toggle, per-rule status indicator (round-trips / lossy / asserted).
+- **Can run in parallel with**: F3 (frontmatter witness — different layer, no shared code paths).
+
+### F3 — Hybrid frontmatter witness
+
+- **What the user experiences**: a new toggle in the rule editor — *"Remember origin in frontmatter for bidirectional recovery"*. Off by default; opt-in per rule. When enabled on a lossy rule (`marker-only`, `truncation/aggregate`, etc.), files synced via that rule gain a small `fts:` block in their YAML. The inverse direction then reads it and moves files back to their *exact* origin instead of falling back to the rule's entry folder. A migration command surfaces: *"Backfill origin metadata for existing tagged files? [Yes / Skip]"*. Users who don't enable it see no YAML change; users who do get exact-recovery on lossy ops.
+- **Status**: researched and validated (Challenge 07 findings). Decision-gated (development plan "Decision gate before Increment 3").
+- **Depends on**: nothing strictly. Can ship before, alongside, or after F2.
+- **Unlocks**: per-file bijection recovery for lossy ops; resolves the inverse-direction underspecification problem (Challenge 04); orphan-vs-relation-tag distinction (Challenge 08).
+- **Three sub-phases**: 3a passive witness (write-only, behind feature flag); 3b active disambiguator (read on inverse direction); 3c safety nets (drift detection, vault-rename safeguard, stale-rule cleanup).
+- **Scope**: optional `frontmatterMemory?` config field on `RuleOptions`; `fts:` namespaced object in YAML (sig + rule + pv); reconstructible cache at `.obsidian/plugins/folder-tag-sync/cache.json`; settings UI per-rule toggle + vault-level override; migration backfill command.
+- **Can run in parallel with**: F2 (different layer); A1 (conflict UI benefits from witness for showing recovery candidates but doesn't depend on it).
+
+### F4 — Frontmatter-property-driven destination resolution
+
+- **What the user experiences**: a rule's template can pull slot values from the file's frontmatter properties (`{entity}` ← frontmatter `entity:` field). Same tag `#projects/web-auth` routes to `Entity/Cybersader/Projects/Web Auth/` for files with `entity: cybersader` and `Entity/Bob/Projects/Web Auth/` for files with `entity: bob` — without authoring two separate rules. The rule editor exposes "this slot reads from frontmatter property X." When the property is missing on a file, a configurable fallback applies (default folder, prompt, or refuse).
+- **Status**: future research — needs its own challenge dispatch + research entry before scope is settled.
+- **Depends on**: F2 (templates). Slots are the natural carrier for property-sourced values (`{entity}` filled from frontmatter `entity:`).
+- **Unlocks**: SEACOW context-as-disambiguator becomes a first-class part of the rule format; per-file destination influenced by arbitrary frontmatter properties beyond the rule pattern.
+- **Scope**: extends rule schema with `frontmatterConditions` (or extends slot syntax with property-source markers); inverse-direction algorithm reads property values when populating slots; UX surface in rule editor for declaring property dependencies.
+- **Sequencing**: probably ships *after* F2 but *before* extensive A2 plugin API work (since the API has to commit to whether `getFolderForTag(tag, file)` reads frontmatter properties).
+
+### Cross-cutting foundation work (threads through F1—F4)
+
+- **Orphan / relation-tag semantics** (Challenge 08): pin definitions for `removeOrphanedTags` and `keepRelationTags`. Bears on F3 (witness directly answers "did FTSync write this tag?") and on A1 conflict UI. Dispatch the challenge during F1 or F2; bake findings into F3.
+- **Per-transform reversibility profile** (Challenge 09): per-transform bijection metadata; warning behavior on irreversible bidirectional configurations. Bears on F2 (templates' per-slot transforms) and F3 (which transforms are reversible affects whether frontmatter memory is even needed). Dispatch the challenge during F2; bake findings into F2's status-indicator copy.
+
+---
+
+## Application track (parallel-shippable on top of foundation)
+
+Once the relevant foundation pieces land, these can ship in parallel — they don't depend on each other.
+
+### A1 — Interactive conflict-resolution UI
+
+- **Depends on**: F1 (specificity to know when matches are *genuinely* close; otherwise the engine can pick silently); benefits from F3 (witness shows "this candidate has stored origin").
+- **Unlocks**: honest UX for the inverse-direction ambiguity (Challenge 04 in the genuinely-multiple-plausible-destinations case).
+- **Scope**: conflict-resolution modal; per-tag remembered choices; configurable threshold (when does the modal fire vs. silently first-match).
+
+### A2 — Plugin API for Templater / QuickAdd / Dataview
+
+- **Depends on**: F1, F2, F3 should all be reasonably stable so the API can commit to behavior.
+- **Unlocks**: external plugin ecosystem integration; programmatic access to forward + inverse functions.
+- **Scope**: read-only surface (`getTagsForFolder`, `getFolderForTag`, `listRules`); eventing model; consistency contract; versioning policy. Write surface deferred until concrete demand.
+
+### A3 — Attachment + folder-note handling on tag→folder moves
+
+- **Depends on**: nothing strictly; can ship in parallel with foundation work.
+- **Unlocks**: realistic move semantics for vaults with attachments / canvases / folder notes.
+- **Scope**: per-rule policy (move-with / leave / prompt); Obsidian "Files & Links" mode dispatch; folder-note edge cases.
+
+### A4 — Cross-device coordination + Obsidian Sync interaction
+
+- **Depends on**: F3 (the non-commutative-write problem only matters once frontmatter memory is shipping writes).
+- **Unlocks**: safe multi-device usage; idempotent writes across devices.
+- **Scope**: detection of stale frontmatter; conflict resolution algorithm; mobile compatibility verification.
+
+---
+
+## Polish track (after foundation + application stabilize)
+
+These are genuine "polish" items — they make the experience nicer, but they don't change what the system *is*.
+
+- Rule pack marketplace
+- Analytics (rule-usage, error tracking, performance metrics)
+- Sync history + undo
+- Visual rule builder
+- Mobile-specific testing + optimization
+- Strip-on-export tooling for frontmatter witness
+
+---
+
+## Legacy phase numbering (for cross-references)
+
+The numbered phases below are kept for cross-references in research log entries that pre-date the F/A/P restructure. They map roughly:
+
+- **Phase 1** = "Core Functionality" foundation (shipped)
+- **Phase 2** = "Typed model + rule packs" foundation (shipped)
+- **Phase 2.5** = F1 (specificity + groups; Steps 1-2 shipped, Step 3 ahead)
+- **Phase 3** = F2 + F3 + A1 + A2 (the next major round of work)
+- **Phase 4** = F4 + Polish track
+- **Phase G** = layer-aware anchors (shipped within Phase 2 era)
+- **Phase H** = F2 (templates)
+
+Going forward, prefer the F/A/P labels in new docs and commit messages.
+
+### Phase 2: UI Polish & Usability (legacy reference)
 - 🎯 Conditional form fields
 - 🎯 Default rule packs
 - 🎯 Rule testing/preview
 - Field validation
 - Better error messages
 
-### Phase 2.5: Resolution-engine refinement (near-term, item #13)
-- 🎯 Refine `calculateMatchConfidence` (Formula 3 — anchor-aware, alternation-penalized, slot-aware) — pure refactor, no behavior change
-- 🎯 Audit shipped rule packs against the new formula vs. user-authored priority
-- 🎯 Swap sort order in `findBestMatch` — confidence becomes primary key, priority becomes tiebreak (lands candidate B)
-- Add optional `group?: string` field to `MappingRule`; backfill on shipped packs
-- Group-precedence config + drag-to-reorder UI in settings (lands candidate C)
-- Rename "Priority" → "Priority (override)" in rule editors
+### Phase 2.5: Resolution-engine refinement (legacy = F1, item #13)
+- ✅ Refine `calculateMatchConfidence` (Formula 3 — anchor-aware, alternation-penalized, slot-aware)
+- ✅ Audit shipped rule packs against the new formula vs. user-authored priority
+- ✅ Swap sort order in `findBestMatch` — confidence becomes primary key, priority becomes tiebreak
+- Add optional `group?: string` field to `MappingRule`; backfill on shipped packs (F1 Step 3)
+- Group-precedence config + drag-to-reorder UI in settings (F1 Step 3 cont.)
+- Rename "Priority" → "Priority (override)" in rule editors (F1 Step 3 cont.)
 
-### Phase 3: Advanced Features
-- Template integration (API)
-- Batch processing
-- Conflict resolution strategies (interactive UI for genuinely ambiguous tag→folder cases — candidate D from the resolution research)
-- Rule groups (UI-organization version — item #4; distinct from resolution-engine groups in Phase 2.5)
-- Path templates (Phase H from the regex-vs-templates research)
-- Frontmatter as bijection memory (item #14) — opt-in per-rule storage of origin info to make lossy ops recoverable per-file
+### Phase 3: Advanced Features (legacy = F2 + F3 + A1 + A2)
+- Template integration (API) → A2
+- Batch processing → A2 / vault-scan utility
+- Conflict resolution strategies (interactive UI for genuinely ambiguous tag→folder cases — candidate D from the resolution research) → A1
+- Rule groups (UI-organization version — item #4; distinct from resolution-engine groups in Phase 2.5) → orthogonal UI feature
+- Path templates (Phase H from the regex-vs-templates research) → F2
+- Frontmatter as bijection memory (item #14) — opt-in per-rule storage of origin info to make lossy ops recoverable per-file → F3
 
-### Phase 4: Polish & Community
-- Frontmatter-property-driven destination resolution (item #15) — arbitrary frontmatter properties influence inverse-direction destination; generalizes SEACOW context-as-disambiguator
-- Rule pack marketplace
-- Analytics
-- Sync history
-- Visual rule builder
+### Phase 4: Polish & Community (legacy = F4 + Polish)
+- Frontmatter-property-driven destination resolution (item #15) → F4 (still foundation, not polish)
+- Rule pack marketplace → Polish
+- Analytics → Polish
+- Sync history → Polish
+- Visual rule builder → Polish
 
 ---
 

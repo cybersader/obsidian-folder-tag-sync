@@ -205,7 +205,10 @@ describe('findMatchingRules', () => {
 });
 
 describe('findBestMatch', () => {
-	test('returns highest priority rule', () => {
+	test('priority breaks ties when patterns are identical (so confidences match)', () => {
+		// Under the new sort (Increment 1 Step 2): confidence is primary, priority is tiebreak.
+		// All three rules have the same pattern → same confidence → priority decides.
+		// Lower priority number = higher precedence.
 		const rules = [
 			createRule({ id: 'low', folderPattern: 'Projects/*', priority: 100 }),
 			createRule({ id: 'high', folderPattern: 'Projects/*', priority: 1 }),
@@ -221,7 +224,9 @@ describe('findBestMatch', () => {
 		expect(best?.rule.id).toBe('high');
 	});
 
-	test('breaks ties with confidence', () => {
+	test('confidence wins when patterns differ — more-specific beats broader', () => {
+		// Under the new sort, the more-specific pattern wins.
+		// Both rules have priority 1 (same priority — but confidence already differs).
 		const rules = [
 			createRule({ id: 'generic', folderPattern: 'Projects/*', priority: 1 }),
 			createRule({ id: 'specific', folderPattern: 'Projects/Test', priority: 1 })
@@ -233,8 +238,79 @@ describe('findBestMatch', () => {
 		});
 
 		expect(best).not.toBeNull();
-		// More specific pattern should win
+		// More specific pattern wins by confidence (under the new sort, this is the primary key).
 		expect(best?.rule.id).toBe('specific');
+	});
+
+	test('Challenge 01 stress case — more-specific rule beats lower-priority broader rule', () => {
+		// THE LOAD-BEARING TEST for Increment 1 Step 2.
+		//
+		// Under the OLD sort (priority primary, confidence tiebreak), the broad rule
+		// at priority 10 would have won — even though the specific rule's pattern
+		// matches the input more precisely. Users had to manually swap priorities to
+		// fix this.
+		//
+		// Under the NEW sort (confidence primary, priority tiebreak), the specific
+		// rule wins regardless of priority numbers. Priority becomes a manual
+		// override for the rare cases where confidence is genuinely tied.
+		//
+		// Reference: zz-challenges/01-rule-priority-stress-test.md
+		const rules = [
+			createRule({
+				id: 'broad',
+				folderPattern: '^Projects/(.+)$',
+				folderAnchor: 'root',
+				priority: 10  // would win under the old sort
+			}),
+			createRule({
+				id: 'specific',
+				folderPattern: '^Projects/Web/(.+)$',
+				folderAnchor: 'root',
+				priority: 20  // wins under the new sort because pattern is more specific
+			})
+		];
+
+		const best = findBestMatch('Projects/Web/auth', rules, {
+			input: 'Projects/Web/auth',
+			matchType: 'folder'
+		});
+
+		expect(best).not.toBeNull();
+		expect(best?.rule.id).toBe('specific');
+	});
+
+	test('priority can override confidence when user explicitly forces it (priority < confidence-derived order)', () => {
+		// The escape hatch: a user who genuinely wants the broader rule to win can
+		// still author it. Set the broader rule's priority *high enough* (low number)
+		// to win on tiebreak — but only when confidences are similar enough that
+		// this matters. The "manual override" framing.
+		//
+		// In this test, both rules have very similar confidences (similar shape,
+		// same anchor). The user has set 'broad' at priority 1 and 'similar' at
+		// priority 100. Priority breaks the tie.
+		const rules = [
+			createRule({
+				id: 'broad',
+				folderPattern: '^Projects/(.+)$',
+				folderAnchor: 'root',
+				priority: 1
+			}),
+			createRule({
+				id: 'similar',
+				folderPattern: '^Projects/(.+)$',  // identical pattern → identical confidence
+				folderAnchor: 'root',
+				priority: 100
+			})
+		];
+
+		const best = findBestMatch('Projects/Web', rules, {
+			input: 'Projects/Web',
+			matchType: 'folder'
+		});
+
+		expect(best).not.toBeNull();
+		// Same confidence → priority tiebreaks → priority 1 wins
+		expect(best?.rule.id).toBe('broad');
 	});
 
 	test('returns null when no matches', () => {

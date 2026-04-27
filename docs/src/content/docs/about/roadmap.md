@@ -350,6 +350,54 @@ Also: `findBestMatch` doesn't have a rule-group concept, so multiple third-party
 
 ---
 
+### 15. Frontmatter-property-driven destination resolution (future)
+
+**Problem**: today (and after Phase 2.5), the inverse direction (tag → folder) decides destination using a combination of (a) which rule's pattern matches the tag, (b) the rule's specificity score and group precedence, (c) priority as the manual override tiebreak, and — once Increment 3 ships — (d) the file's `fts.origin` frontmatter witness.
+
+But none of these account for **other frontmatter properties on the file**. A user with `entity: cybersader` vs `entity: bob`, `priority: high` vs `priority: low`, or `status: active` vs `status: archived` might want the same tag to route the file to *different folders depending on those properties*.
+
+**Theory**: extend the rule pack with optional "frontmatter conditions" that influence destination selection. A rule could say:
+
+```json
+{
+  "id": "projects-by-owner",
+  "tagPattern": "^projects/(.+)$",
+  "folderTemplate": "Entity/{entity}/Projects/{slug}",
+  "frontmatterConditions": {
+    "entity": { "required": true, "fromProperty": "entity" }
+  }
+}
+```
+
+When the user adds `#projects/web-auth` to a file with `entity: cybersader` in frontmatter, the inverse direction uses the property to populate `{entity}` → file moves to `Entity/Cybersader/Projects/Web Auth/`.
+
+**This is more sophisticated than the current model**:
+
+- **Today**: tag pattern + rule specificity decide destination
+- **With frontmatter witness (Increment 3)**: + per-file origin can recover exact previous location for forward-synced files
+- **With frontmatter-property conditions (this item)**: + arbitrary frontmatter properties influence destination on a per-file basis, including for files that have never been forward-synced
+
+**Composes with multiple in-flight pieces**:
+
+- **Templates (Phase H)**: the natural carrier — a slot in the template can be filled from a frontmatter property rather than from the tag itself
+- **Specificity-aware matching (Phase 2.5)**: rules with frontmatter conditions could rank higher in confidence if their conditions are satisfied (and lower if they conflict)
+- **SEACOW axes**: the natural use case is dispatching by axis values stored in frontmatter (e.g., `entity: <value>`, `system: <value>`)
+- **Conflict resolution UI** (Phase 3): when frontmatter conditions are partially satisfied, the modal can surface "would you like to set entity to X to use rule Y?"
+
+**Implementation Priority**: Future (Phase 4+). Wait for path templates (Phase H, Increment 2) to land first — frontmatter conditions are most natural as slot-population sources, which means they need slots to populate. Also benefits from the typed model maturing further so the user authoring surface stays simple.
+
+**Open questions**:
+
+- Schema: new `frontmatterConditions` field per rule, or extend the existing slot-resolution syntax (e.g., `{entity:fromProperty}`)?
+- Behavior when the property is missing on a file (no `entity:` set): fall back to non-conditional rule? Use a default? Refuse to match?
+- Property normalization: case-sensitive match on property values? Prefix-match? Regex?
+- Composition with templates' filter syntax: does `{entity | kebab}` apply when `entity` is sourced from frontmatter rather than the tag?
+- UX: how does the rule editor expose "this rule reads from frontmatter"? Per-slot toggle? Separate section?
+
+**Note**: this is a *generalization* of the SEACOW context-as-disambiguator idea from the [solution brainstorm](/obsidian-folder-tag-sync/agent-context/zz-log/2026-04-27-the-bidirectional-bijective-solution-work/) — it makes context-aware destination resolution a first-class part of the rule format rather than a special case. Worth its own research challenge before implementation.
+
+---
+
 ## Implementation Phases
 
 ### Phase 1: Core Functionality (Current)
@@ -383,6 +431,7 @@ Also: `findBestMatch` doesn't have a rule-group concept, so multiple third-party
 - Frontmatter as bijection memory (item #14) — opt-in per-rule storage of origin info to make lossy ops recoverable per-file
 
 ### Phase 4: Polish & Community
+- Frontmatter-property-driven destination resolution (item #15) — arbitrary frontmatter properties influence inverse-direction destination; generalizes SEACOW context-as-disambiguator
 - Rule pack marketplace
 - Analytics
 - Sync history

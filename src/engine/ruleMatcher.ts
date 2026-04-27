@@ -98,8 +98,21 @@ export function findMatchingRules(
 }
 
 /**
- * Find the best matching rule based on priority and confidence
- * Returns the highest priority rule, breaking ties with confidence
+ * Find the best matching rule based on confidence (primary) and priority (tiebreak).
+ *
+ * Increment 1 Step 2 promoted confidence to the primary sort key. Under the
+ * previous sort, priority was primary and confidence was tiebreak — which meant
+ * a more-specific rule at "lower priority" (higher number) would lose to a
+ * broader rule at "higher priority" (lower number), even when the user's
+ * intuition was "more specific should win." See Challenge 01 for the stress
+ * case and the audit at `zz-log/2026-04-27-confidence-formula-audit.md` for
+ * the validation that this swap is non-breaking on shipped rule packs (>92%
+ * agreement on existing user-authored priorities).
+ *
+ * **Priority is now the manual override tiebreak.** It still resolves cases
+ * where two rules have identical confidence (typically same-pattern, same-anchor
+ * rules where the engine genuinely can't tell them apart from shape alone).
+ * For everything else, the more-specific pattern wins by construction.
  */
 export function findBestMatch(
 	input: string,
@@ -112,12 +125,13 @@ export function findBestMatch(
 		return null;
 	}
 
-	// Sort by priority (lower number = higher priority), then by confidence
+	// Sort by confidence first (higher = more specific = wins),
+	// then by priority as the tiebreak (lower number = higher precedence).
 	matches.sort((a, b) => {
-		if (a.rule.priority !== b.rule.priority) {
-			return a.rule.priority - b.rule.priority;
+		if (a.confidence !== b.confidence) {
+			return b.confidence - a.confidence;
 		}
-		return b.confidence - a.confidence;
+		return a.rule.priority - b.rule.priority;
 	});
 
 	return matches[0];

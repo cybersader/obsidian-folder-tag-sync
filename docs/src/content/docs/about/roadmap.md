@@ -469,6 +469,13 @@ Sequence is mostly determined by dependencies (each item's "depends on" line). S
 - **Scope**: extends rule schema with `frontmatterConditions` (or extends slot syntax with property-source markers); inverse-direction algorithm reads property values when populating slots; UX surface in rule editor for declaring property dependencies.
 - **Sequencing**: probably ships *after* F2 but *before* extensive A2 plugin API work (since the API has to commit to whether `getFolderForTag(tag, file)` reads frontmatter properties).
 
+### F5 (future research) — Slot composition operators
+
+- **The question**: can the lens express *combining* multiple slots into one segment (folder `{a}/{b}` ↔ tag `{a}-{b}`) or *splitting* one slot across multiple segments (one folder slot → multiple tag slots)? F2 v1 explicitly excludes these because the inverse direction is structurally ambiguous (can't reliably split `a-b` back to `a/b` without explicit composition rules) and the formal vocabulary requires Boomerang-style lens-calculus composition operators.
+- **Status**: out of F2 v1 scope. Filed here so it doesn't get lost; revisit if a real workflow surfaces the need.
+- **Depends on**: F2 v1 stable (template + lens-flavored + slot-objects in production). Likely also depends on real-world authoring data showing users actually want this.
+- **Scope when designed**: a separate research entry surveying lens composition operators (Boomerang's `;`, `|`, `*` combinators), evaluating tradeoffs, picking a v1 syntax that doesn't sacrifice readability.
+
 ### Cross-cutting foundation work (threads through F1—F4)
 
 - **Orphan / relation-tag semantics** (Challenge 08): pin definitions for `removeOrphanedTags` and `keepRelationTags`. Bears on F3 (witness directly answers "did FTSync write this tag?") and on A1 conflict UI. Dispatch the challenge during F1 or F2; bake findings into F3.

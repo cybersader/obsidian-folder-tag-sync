@@ -197,9 +197,34 @@ Increment 2 commits to a specific authoring abstraction (path templates with nam
 
 ---
 
-## Increment 2 / F2 — Path templates as a peer to regex (Foundation, opt-in additive)
+## Increment 2 / F2 — Path Lens shapes (Foundation, opt-in additive)
 
-**Can run in parallel with**: F3 (frontmatter witness) — different code layers, no shared paths.
+**Renamed**: the abstraction is now called **Path Lens** (see [comparison entry](/obsidian-folder-tag-sync/agent-context/zz-log/2026-04-27-abstraction-shape-comparison/)). F2 ships the Path Lens with multiple shapes (templates, lens-flavored, slot-objects) coexisting alongside regex.
+
+**Can run in parallel with**: F3 (frontmatter witness) — different code layers, no shared paths. Practical cadence: F2 commit 1 settles slot semantics first; F3 starts using those semantics as the source of truth for what the witness records.
+
+### F2 v1 scope decisions (locked in 2026-04-27)
+
+Per user "start bulky, slim down as we're confident" + "build all 4 in plugin natively, no separate sandbox":
+
+- **All four shapes ship in plugin natively**: A regex (existing) / B templates / C slot-objects / E lens-flavored. Each parsed by its own loader path; all compile to the same internal `MappingRule`.
+- **Sequenced as 3 commits**: commit 1 = templates + plumbing + advanced-editor mode toggle; commit 2 = lens-flavored as thin wrapper over templates; commit 3 = slot-objects with JSON-flavored editor. Each independently shippable; user pauses/redirects after any one.
+- **Default authoring mode**: template-first (per Q1 answer). Existing regex rules open in regex mode; new rules default to template.
+- **Per-slot transforms** (Jinja-style filters: `{slug | kebab | num-strip}`): in scope.
+- **Slot reordering** (same slot name appearing at different positions on folder vs tag side): in scope; trivial with named bindings.
+- **Slot combining** (multiple slots fused into one segment, e.g., folder `{a}/{b}` ↔ tag `{a}-{b}`): **out of F2 v1 scope**. Inverse direction is ambiguous (can't reliably split `a-b` back to `a/b`); requires formal composition operators (Boomerang lens calculus). Flagged as future research question.
+- **Slot splitting** (one folder slot splits into multiple tag slots): **out of F2 v1 scope**. Same reason.
+- **No separate sandbox UI**: per user direction, build all 4 shapes natively in plugin's rule editor (mode toggle); iterate via existing test fixtures + the user's separate test-fixtures plugin in the test vault.
+
+### Composition with F3 (frontmatter witness)
+
+F2 commit 1 settles slot semantics (what fields the slot capture produces, pre-transform vs post-transform values). F3's witness fields use those semantics:
+
+- F3 records pre-transform slot values so inverse can re-apply transforms reliably
+- F3's `fts.slots` (or equivalent) field structure depends on F2's slot capture API
+- Practically: F2 commit 1 lands → F3 commit 1 (passive witness) starts immediately, consuming F2's slot capture
+
+
 
 **What users see**: the rule editor gets a new top-of-pane mode toggle: **"Template" / "Regex"**. Template mode shows a single-line input with named slots (`Projects/{slug}` ↔ `#projects/{slug}`). Regex mode is the existing power-user surface, unchanged. New rules default to Template mode; existing regex rules stay regex.
 

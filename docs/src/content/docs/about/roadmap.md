@@ -322,11 +322,20 @@ Also: `findBestMatch` doesn't have a rule-group concept, so multiple third-party
 - Field validation
 - Better error messages
 
+### Phase 2.5: Resolution-engine refinement (near-term, item #13)
+- 🎯 Refine `calculateMatchConfidence` (Formula 3 — anchor-aware, alternation-penalized, slot-aware) — pure refactor, no behavior change
+- 🎯 Audit shipped rule packs against the new formula vs. user-authored priority
+- 🎯 Swap sort order in `findBestMatch` — confidence becomes primary key, priority becomes tiebreak (lands candidate B)
+- Add optional `group?: string` field to `MappingRule`; backfill on shipped packs
+- Group-precedence config + drag-to-reorder UI in settings (lands candidate C)
+- Rename "Priority" → "Priority (override)" in rule editors
+
 ### Phase 3: Advanced Features
 - Template integration (API)
 - Batch processing
-- Conflict resolution strategies
-- Rule groups
+- Conflict resolution strategies (interactive UI for genuinely ambiguous tag→folder cases — candidate D from the resolution research)
+- Rule groups (UI-organization version — item #4; distinct from resolution-engine groups in Phase 2.5)
+- Path templates (Phase H from the regex-vs-templates research)
 
 ### Phase 4: Polish & Community
 - Rule pack marketplace

@@ -47,8 +47,9 @@ This plugin is currently in **active development** (v0.1.0 beta). Core features 
 
 **What this means:**
 - ✅ Rapid development with comprehensive testing
-- ✅ Well-documented, modern codebase
-- ✅ 156+ automated tests
+- ✅ Well-documented, modern codebase (Astro + Starlight docs site at [cybersader.github.io/obsidian-folder-tag-sync](https://cybersader.github.io/obsidian-folder-tag-sync/))
+- ✅ 416+ automated tests across the engine, transformers, sync, and UI plumbing
+- ✅ Substantive in-flight research artifacts in the docs site (see [Documentation](#-documentation) below)
 - ⚠️ Ongoing learning curve for traditional plugin patterns
 - 💡 Committed to maintenance and user feedback
 
@@ -58,29 +59,35 @@ If you find issues or have suggestions, please [open an issue](https://github.co
 
 ## ✨ Features
 
-### Current (v0.1.0)
-- ✅ **Folder → Tag Sync** - Automatically add tags based on folder location
-- ✅ **Tag → Folder Sync** - Move files to folders based on tags
-- ✅ **Regex Pattern Matching** - Flexible folder/tag matching
-- ✅ **Transformation Pipeline** - Handle naming conventions:
+### Current
+- ✅ **Folder → Tag Sync** — Automatically add tags based on folder location
+- ✅ **Tag → Folder Sync** — Move files to folders based on tags
+- ✅ **Regex Pattern Matching** — Flexible folder/tag matching with confidence-based specificity tiebreak
+- ✅ **Typed rule model** (Phase 2) — Author rules as `FolderClassifier + TagVocabulary + TransferOp` triples; eight library-science transfer primitives (`identity`, `truncation`, `marker-only`, `promotion-to-root`, `flattening-to-leaf`, `post-coordination`, `aggregation`, `opaque`). Falls back to raw regex (Layer 1) for cases the typed model can't express. See [Philosophy](https://cybersader.github.io/obsidian-folder-tag-sync/concepts/philosophy/).
+- ✅ **Layer-aware anchors** (Phase G) — Rules declare *where* in the vault tree they fire (`'root'`, `'any-segment'`, or `{ under: 'parentPath' }`); supports nested deployments where the same organizational system (PARA, JD) appears at multiple depths.
+- ✅ **Transformation Pipeline** — Handle naming conventions:
   - Case transformations (snake_case, kebab-case, Title Case, camelCase, PascalCase)
   - Emoji handling (strip or keep)
   - Number prefix handling (Johnny Decimal format)
   - Custom regex transformations
-- ✅ **Rule-Based System** - Define multiple rules with priority ordering
-- ✅ **Settings UI** - Visual rule editor with drag-to-reorder
-- ✅ **Manual Sync Commands** - Sync on demand via command palette
-- ✅ **Debug Logging** - Comprehensive logging for troubleshooting
+- ✅ **Rule-Based System** — Define multiple rules with priority ordering and bidirectional inverse logic
+- ✅ **Settings UI** — Visual rule editor with drag-to-reorder, guided modal, and advanced regex modal
+- ✅ **Rule packs** — Import shipped packs (PARA, Johnny Decimal, SEACOW-cyberbase, Zettelkasten); detect organizational systems via vault scan
+- ✅ **Manual Sync Commands** — Sync on demand via command palette
+- ✅ **Debug Logging** — Comprehensive logging for troubleshooting
 
-### Coming Soon
-- 🔄 Automatic sync on file create/move/rename
-- 🔄 Conflict resolution (multiple tags → multiple possible folders)
-- 🔄 Folder rename → bulk tag update
-- 🔄 Bulk vault sync operations
-- 🔄 Folder notes support
-- 🔄 Attachment handling
+### Active research / next phases
 
-See the [full roadmap](#-roadmap) below.
+These are **scoped and researched** but not yet shipped. Pointers to the design docs, in case you're curious about where the project is headed:
+
+- 🔄 **Resolution-engine refinement** (Phase 2.5) — Promote `calculateMatchConfidence` from tiebreak to primary sort key; add anchor-aware specificity scoring and a `group?: string` field for cross-pack precedence (CSS `@layer`-style). Addresses [Challenge 01](https://cybersader.github.io/obsidian-folder-tag-sync/agent-context/zz-challenges/01-rule-priority-stress-test/) and [Challenge 04](https://cybersader.github.io/obsidian-folder-tag-sync/agent-context/zz-challenges/04-name-collisions-across-hierarchy/) directly. See [Specificity + groups research](https://cybersader.github.io/obsidian-folder-tag-sync/agent-context/zz-log/2026-04-27-specificity-and-groups-research/).
+- 🔄 **Path templates** (Phase H) — Bidirectional `Projects/{slug}` ↔ `#projects/{slug}` templates that compile to regex internally; bijection visible from slot overlap. See [Path abstractions parts 1 + 2](https://cybersader.github.io/obsidian-folder-tag-sync/agent-context/zz-log/2026-04-26-regex-vs-path-templates-research/).
+- 🔄 **Interactive conflict-resolution UI** — When several rules genuinely match the same input, surface the candidates rather than silently picking one.
+- 🔄 **Automatic sync on file events** (create/move/rename)
+- 🔄 **Bulk vault sync operations**
+- 🔄 **Folder notes + attachments handling**
+
+See the [full roadmap](#-roadmap) below or the [canonical roadmap page](https://cybersader.github.io/obsidian-folder-tag-sync/about/roadmap/) for the complete picture.
 
 ---
 
@@ -99,10 +106,11 @@ Intelligent, rule-based bidirectional mapping that:
 
 ### Unlike Other Plugins
 Unlike simple file movers (like Auto Note Mover), this plugin uses:
-- **Regex patterns** instead of exact string matching
-- **Transformation templates** to handle naming convention changes
-- **Bidirectional sync** to maintain both folder and tag views
-- **Priority system** for conflict resolution
+- **Regex patterns** instead of exact string matching, with a typed-model layer on top so most rules don't have to think about regex at all
+- **Transformation pipeline** (case, emoji, number-prefix, custom regex) for naming convention changes — applied per-side so folder and tag styling can differ
+- **Bidirectional sync** with explicit forward + inverse logic for each of eight transfer primitives
+- **Bijection visibility** — the typed model surfaces which rules round-trip cleanly and which are deliberately lossy, with the `cardinality` (`1:1` / `1:many` / `many:1`) and `bijective: boolean` fields making this inspectable per-rule
+- **Priority + specificity** for matching — pattern specificity is the load-bearing signal (with priority as manual override; refining further in Phase 2.5)
 
 ---
 
@@ -174,8 +182,36 @@ Use command palette commands:
 
 ## 📖 Documentation
 
-> The full docs are at **[cybersader.github.io/obsidian-folder-tag-sync](https://cybersader.github.io/obsidian-folder-tag-sync)**, including the Phase 2 typed-model concepts:
-> [Philosophy](https://cybersader.github.io/obsidian-folder-tag-sync/concepts/philosophy/) · [Axes](https://cybersader.github.io/obsidian-folder-tag-sync/concepts/axes/) · [Folder classifiers](https://cybersader.github.io/obsidian-folder-tag-sync/concepts/folder-classifiers/) · [Tag vocabularies](https://cybersader.github.io/obsidian-folder-tag-sync/concepts/tag-vocabularies/) · [Transfer operations](https://cybersader.github.io/obsidian-folder-tag-sync/concepts/transfer-operations/) · [Compound cases](https://cybersader.github.io/obsidian-folder-tag-sync/concepts/compound-cases/) · [Importing rule packs](https://cybersader.github.io/obsidian-folder-tag-sync/guides/importing-rule-packs/) · [Writing a rule pack](https://cybersader.github.io/obsidian-folder-tag-sync/guides/writing-a-rule-pack/)
+The full docs are at **[cybersader.github.io/obsidian-folder-tag-sync](https://cybersader.github.io/obsidian-folder-tag-sync)** (Astro + Starlight). Quick map:
+
+### Concept pillars
+
+The load-bearing concept pages — read these first if you want the mental model.
+
+- [Philosophy](https://cybersader.github.io/obsidian-folder-tag-sync/concepts/philosophy/) — typed-model layers (Layer 1 regex, Layer 2 typed); folder strict hierarchy vs. tag polyhierarchy; SEACOW axis framing; pre/post-coordination
+- [Transfer operations](https://cybersader.github.io/obsidian-folder-tag-sync/concepts/transfer-operations/) — the 8 library-science primitives; per-op worked examples with forward + inverse round-trip
+- [Bijection and loss](https://cybersader.github.io/obsidian-folder-tag-sync/concepts/bijection-and-loss/) — built bottom-up from transfer-ops; what determinism, lossy / lossless, bijection, cardinality, and collision-vs-lossy actually mean
+- [Terminology](https://cybersader.github.io/obsidian-folder-tag-sync/concepts/terminology/) — plain-English glossary of every load-bearing term in the docs
+- [Axes](https://cybersader.github.io/obsidian-folder-tag-sync/concepts/axes/) · [Folder classifiers](https://cybersader.github.io/obsidian-folder-tag-sync/concepts/folder-classifiers/) · [Tag vocabularies](https://cybersader.github.io/obsidian-folder-tag-sync/concepts/tag-vocabularies/) · [Compound cases](https://cybersader.github.io/obsidian-folder-tag-sync/concepts/compound-cases/)
+
+### Guides
+
+- [Importing rule packs](https://cybersader.github.io/obsidian-folder-tag-sync/guides/importing-rule-packs/)
+- [Writing a rule pack](https://cybersader.github.io/obsidian-folder-tag-sync/guides/writing-a-rule-pack/)
+
+### Active research entries
+
+Substantive design documents that ground the upcoming phases. Worth reading if you're contributing or want to understand why the project is shaped this way.
+
+- [Path abstractions, part 1 — regex vs. path templates](https://cybersader.github.io/obsidian-folder-tag-sync/agent-context/zz-log/2026-04-26-regex-vs-path-templates-research/) — the forward-direction abstraction question
+- [Path abstractions, part 2 — solutions in practice](https://cybersader.github.io/obsidian-folder-tag-sync/agent-context/zz-log/2026-04-27-regex-vs-templates-part-2-solutions-in-practice/) — concrete code, hybrid coexistence, communication primitives
+- [Tag → folder resolution research](https://cybersader.github.io/obsidian-folder-tag-sync/agent-context/zz-log/2026-04-27-tag-to-folder-resolution-research/) — the inverse-direction problem; six-candidate survey
+- [Specificity + groups research](https://cybersader.github.io/obsidian-folder-tag-sync/agent-context/zz-log/2026-04-27-specificity-and-groups-research/) — combined design for Phase 2.5
+- [Solution brainstorm (working draft)](https://cybersader.github.io/obsidian-folder-tag-sync/agent-context/zz-log/2026-04-27-the-bidirectional-bijective-solution-work/) — meta-shape framing; SEACOW context-as-disambiguator
+
+### Open challenges
+
+- [01 — Rule priority stress test](https://cybersader.github.io/obsidian-folder-tag-sync/agent-context/zz-challenges/01-rule-priority-stress-test/) · [02 — Pipeline reversibility](https://cybersader.github.io/obsidian-folder-tag-sync/agent-context/zz-challenges/02-pipeline-reversibility/) · [03 — Performance at scale](https://cybersader.github.io/obsidian-folder-tag-sync/agent-context/zz-challenges/03-performance-at-scale/) · [04 — Name collisions across hierarchy](https://cybersader.github.io/obsidian-folder-tag-sync/agent-context/zz-challenges/04-name-collisions-across-hierarchy/) · [05 — Multi-entity namespace partitioning](https://cybersader.github.io/obsidian-folder-tag-sync/agent-context/zz-challenges/05-multi-entity-namespace-partitioning/) · [06 — Compositional rule packs](https://cybersader.github.io/obsidian-folder-tag-sync/agent-context/zz-challenges/06-compositional-rule-packs/)
 
 ### Core Concepts
 
@@ -265,43 +301,47 @@ Rules are evaluated in order (top to bottom). First matching rule wins.
 
 ## 🗺️ Roadmap
 
-See [detailed roadmap](FEATURE_ROADMAP.md) for complete planning.
+> **Canonical roadmap**: [cybersader.github.io/obsidian-folder-tag-sync/about/roadmap/](https://cybersader.github.io/obsidian-folder-tag-sync/about/roadmap/) (single source of truth, edited at `docs/src/content/docs/about/roadmap.md`).
 
-### ✅ Phase 1: Foundation (COMPLETE)
-- [x] TypeScript setup with 156+ tests
-- [x] Transformation engine (case, emoji, numbers, regex)
-- [x] Rule matching and priority system
-- [x] Settings UI with rule editor
-
-### ✅ Phase 2: Basic Sync (COMPLETE)
-- [x] Folder → Tag synchronization
-- [x] Tag → Folder synchronization
+### ✅ Phase 1 — Core Functionality (shipped)
+- [x] TypeScript + esbuild + Bun pipeline; 416+ automated tests
+- [x] Transformation engine (case, emoji, number-prefix, custom regex)
+- [x] Rule matching (priority + confidence tiebreak)
+- [x] Settings UI with drag-to-reorder, guided modal, advanced regex modal
+- [x] Folder → Tag and Tag → Folder synchronization
 - [x] Manual sync commands
 
-### 🔄 Phase 3: Core Features (IN PROGRESS)
-- [x] Basic tag-to-folder movement (v0.1.0)
-- [ ] Conflict resolution (multiple tags)
-- [ ] Movement timing (on-save, on-close, manual)
-- [ ] Folder notes support
-- [ ] Safety features (dry-run, undo)
+### ✅ Phase 2 — Typed model + rule packs (shipped)
+- [x] Layer 2 typed model: `FolderClassifier` + `TagVocabulary` + `TransferOp`
+- [x] Eight transfer-op primitives with bidirectional forward + inverse logic
+- [x] Rule pack import (PARA, Johnny Decimal, SEACOW-cyberbase, Zettelkasten)
+- [x] Vault-scan organizational-system detection
+- [x] Layer-aware folder anchors (Phase G: `'root'` / `'any-segment'` / `{ under: 'X' }`)
 
-### 📋 Phase 4: Advanced Features
-- [ ] Folder rename → tag propagation
+### 🎯 Phase 2.5 — Resolution-engine refinement (near-term, designed)
+- [ ] Refine `calculateMatchConfidence` with anchor-aware specificity (Formula 3 — alternation penalty, slot-aware, root/under bonuses) — pure refactor, no behavior change
+- [ ] Audit shipped packs against the new formula vs. user-authored priority
+- [ ] Swap sort order in `findBestMatch`: confidence becomes primary, priority becomes tiebreak override
+- [ ] Add optional `group?: string` field for cross-pack precedence (CSS `@layer`-style)
+- [ ] Rule-group precedence config + drag-to-reorder UI in settings
+- [ ] Rename "Priority" → "Priority (override)" in rule editors
+
+### 🎯 Phase 3 — Advanced Features
+- [ ] Path templates (Phase H — bidirectional `Projects/{slug}` ↔ `#projects/{slug}` with bijection visible from slot overlap)
+- [ ] Interactive conflict-resolution UI for genuinely ambiguous tag→folder cases
+- [ ] Automatic sync on file events (create/move/rename)
 - [ ] Bulk vault sync
-- [ ] Wildcard pattern matching
-- [ ] Exclusion patterns
-- [ ] Advanced conflict strategies
+- [ ] Plugin API for other plugins (Templater, QuickAdd integration)
+- [ ] UI rule organization (collapsible groups, distinct from Phase 2.5 resolution-engine groups)
 
-### 🔌 Phase 5: Integrations
-- [ ] Context menu integration
-- [ ] Plugin API for other plugins
-- [ ] Rule packs (PARA, Zettelkasten, etc.)
-
-### 🎨 Phase 6: Polish
-- [ ] Performance optimization (10k+ files)
-- [ ] Sync history and undo
-- [ ] Rule analytics
+### 📋 Phase 4 — Polish & Community
+- [ ] Rule pack marketplace
+- [ ] Analytics (rule usage, errors, performance)
+- [ ] Sync history + undo
 - [ ] Mobile testing and optimization
+- [ ] Visual rule builder
+
+For the full per-feature breakdown — file paths to touch, prior-art surveys, prioritization notes — see the [canonical roadmap page](https://cybersader.github.io/obsidian-folder-tag-sync/about/roadmap/).
 
 ---
 
@@ -331,8 +371,10 @@ Input: "📁 01 - My Cool Project"
 
 ### Tech Stack
 - **Language**: TypeScript
-- **Build**: esbuild
-- **Testing**: Bun test runner (156 tests)
+- **Runtime/package manager**: Bun (npm also works)
+- **Build**: esbuild via Bun
+- **Testing**: Bun test runner (416+ tests across engine, transformers, sync, UI plumbing)
+- **Docs site**: Astro + Starlight (`docs/`), deployed to GitHub Pages on push to `main`
 - **Obsidian API**: v0.15.0+
 
 ---
@@ -366,7 +408,7 @@ bun run dev
 
 ### Testing
 ```bash
-# Run all tests (156+ passing)
+# Run all tests (416+ passing)
 bun test
 
 # Watch mode
@@ -374,6 +416,12 @@ bun test --watch
 
 # Build and verify
 bun run build && ls -lh main.js
+
+# Docs site (Astro + Starlight)
+cd docs
+bun run dev          # local dev server with HMR
+bun run build        # static build → docs/dist/
+bun run smoke        # build + route-and-content smoke check
 ```
 
 ### Contributing Guidelines

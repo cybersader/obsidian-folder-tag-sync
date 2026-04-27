@@ -6,6 +6,7 @@
  */
 
 import { MappingRule, RuleDirection } from '../types/settings';
+import { FolderAnchor } from '../types/typed';
 import { patternToRegex, matchesPattern } from '../transformers/regexTransformers';
 
 export interface RuleMatch {
@@ -60,7 +61,13 @@ export function evaluateRule(
 	}
 
 	// Calculate match confidence (more specific patterns = higher confidence)
-	const confidence = calculateMatchConfidence(input, pattern);
+	// Pass folderAnchor for folder matches so anchor-aware bonuses apply.
+	// Tag matches don't have an anchor concept (or it's implicitly root).
+	const confidence = calculateMatchConfidence(
+		input,
+		pattern,
+		context.matchType === 'folder' ? rule.folderAnchor : undefined
+	);
 
 	return {
 		rule,
@@ -153,33 +160,89 @@ export function findConflicts(
 }
 
 /**
- * Calculate match confidence based on pattern specificity
- * More specific patterns (less wildcards, more literal chars) = higher confidence
+ * Calculate match confidence based on pattern specificity.
+ *
+ * Implements Formula 3 from the specificity-and-groups research entry:
+ * heavier penalty for greedy wildcards, light penalty for capture groups
+ * (named or anonymous), literal-character bonus capped at 0.3, anchor-aware
+ * bonus when the rule declares a folder anchor.
+ *
+ * The output range is [0, 1]. The function is currently used as the
+ * tiebreaker after priority in `findBestMatch`; Increment 1 Step 2 will
+ * promote it to the primary sort key. This refactor preserves the
+ * tiebreak contract — same output range, same monotonicity for the
+ * canonical PARA / JD / SEACOW patterns — while improving the score's
+ * fidelity for use as a primary key.
+ *
+ * **Exported** for the audit script (`scripts/audit-confidence-formula.ts`)
+ * which compares the new formula's implied ordering against user-authored
+ * priorities on shipped rule packs. Not part of the plugin's public API.
+ *
+ * @param input - The folder path or tag being evaluated
+ * @param pattern - The rule's regex pattern (folderPattern or tagPattern)
+ * @param anchor - Optional folder anchor; only meaningful for folder matches.
+ *                When present, contributes the anchor-aware bonus.
  */
-function calculateMatchConfidence(input: string, pattern: string): number {
-	// Base confidence
-	let confidence = 0.5;
-
-	// Exact match = highest confidence
+export function calculateMatchConfidence(
+	input: string,
+	pattern: string,
+	anchor?: FolderAnchor
+): number {
+	// Exact-match shortcut — preserved from prior implementation
 	if (pattern === input) {
 		return 1.0;
 	}
 
-	// Count wildcards (reduce confidence for each)
-	const wildcardCount = (pattern.match(/\*/g) || []).length;
-	const questionMarkCount = (pattern.match(/\?/g) || []).length;
+	let confidence = 0.5;
 
-	confidence -= wildcardCount * 0.1;
-	confidence -= questionMarkCount * 0.05;
+	// === Wildcard / capture-group penalties ===
 
-	// Longer patterns are generally more specific
-	const patternLength = pattern.replace(/[*?]/g, '').length;
-	const lengthRatio = patternLength / input.length;
-	confidence += lengthRatio * 0.2;
+	// Greedy regex wildcards (.* and .+) reduce specificity the most.
+	// Each one signals "anything goes here" which makes the pattern less specific.
+	const greedyWildcards = (pattern.match(/\.[*+]/g) || []).length;
+	confidence -= greedyWildcards * 0.15;
 
-	// Patterns with directory structure are more specific
+	// Remaining bare `*` (glob-style or regex quantifier on a class).
+	// Lighter penalty than greedy wildcards.
+	const totalStars = (pattern.match(/\*/g) || []).length;
+	const remainingStars = Math.max(0, totalStars - greedyWildcards);
+	confidence -= remainingStars * 0.10;
+
+	// Capture groups — anonymous `(...)` and named `(?<name>...)` — both reduce specificity
+	// because they say "match arbitrary content here." Same weight regardless of named/anonymous.
+	const anonCaptures = (pattern.match(/\([^?]/g) || []).length;
+	const namedSlots = (pattern.match(/\(\?<\w+>/g) || []).length;
+	const captureGroups = anonCaptures + namedSlots;
+	confidence -= captureGroups * 0.05;
+
+	// === Specificity bonuses ===
+
+	// Literal character count (excluding regex metacharacters and capture-group syntax)
+	// — bonus capped at 0.3. More literal characters = the pattern is more committed
+	// to a specific shape. Named-capture prefixes `(?<name>` are stripped *first* so
+	// the slot name doesn't inflate the literal count; then the remaining metacharacters
+	// (including `<` and `>` from any other context) are stripped.
+	const literalChars = pattern
+		.replace(/\(\?<\w+>/g, '')                  // strip named-capture syntax including slot name
+		.replace(/\(\?[:!=]/g, '')                  // strip non-capturing-group / lookahead prefixes
+		.replace(/[\\^$.*+?(){}\[\]|<>]/g, '')      // strip remaining regex metachars + < >
+		.length;
+	confidence += Math.min(literalChars / 50, 0.3);
+
+	// Slash count — path-depth specificity. A pattern matching `Projects/Web/Auth`
+	// (3 slashes) is more specific than one matching `Projects` (0 slashes).
 	const slashCount = (pattern.match(/\//g) || []).length;
-	confidence += slashCount * 0.05;
+	confidence += slashCount * 0.04;
+
+	// === Anchor-aware bonus ===
+	// Root-anchored rules are the most specific (they pin the rule to the vault root).
+	// Under-prefix rules are slightly less specific (anchored to a parent path).
+	// Any-segment rules and unanchored patterns get no bonus.
+	if (anchor === 'root') {
+		confidence += 0.10;
+	} else if (typeof anchor === 'object' && anchor !== null && 'under' in anchor) {
+		confidence += 0.08;
+	}
 
 	// Clamp to 0-1 range
 	return Math.max(0, Math.min(1, confidence));

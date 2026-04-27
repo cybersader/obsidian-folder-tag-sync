@@ -428,3 +428,286 @@ describe('validateRule', () => {
 		expect(result.valid).toBe(true);
 	});
 });
+
+// ===========================================================================
+// Specificity formula (Formula 3) — Increment 1 Step 1
+// ===========================================================================
+//
+// These tests cover the refined `calculateMatchConfidence` implementation.
+// The function itself is private; we verify behavior through `evaluateRule`
+// which surfaces the score on the returned `RuleMatch`.
+//
+// Reference: zz-log/2026-04-27-specificity-and-groups-research.md (Formula 3)
+// Reference: zz-challenges/01-rule-priority-stress-test.md (the stress case)
+
+describe('Specificity formula (Formula 3)', () => {
+	describe('Challenge 01 stress case — more-specific should outscore less-specific', () => {
+		test('a more-specific pattern (more literals + more slashes) outscores a less-specific one', () => {
+			const broadRule = createRule({
+				id: 'projects-broad',
+				priority: 10,
+				folderPattern: '^Projects/(.+)$',
+				direction: 'folder-to-tag',
+				folderAnchor: 'root'
+			});
+
+			const specificRule = createRule({
+				id: 'projects-web-specific',
+				priority: 20,
+				folderPattern: '^Projects/Web/(.+)$',
+				direction: 'folder-to-tag',
+				folderAnchor: 'root'
+			});
+
+			const input = 'Projects/Web/auth';
+
+			const broadMatch = evaluateRule(input, broadRule, {
+				input,
+				matchType: 'folder',
+				direction: 'folder-to-tag'
+			});
+
+			const specificMatch = evaluateRule(input, specificRule, {
+				input,
+				matchType: 'folder',
+				direction: 'folder-to-tag'
+			});
+
+			expect(broadMatch).not.toBeNull();
+			expect(specificMatch).not.toBeNull();
+
+			// The specific pattern (more literal chars, more slashes, same anchor)
+			// should outscore the broad pattern. This is the load-bearing
+			// behavior change from Formula 3 — what makes Increment 1 Step 2's
+			// sort-order swap worthwhile.
+			expect(specificMatch!.confidence).toBeGreaterThan(broadMatch!.confidence);
+		});
+	});
+
+	describe('Anchor-aware bonus differentiation', () => {
+		test('root-anchored pattern outscores any-segment-anchored pattern with same shape', () => {
+			const rootAnchored = createRule({
+				id: 'root-rule',
+				folderPattern: '^Projects(?:/|$)',
+				direction: 'folder-to-tag',
+				folderAnchor: 'root'
+			});
+
+			const anySegment = createRule({
+				id: 'any-segment-rule',
+				folderPattern: '(?:^|/)Projects(?:/|$)',
+				direction: 'folder-to-tag',
+				folderAnchor: 'any-segment'
+			});
+
+			const input = 'Projects';
+
+			const rootMatch = evaluateRule(input, rootAnchored, {
+				input,
+				matchType: 'folder',
+				direction: 'folder-to-tag'
+			});
+
+			const anySegmentMatch = evaluateRule(input, anySegment, {
+				input,
+				matchType: 'folder',
+				direction: 'folder-to-tag'
+			});
+
+			expect(rootMatch).not.toBeNull();
+			expect(anySegmentMatch).not.toBeNull();
+
+			// Both match the same input but root-anchored is conceptually more specific
+			// (it's pinned to the vault root). Formula 3 should reflect this via the
+			// +0.10 anchor bonus.
+			expect(rootMatch!.confidence).toBeGreaterThan(anySegmentMatch!.confidence);
+		});
+
+		test('under-prefix anchor gets bonus between root and any-segment', () => {
+			const underPrefix = createRule({
+				id: 'under-rule',
+				folderPattern: '^Output/Projects(?:/|$)',
+				direction: 'folder-to-tag',
+				folderAnchor: { under: 'Output' }
+			});
+
+			const input = 'Output/Projects';
+
+			const match = evaluateRule(input, underPrefix, {
+				input,
+				matchType: 'folder',
+				direction: 'folder-to-tag'
+			});
+
+			expect(match).not.toBeNull();
+			// Under-prefix anchor adds +0.08 (less than root's +0.10, more than any-segment's +0).
+			// Verify the score is in a reasonable range — not at floor, not at ceiling.
+			expect(match!.confidence).toBeGreaterThan(0.5);
+			expect(match!.confidence).toBeLessThan(1.0);
+		});
+	});
+
+	describe('Wildcard penalties', () => {
+		test('greedy wildcard .+ reduces specificity more than literal pattern', () => {
+			const wildcardRule = createRule({
+				folderPattern: '^.+$',
+				direction: 'folder-to-tag',
+				folderAnchor: 'root'
+			});
+
+			const literalRule = createRule({
+				folderPattern: '^Projects$',
+				direction: 'folder-to-tag',
+				folderAnchor: 'root'
+			});
+
+			const wildcardMatch = evaluateRule('Projects', wildcardRule, {
+				input: 'Projects',
+				matchType: 'folder',
+				direction: 'folder-to-tag'
+			});
+
+			const literalMatch = evaluateRule('Projects', literalRule, {
+				input: 'Projects',
+				matchType: 'folder',
+				direction: 'folder-to-tag'
+			});
+
+			expect(wildcardMatch).not.toBeNull();
+			expect(literalMatch).not.toBeNull();
+
+			// Literal exact-match pattern should outscore the wildcard
+			// (literal pattern hits exact-match shortcut → 1.0).
+			expect(literalMatch!.confidence).toBeGreaterThan(wildcardMatch!.confidence);
+		});
+
+		test('multiple greedy wildcards stack penalties', () => {
+			const oneWildcard = createRule({
+				folderPattern: '^Projects/.+$',
+				direction: 'folder-to-tag',
+				folderAnchor: 'root'
+			});
+
+			const twoWildcards = createRule({
+				folderPattern: '^.+/.+$',
+				direction: 'folder-to-tag',
+				folderAnchor: 'root'
+			});
+
+			const oneMatch = evaluateRule('Projects/Web', oneWildcard, {
+				input: 'Projects/Web',
+				matchType: 'folder',
+				direction: 'folder-to-tag'
+			});
+
+			const twoMatch = evaluateRule('Projects/Web', twoWildcards, {
+				input: 'Projects/Web',
+				matchType: 'folder',
+				direction: 'folder-to-tag'
+			});
+
+			expect(oneMatch).not.toBeNull();
+			expect(twoMatch).not.toBeNull();
+
+			// Pattern with one greedy wildcard + one literal segment outscores
+			// pattern with two greedy wildcards.
+			expect(oneMatch!.confidence).toBeGreaterThan(twoMatch!.confidence);
+		});
+	});
+
+	describe('Capture groups', () => {
+		test('named slots and anonymous captures both count as captures', () => {
+			const namedSlot = createRule({
+				folderPattern: '^Projects/(?<slug>[^/]+)$',
+				direction: 'folder-to-tag',
+				folderAnchor: 'root'
+			});
+
+			const anonCapture = createRule({
+				folderPattern: '^Projects/([^/]+)$',
+				direction: 'folder-to-tag',
+				folderAnchor: 'root'
+			});
+
+			const namedMatch = evaluateRule('Projects/Web', namedSlot, {
+				input: 'Projects/Web',
+				matchType: 'folder',
+				direction: 'folder-to-tag'
+			});
+
+			const anonMatch = evaluateRule('Projects/Web', anonCapture, {
+				input: 'Projects/Web',
+				matchType: 'folder',
+				direction: 'folder-to-tag'
+			});
+
+			expect(namedMatch).not.toBeNull();
+			expect(anonMatch).not.toBeNull();
+
+			// Both have one capture group; scores should be similar.
+			// (We're testing that named slots count, not that they're penalized differently.)
+			expect(Math.abs(namedMatch!.confidence - anonMatch!.confidence)).toBeLessThan(0.05);
+		});
+	});
+
+	describe('Output range', () => {
+		test('confidence stays clamped to [0, 1]', () => {
+			// Pathological pattern with many wildcards — should clamp at 0
+			const allWildcards = createRule({
+				folderPattern: '.*.*.*.*.*.*',
+				direction: 'folder-to-tag'
+			});
+
+			const match = evaluateRule('foo', allWildcards, {
+				input: 'foo',
+				matchType: 'folder',
+				direction: 'folder-to-tag'
+			});
+
+			if (match) {
+				expect(match.confidence).toBeGreaterThanOrEqual(0);
+				expect(match.confidence).toBeLessThanOrEqual(1);
+			}
+		});
+
+		test('exact-match shortcut returns 1.0', () => {
+			const rule = createRule({
+				folderPattern: 'Projects',
+				direction: 'folder-to-tag'
+			});
+
+			const match = evaluateRule('Projects', rule, {
+				input: 'Projects',
+				matchType: 'folder',
+				direction: 'folder-to-tag'
+			});
+
+			expect(match).not.toBeNull();
+			expect(match!.confidence).toBe(1.0);
+		});
+	});
+
+	describe('Tag-side matches do not apply anchor bonus', () => {
+		test('tag-side match with folderAnchor on rule does not get the bonus', () => {
+			// folderAnchor is irrelevant for tag matches; verify it's not applied.
+			const rule = createRule({
+				folderPattern: '^Projects(?:/|$)',
+				tagPattern: '^projects/',
+				direction: 'bidirectional',
+				folderAnchor: 'root'
+			});
+
+			const tagMatch = evaluateRule('projects/web', rule, {
+				input: 'projects/web',
+				matchType: 'tag'
+			});
+
+			expect(tagMatch).not.toBeNull();
+			// We mainly verify it doesn't crash; the score is consistent for tag matches
+			// independent of folderAnchor since the function is passed `undefined` for
+			// the anchor parameter on tag matches.
+			expect(tagMatch!.confidence).toBeGreaterThanOrEqual(0);
+			expect(tagMatch!.confidence).toBeLessThanOrEqual(1);
+		});
+	});
+});

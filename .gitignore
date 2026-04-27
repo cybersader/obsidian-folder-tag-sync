@@ -6,6 +6,9 @@ main.js
 main.js.map
 *.js.map
 
+# Auto-generated audit reports (canonical analysis lives in docs/src/content/docs/agent-context/zz-log/)
+audit-confidence-formula.md
+
 # Test coverage
 coverage/
 .nyc_output/

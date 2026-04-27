@@ -128,6 +128,23 @@ Each increment is independently shippable. None block any other except where exp
 
 ---
 
+## Decision gate before Increment 2 — abstraction choice (templates / lens / hybrid)
+
+Increment 2 commits to a specific authoring abstraction (path templates with named slots), but the broader question — **is this the right abstraction, or should we ship something closer to a lens calculus, or stay regex-first with better tooling** — has been researched but not finally settled. Before any code lands, surface the open questions to the user and discuss; don't just adopt the research's leaning recommendation.
+
+**Questions to bring before starting Increment 2 implementation**:
+
+1. **Templates vs. lens vs. hybrid**: the [Path abstractions Part 2](/obsidian-folder-tag-sync/agent-context/zz-log/2026-04-27-regex-vs-templates-part-2-solutions-in-practice/) research surveyed seven candidates (regex / templates / slot-objects / OpenAPI-style / lens-flavored / TS-tagged literals / mini-DSL) and recommended templates as a peer to regex (hybrid coexistence). Confirm with the user that templates are the chosen abstraction shape — or pivot to a lens-flavored design if that's preferred.
+2. **Slot syntax**: `{slug}` and `{rest...}` are URL-routing conventions. Alternatives: TypeScript-shaped (`<slug>`), Mustache-shaped (`{{slug}}`), explicit-typed (`{slug: string}`). Which feels right for an Obsidian plugin?
+3. **Slot vocabulary**: pick canonical slot names for shipped rule packs (PARA `{project}`, JD `{number}`+`{topic}`, SEACOW `{owner}`, etc.). The [intuition pass](/obsidian-folder-tag-sync/concepts/terminology/) added some plain-English aliases; confirm or refine.
+4. **Per-slot transforms** (`{slug | kebab-case}`): adopt Jinja-style filter syntax, or use a separate transforms map keyed by slot name? Affects authoring ergonomics significantly.
+5. **Hybrid coexistence depth**: in v1 of templates, do we ship the loader normalizer that handles regex + templates in the same pack, or wait until v2? The Part 2 research says hybrid-from-the-start is feasible; confirm.
+6. **Default mode**: when a user opens the rule editor, does the new mode toggle default to **template** (the new authoring surface) or **regex** (don't disrupt existing users)? Affects the rollout UX significantly.
+
+**Process**: I bring these questions to the user *before* any Increment 2 code work. We discuss; the user picks; the development plan gets updated to reflect the choice; *then* implementation starts. No silent adoption of research recommendations.
+
+---
+
 ## Increment 2 — Path templates as a peer to regex (opt-in additive)
 
 **What users see**: the rule editor gets a new top-of-pane mode toggle: **"Template" / "Regex"**. Template mode shows a single-line input with named slots (`Projects/{slug}` ↔ `#projects/{slug}`). Regex mode is the existing power-user surface, unchanged. New rules default to Template mode; existing regex rules stay regex.
@@ -164,6 +181,24 @@ A status indicator per rule shows its bijection state — *"This rule round-trip
 **Composes with**: Increment 1 (slot count is the natural specificity score; replaces regex-shape heuristics for template rules); Increment 3 (templates make slot-level frontmatter origin tracking trivially structured).
 
 **Where to read more**: [Path abstractions, part 1](/obsidian-folder-tag-sync/agent-context/zz-log/2026-04-26-regex-vs-path-templates-research/) (the framing), [Path abstractions, part 2](/obsidian-folder-tag-sync/agent-context/zz-log/2026-04-27-regex-vs-templates-part-2-solutions-in-practice/) (the hybrid coexistence story and per-rule communication).
+
+---
+
+## Decision gate before Increment 3 — frontmatter property approach for stateful
+
+The [Frontmatter as bijection memory research](/obsidian-folder-tag-sync/agent-context/zz-log/2026-04-27-frontmatter-as-bijection-memory-research/) and the [Challenge 07 findings](/obsidian-folder-tag-sync/agent-context/zz-challenges/07-frontmatter-as-bijection-memory-validation/) recommend a hybrid design with a top-level `fts:` namespaced object. But **before any code lands**, surface the design choices to the user — the property structure and the philosophy shift are user-visible; getting them wrong creates migrations later.
+
+**Questions to bring before starting Increment 3 implementation**:
+
+1. **Namespace shape**: top-level `fts:` object (Challenge 07 recommendation) vs. `folder-tag-sync:` (more explicit) vs. underscore-prefixed `_fts:` (Obsidian convention for internal frontmatter)? Each has tradeoffs (verbosity, Obsidian Properties UI rendering, third-party plugin discoverability).
+2. **Field set in v1**: minimum is `sig` (hash) + `rule` (rule ID). Do we ship `pv` (pipeline version) and `synced_at` (timestamp) from day one, or defer? `synced_at` breaks commutative writes for cross-device sync (Challenge 12 question); maybe wait.
+3. **Hash function**: SHA-256 truncated to 8 hex chars (~32 bits, 1-in-4-billion collisions)? Or shorter (more readable, more collisions)? Or longer (more robust, more YAML noise)?
+4. **Field-name conventions for slot-extracted origin** (when templates land in Increment 2): does the witness store the raw original folder path, or the extracted slot values (`fts.slots: { project: "Web Auth", tail: "oauth-flow" }`)? Affects what's recoverable on inverse and how the format evolves.
+5. **Default behavior on existing tagged files** when a user enables frontmatter memory on a rule retroactively: backfill on enable (sweep + populate from current location), or stay empty until next sync? The migration UX is genuinely uncertain.
+6. **Strip-on-export tooling**: ship a separate `fts:strip` command in v1, or defer to Phase 4? Some users will want to publish notes without the witness; others won't care.
+7. **Cross-device sync (Challenge 12)**: should we wait for Challenge 12's findings (multi-device coordination) before shipping write-side, or ship behind feature flag and iterate? The Challenge-07 recommendation is "ship behind opt-in flag, idempotent writes only, no `synced_at`."
+
+**Process**: same as Increment 2 — questions to user *first*, then implementation. The frontmatter property structure especially benefits from user input because it's user-visible YAML they'll see in their files for years.
 
 ---
 

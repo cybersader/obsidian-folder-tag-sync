@@ -4,11 +4,11 @@
  * preview + sharing.
  *
  *   bun run serve              — interactive menu
- *   bun run serve dev          — Astro dev server with HMR (LAN-bindable)
- *   bun run serve preview      — build docs + serve dist (production preview)
+ *   bun run serve dev          — Astro dev (HMR) + auto Tailscale share if installed
+ *   bun run serve preview      — build + preview server + auto Tailscale share if installed
  *   bun run serve build        — docs build only → docs/dist
- *   bun run serve tailscale    — Astro dev shared via Tailscale (tailnet only)
- *   bun run serve cloudflare   — Astro dev shared via Cloudflare Tunnel (public)
+ *   bun run serve tailscale    — build + static serve + Tailscale (snapshot share)
+ *   bun run serve cloudflare   — build + static serve + Cloudflare Tunnel (public)
  *
  * Pattern ported from sibling repo portaconv/docs/scripts/serve.mjs.
  * Covers the cross-OS rollup-binary contamination problem (WSL ↔ Windows)
@@ -202,12 +202,16 @@ async function prompt() {
   const ts = getTailscale();
   const cf = hasCloudflared();
 
+  // Modes 1 and 2 auto-share via Tailscale when available — composition over
+  // mutual exclusion. Modes 4 and 5 remain for the "snapshot a stable build
+  // and share it" use case, where you don't want HMR pushing live edits.
+  const tsTag = ts ? ' + tailnet share' : '';
   console.log('\n  ━━━ folder-tag-sync docs serve ━━━\n');
-  console.log(`  1) Dev server (HMR)         http://localhost:${DOCS_PORT}`);
-  console.log(`  2) Preview built site       http://localhost:${DOCS_PORT}`);
+  console.log(`  1) Dev server (HMR)         http://localhost:${DOCS_PORT}${tsTag}`);
+  console.log(`  2) Preview built site       http://localhost:${DOCS_PORT}${tsTag}`);
   console.log(`  3) Build only               → docs/dist`);
-  console.log(`  4) Share via Tailscale      ${ts ? 'tailnet only' : '(not installed)'}`);
-  console.log(`  5) Share via Cloudflare     ${cf ? 'public URL' : '(cloudflared not found)'}\n`);
+  console.log(`  4) Share built snapshot     ${ts ? 'static build, tailnet only' : '(tailscale not installed)'}`);
+  console.log(`  5) Share built snapshot     ${cf ? 'static build, public URL' : '(cloudflared not found)'}\n`);
 
   return new Promise((res) => {
     rl.question('  Choose [1-5]: ', (a) => {
@@ -332,10 +336,24 @@ async function main() {
 
   switch (chosen) {
     case 'dev':
+      // HMR + Tailscale share — pick a serve mode, get sharing automatically.
+      // Astro dev binds 0.0.0.0 so it's already reachable via tailnet IP;
+      // tailscaleServe adds the proper *.ts.net URL on top.
       startDev();
+      await waitForLocalReady(DOCS_PORT, 60_000);
+      if (getTailscale()) await tailscaleServe(DOCS_PORT);
+      log('Press Ctrl+C to stop.');
+      await new Promise(() => {});
       break;
     case 'preview':
+      // Build → preview server → Tailscale share. Same composition as dev,
+      // but the serve target is the built dist (no HMR; what users see is
+      // closer to production).
       await startPreview();
+      await waitForLocalReady(DOCS_PORT, 60_000);
+      if (getTailscale()) await tailscaleServe(DOCS_PORT);
+      log('Press Ctrl+C to stop.');
+      await new Promise(() => {});
       break;
     case 'build':
       await runBuild();
@@ -343,7 +361,7 @@ async function main() {
     case 'tailscale':
       await runBuild();
       startStaticServer(DOCS_PORT);
-      await waitForLocalReady(DOCS_PORT, 10_000);
+      await waitForLocalReady(DOCS_PORT, 60_000);
       await tailscaleServe(DOCS_PORT);
       log('Press Ctrl+C to stop sharing.');
       await new Promise(() => {});
@@ -351,7 +369,7 @@ async function main() {
     case 'cloudflare':
       await runBuild();
       startStaticServer(DOCS_PORT);
-      await waitForLocalReady(DOCS_PORT, 10_000);
+      await waitForLocalReady(DOCS_PORT, 60_000);
       startCloudflareTunnel(DOCS_PORT);
       log('Press Ctrl+C to stop sharing.');
       await new Promise(() => {});

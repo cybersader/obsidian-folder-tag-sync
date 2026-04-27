@@ -21,24 +21,24 @@ For the abstract framing of what each op does to information — round-trip beha
 
 ## The eight primitives at a glance
 
-| Op | Shape | Cardinality | Inverse recovers… | When to use |
-|---|---|---|---|---|
-| `identity` | full depth preserved | 1:1 | the original folder path | mirror the folder tree into tags |
-| `truncation/drop` | first N segments; rejects deeper paths | 1:1 (within depth) | the original folder path (rejected paths weren't in the rule's domain) | cap tag depth; refuse anything deeper |
-| `truncation/aggregate` | first N segments + deeper joined with separator | many:1 | a path candidate, but separator/segment boundary is ambiguous | cap depth and keep deeper-structure as one compressed term |
-| `truncation/flatten` | first N segments + leaf only | many:1 | first N + the leaf folder; middle ancestry is lost | cap depth and keep the leaf identity but not the ancestry |
-| `marker-only` | one fixed tag for entry + everything beneath | many:1 | the entry folder only; specific deeper path is lost | inboxes, attachments, template markers |
-| `promotion-to-root` | only first segment after entry → tag | many:1 | entry + first segment; deeper structure is lost | coarse collection ("this is a project", no more) |
-| `flattening-to-leaf` | only the leaf folder name → tag | many:1 | the leaf folder name; ancestry is lost | leaf-name indexing, ignoring ancestry |
-| `post-coordination` | N independent flat tags, one per level | 1:many | not uniquely — multiple tags don't pick one folder | faceted vocabularies |
-| `aggregation` | whole path joined with separator into one tag | many:1 | a path candidate; separator/segment boundary ambiguous | compact descriptor tags |
-| `opaque` | no tag is emitted | n/a | n/a — there's no tag to invert | container folders with no tag semantic |
+| Op | Cardinality | One-line summary |
+|---|---|---|
+| `identity` | 1:1 | full depth preserved on both sides |
+| `truncation/drop` | 1:1 (within depth) | first N segments only; deeper paths are rejected |
+| `truncation/aggregate` | many:1 | first N segments + deeper joined with a separator |
+| `truncation/flatten` | many:1 | first N segments + the leaf only; middle ancestry dropped |
+| `marker-only` | many:1 | one fixed tag for the entry folder and everything beneath |
+| `promotion-to-root` | many:1 | only the first segment after the entry becomes the tag |
+| `flattening-to-leaf` | many:1 | only the leaf folder name becomes the tag |
+| `post-coordination` | 1:many | N independent flat tags, one per level |
+| `aggregation` | many:1 | whole path joined with separator into one tag segment |
+| `opaque` | n/a | no tag is emitted (clustering folder only) |
 
-The "Inverse recovers…" column is the load-bearing one for understanding lossy vs. lossless. `identity` and `truncation/drop` are the only two that fully recover the original folder path on the inverse direction — they're the bijective ones (when transforms are reversible). Every other op deliberately throws information away in some direction; the user picks the op with the lossy property they're willing to accept.
+`identity` and `truncation/drop` are the only ops that round-trip cleanly (when transforms are reversible) — given the tag, the inverse direction reconstructs the original folder path. Every other op deliberately throws information away in some direction; the user picks the lossy property they're willing to accept. Per-op forward/inverse worked examples are in each section below; for the bigger-picture framing of round-trip behavior, lossy flavors, and the collision-vs-lossy distinction, see [Bijection and loss](/obsidian-folder-tag-sync/concepts/bijection-and-loss/).
 
 ## `identity`
 
-Preserve full depth. Folder `Output/Public/Security/Zero-Trust/` → tag `#_publicTaxonomy/security/zero-trust`.
+Preserve full depth on both sides.
 
 ```ts
 { op: 'identity' }
@@ -48,6 +48,18 @@ Preserve full depth. Folder `Output/Public/Security/Zero-Trust/` → tag `#_publ
 - **Derived tag pattern**: `^{tagEntry}/`
 - **Cardinality**: 1:1, bijective when transforms are reversible
 - **Use for**: output taxonomies, entity-root identity transfer, PARA buckets
+
+**Worked example** (with `folderEntry = "Output/Public"`, `tagEntry = "_publicTaxonomy"`, kebab-case on tag side):
+
+```
+forward:
+   Output/Public/Security/Zero-Trust/principles.md  →  #_publicTaxonomy/security/zero-trust
+
+inverse:
+   #_publicTaxonomy/security/zero-trust  →  Output/Public/Security/Zero-Trust/   (then user picks the file)
+```
+
+Every path segment round-trips. The case transforms (Title Case ↔ kebab-case) are reversible if applied symmetrically. Bijective.
 
 ## `truncation`
 
@@ -126,6 +138,20 @@ Flat controlled vocabulary — one fixed tag for everything under the folder (an
 - **Marker is NOT re-cased** — it's a literal controlled-vocabulary term, so the runtime bypasses the tag transform pipeline for marker-only ops. `#-inbox` stays `#-inbox` no matter what `caseTransform` says.
 - **Use for**: `Capture/Inbox/ ↔ #-inbox`, `System/ ↔ /template`
 
+**Worked example** (with `folderEntry = "Capture/Inbox"`, `marker = "-inbox"`):
+
+```
+forward:
+   Capture/Inbox/scratch.md            →  #-inbox
+   Capture/Inbox/2026/Q2/notes.md      →  #-inbox     ← same tag, deeper path collapsed
+   Capture/Inbox/projects/auth.md      →  #-inbox     ← also collapsed
+
+inverse:
+   #-inbox  →  Capture/Inbox/   ← entry folder recovered; specific deeper path is unrecoverable
+```
+
+Many distinct folder paths collapse to one tag by design. The forward direction throws information away; the inverse can reconstruct the entry folder but not which specific sub-path produced any given tagged file. Lossy in the forward direction (intentionally).
+
 ## `promotion-to-root`
 
 Only the **first** segment after the entry becomes the tag. Everything deeper is dropped.
@@ -186,9 +212,22 @@ Axis split. Each folder segment becomes **its own flat tag** — N tags instead 
 { op: 'post-coordination' }
 ```
 
+- **Cardinality**: 1:many
 - **Use for**: faceted vocabularies where each facet is independent
-- **Worked example**: `Research/Attention/2024-Q4/` (with `folderEntry: 'Research'`) → `#attention` + `#2024-q4` (two flat tags, hierarchy lost)
-- **Inverse direction**: a single tag can only place a file in one folder, so the inverse uses just the first emitted segment list — typically users author rules where the forward is post-coordination and the inverse is `flattening-to-leaf` or `identity` for asymmetric handling
+
+**Worked example** (with `folderEntry = "Research"`, kebab-case on tag side):
+
+```
+forward:
+   Research/Attention/2024-Q4/notes.md   →  #attention  +  #2024-q4
+   (file frontmatter gets both tags; hierarchy between them is gone)
+
+inverse:
+   #attention  +  #2024-q4   →  ???
+   one tag can only place a file in one folder; multiple tags don't pick one
+```
+
+Lossy in the inverse direction by construction — N independent tags don't compose into a single folder path. Typically users author asymmetric rule pairs: forward direction is `post-coordination` (folder → many flat tags), inverse direction is `flattening-to-leaf` or `identity` so adding one tag still moves the file somewhere predictable.
 
 ## `aggregation`
 

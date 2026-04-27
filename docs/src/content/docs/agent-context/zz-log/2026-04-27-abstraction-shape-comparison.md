@@ -60,6 +60,51 @@ The `cardinality` and `bijective` fields the typed model carries today (`'1:1' |
 
 If a rule pack ships with `{topic}` slots, users authoring a similar rule will copy that name; if it ships with `{slug}`, they'll copy that. The community convention propagates from what the canonical packs use. Worth picking once and propagating — covered as a separate decision-gate question (Q3 — slot vocabulary).
 
+## The majority case vs the minority case
+
+Before the five complex rules: what does the **everyday 80%** look like under each shape, and where does each shape's power show?
+
+**The everyday case: a simple identity rule** — `Projects/{topic}` folder maps directly to `#projects/{topic}` tag. This is what most shipped pack rules look like (PARA's projects/areas/resources/archive, JD's basic numbered area, SEACOW's `Capture/Inbox` marker, etc.). Same shape, four candidate forms:
+
+```jsonc
+// A — Regex (today)
+{ "folderPattern": "^Projects/(.+)$", "tagPattern": "^projects/", "tagEntryPoint": "projects" }
+
+// B — Templates
+{ "folderTemplate": "Projects/{topic}", "tagTemplate": "#projects/{topic}" }
+
+// C — JSON slot objects
+{
+  "folderShape": { "literal": "Projects/", "slots": [{ "name": "topic", "kind": "segment" }] },
+  "tagShape": { "literal": "#projects/", "slots": [{ "name": "topic" }] }
+}
+
+// E — Lens-flavored
+{ "lens": { "get": "Projects/{topic}", "put": "#projects/{topic}", "iso": true } }
+```
+
+The shapes' relative cost on the majority case:
+
+- **A** still requires regex literacy even for the trivial case — `(.+)` is unnamed, `$` anchoring is implicit, the relationship between `(.+)` and the tag's `^projects/` is positional rather than visible.
+- **B** is one line per side; reads like the path itself. The slot name `{topic}` describes the role; the template structure is the rule structure.
+- **C** is 5+ lines for what B does in 1. Every literal segment requires a separate object entry; verbosity tax shows even when the rule is trivial.
+- **E** is B plus a redundant `iso: true` claim. Engine could derive it from slot overlap; the explicit declaration buys nothing on the majority case.
+
+**The power-user minority** is what the five rules below cover — emoji prefixes, multi-entity quantification, hierarchical composition, lossy transfer ops with explicit signaling. Different shapes have different ergonomics there:
+
+- **A** scales by becoming progressively gnarlier regex (`^📁 \d+ - [^/]+/...`) plus separate metadata fields (`folderAnchor`, `transfer.op`)
+- **B** scales via inline filter syntax (`{topic | kebab | num-prefix-strip}`) and named-but-discarded slots
+- **C** scales by adding fields to slot objects (`{ "name": "topic", "transforms": [...], "match": "..." }`)
+- **E** scales by adding explicit lens fields (`iso`, `cardinality`, `complement`)
+
+**Distribution observation across shipped rule packs** (PARA + JD + SEACOW-outer + SEACOW-cyberbase + Zettelkasten + cyberbase-actual): roughly **75-85% of rules are the trivial-identity majority** (single folder pattern → single tag prefix, optional case transform). The remaining 15-25% involve emoji prefixes, multi-entity scoping, marker-only Inboxes, or truncation. The B/C/E differentiation on the *minority* matters less than the B/C/E differentiation on the *majority* — because most rules look like the majority.
+
+**Implication for the abstraction choice**: B (templates) wins decisively on the majority case (1 line vs 7+ for A, 1 line vs 5 for C). C only earns its verbosity in advanced cases that require per-slot config. E only earns its `iso` field when formal bijection guarantees become a feature. **The majority case is where users spend their time; that's where ergonomics matter most.** The minority cases inform whether each shape can scale; the majority cases inform whether each shape is pleasant.
+
+This isn't a vote for B alone (per the user's "start bulky, slim down" principle). But it does suggest: **if Path 2 (sandbox) only built one shape first, B would be the right starting point because its majority-case ergonomics are clearest.**
+
+---
+
 ## Rule 1 — Emoji-prefixed JD numbered area
 
 The user's actual case. Folder: `📁 10 - Projects/Web Auth/oauth.md`. Target tag: `#10-projects/web-auth/oauth`.

@@ -83,3 +83,10 @@ Inference is not authoritative. If inference returns `{transfer: {op: 'identity'
 ## Mixing typed and regex
 
 A rule can carry BOTH typed fields AND hand-written regex that overrides what derivation would produce. The main plugin's rule-pack loader treats **legacy Layer 1 fields as authoritative** if they're present — derivation only fills in what's missing. This makes typed fields a backing description rather than a hard source of truth, which matters when an existing hand-authored pack needs to keep working.
+
+## See also
+
+- [Transfer operations](/obsidian-folder-tag-sync/concepts/transfer-operations/) — the eight typed primitives most rules can be expressed in
+- [Bijection and loss](/obsidian-folder-tag-sync/concepts/bijection-and-loss/) — what determinism guarantees the typed model gives you (and what raw regex doesn't surface)
+- [Terminology](/obsidian-folder-tag-sync/concepts/terminology/) — plain-English glossary
+- [Path abstractions, part 1](/obsidian-folder-tag-sync/agent-context/zz-log/2026-04-26-regex-vs-path-templates-research/) — research log on whether regex stays the right primitive long-term, or templates land as a peer

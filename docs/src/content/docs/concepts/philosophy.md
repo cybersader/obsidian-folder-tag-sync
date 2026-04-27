@@ -80,4 +80,6 @@ For these, author the rule directly at Layer 1 — raw regex patterns + a `Trans
 - [Folder classifiers](/obsidian-folder-tag-sync/concepts/folder-classifiers/) — the 5 scheme kinds
 - [Tag vocabularies](/obsidian-folder-tag-sync/concepts/tag-vocabularies/) — coordination modes + prefix markers
 - [Transfer operations](/obsidian-folder-tag-sync/concepts/transfer-operations/) — the 8 mapping primitives
+- [Bijection and loss](/obsidian-folder-tag-sync/concepts/bijection-and-loss/) — what determinism, lossy/lossless, and round-trip mean per transfer-op
 - [Compound cases](/obsidian-folder-tag-sync/concepts/compound-cases/) — how primitives stack in practice
+- [Terminology](/obsidian-folder-tag-sync/concepts/terminology/) — plain-English glossary

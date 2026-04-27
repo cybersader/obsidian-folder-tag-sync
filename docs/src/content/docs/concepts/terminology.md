@@ -73,20 +73,21 @@ The **forward** direction is folder → tag. The **inverse** direction is tag �
 
 ### Lossless transformation
 
-A transformation is **lossless** if the original input can be perfectly reconstructed from the output. Identity rules (PARA Projects, simple JD) are lossless in both directions: every character round-trips through forward + inverse.
+A transformation is **lossless** if the original input can be perfectly reconstructed from the output. The two lossless transfer ops in Folder Tag Sync are `identity` and `truncation/drop` (within the depth-bounded domain) — see [Bijection and loss](/obsidian-folder-tag-sync/concepts/bijection-and-loss/#lossless-transformation) for the full enumeration.
 
 ### Lossy transformation
 
-A transformation is **lossy** if information is dropped going forward and can't be reconstructed by the inverse. Two examples:
+A transformation is **lossy** if information is dropped going forward (or inverse) and can't be reconstructed in the other direction. Three flavors, each tied to specific transfer ops — see [Bijection and loss · Lossy transformation — three concrete shapes](/obsidian-folder-tag-sync/concepts/bijection-and-loss/#lossy-transformation--three-concrete-shapes):
 
-- **Truncation with `tailHandling: 'drop'`** — depth-capped. `Projects/Web/Auth/Backend` with `depth: 3` produces `#projects/web/auth`; the "Backend" segment is gone. The inverse can recover `Projects/Web/Auth` but not "Backend."
-- **Marker-only** — collapses any folder under the entry to a single fixed tag. Both `Inbox/today.md` and `Inbox/yesterday.md` produce `#inbox`. The inverse can recover the entry folder (`Inbox/`) but not the specific path.
+- **Many-to-one collapse** — `marker-only`, `promotion-to-root`, `flattening-to-leaf`, `aggregation`. Many distinct folders → one tag.
+- **Ambiguous reconstruction** — `truncation/aggregate`, `aggregation`. Separator characters in segment names collide with the join separator.
+- **Ancestry dropped** — `truncation/flatten`. Middle path segments are discarded; only first N + leaf survive.
 
 Lossy isn't a bug — it's deliberate when the user's mental model is "anything in this folder is just *that thing*." The system's job is to be honest about which direction is lossy.
 
 ### Bijection / round-trip
 
-A rule is **bijective** if `forward(inverse(t)) === t` and `inverse(forward(p)) === p` for every input it accepts. Equivalent to: lossless in both directions. The plugin currently has a `bijective: boolean` field on rules; Phase H makes it computable from template-slot overlap rather than asserted as metadata.
+A rule is **bijective** if `forward(inverse(t)) === t` and `inverse(forward(p)) === p` for every input it accepts. Equivalent to: lossless in both directions. The plugin has a `bijective: boolean` field on rules; today it's *asserted* (computed from typed-spec semantics), and Phase H research explores making it *computable* from template-slot overlap. See [Bijection and loss · Bijection](/obsidian-folder-tag-sync/concepts/bijection-and-loss/#bijection--when-both-directions-round-trip).
 
 ### Surjection / injection / bijection
 
@@ -100,9 +101,9 @@ Function-theoretic terms used in [Part 1](/obsidian-folder-tag-sync/agent-contex
 
 ### Collision
 
-When two distinct inputs accidentally produce the same output because the rule's pattern was too permissive. **Forward-direction problem.** A root-anchored rule like `^10 - Projects` matches both `Entity/Cybersader/10 - Projects/foo` and `Entity/Bob/10 - Projects/foo` if the engine doesn't notice the parent context. They collapse to the same `#10-projects/foo` tag — different intended meanings, same output.
+When two distinct inputs accidentally produce the same output because the rule's pattern was too permissive. **Forward-direction problem; happens at the *match* step.** A root-anchored rule like `^10 - Projects` matches both `Entity/Cybersader/10 - Projects/foo` and `Entity/Bob/10 - Projects/foo` if the engine doesn't notice the parent context. They collapse to the same `#10-projects/foo` tag — different intended meanings, same output.
 
-> **Collision vs. lossy — the difference:** Collision is when the abstraction lets two things look the same that shouldn't. Lossy is when the abstraction deliberately throws information away. They're different failure modes — solving one doesn't automatically solve the other.
+> **Collision vs. lossy — the difference:** Collision is when the abstraction lets two things look the same that shouldn't (the *pattern* is too permissive). Lossy is when the abstraction deliberately throws information away (the *transfer op* is many-to-one by design). Different stages of the pipeline; different fixes. See [Bijection and loss · Collision is a different problem from lossy](/obsidian-folder-tag-sync/concepts/bijection-and-loss/#collision-is-a-different-problem-from-lossy) for the side-by-side.
 
 ### Pattern over-match
 
@@ -151,8 +152,9 @@ Two ways rules get into your settings:
 
 ## See also
 
+- [Transfer operations](/obsidian-folder-tag-sync/concepts/transfer-operations/) — the eight primitives this glossary's lossy/lossless/bijection terms are properties *of*
+- [Bijection and loss](/obsidian-folder-tag-sync/concepts/bijection-and-loss/) — the bottom-up bridge from transfer-op primitives to round-trip behavior, lossy flavors, cardinality, and the collision-vs-lossy distinction
 - [Philosophy](/obsidian-folder-tag-sync/concepts/philosophy/) — why the typed-model layers exist; pre/post-coordination explained at length
-- [Transfer operations](/obsidian-folder-tag-sync/concepts/transfer-operations/) — the eight primitives that templates and regex both compile against
 - [When to use regex](/obsidian-folder-tag-sync/concepts/when-to-use-regex/) — current escape-hatch guidance
 - [Path abstractions, part 1](/obsidian-folder-tag-sync/agent-context/zz-log/2026-04-26-regex-vs-path-templates-research/) — vocabulary in research-doc context
 - [Path abstractions, part 2](/obsidian-folder-tag-sync/agent-context/zz-log/2026-04-27-regex-vs-templates-part-2-solutions-in-practice/) — concrete code, hybrid coexistence

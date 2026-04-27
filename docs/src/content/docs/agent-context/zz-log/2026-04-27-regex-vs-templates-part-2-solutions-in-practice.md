@@ -398,9 +398,11 @@ For future docs in this lineage:
 
 ## Related concepts
 
+- [Transfer operations](../../concepts/transfer-operations/) — the eight primitives both regex and templates compile against (the load-bearing primitives page)
+- [Bijection and loss](../../concepts/bijection-and-loss/) — the bridge page; what bijection visibility actually means in terms of the eight ops
+- [Terminology](../../concepts/terminology/) — plain-English glossary
 - [Path abstractions, part 1](../2026-04-26-regex-vs-path-templates-research/) — the framing, prior art, vocabulary, and abstraction-comparison diagram
 - [Philosophy](../../concepts/philosophy/) — typed model layers, why determinism is non-negotiable
-- [Transfer operations](../../concepts/transfer-operations/) — the eight primitives both regex and templates compile against
 - [When to use regex](../../concepts/when-to-use-regex/) — current escape-hatch guidance; revisit after Phase H lands
 - [Open questions](../open-questions/) — design decisions in flight
 - [Tradeoffs](../tradeoffs/) — chosen-vs-rejected captures

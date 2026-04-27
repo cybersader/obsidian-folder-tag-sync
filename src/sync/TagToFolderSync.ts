@@ -1,7 +1,7 @@
 import { App, TFile, Notice } from 'obsidian';
 import type { DynamicTagsFoldersSettings, MappingRule } from '../types/settings';
 import { DebugLogger } from '../utils/debug';
-import { findMatchingRules } from '../engine/ruleMatcher';
+import { findMatchingRules, findBestMatch } from '../engine/ruleMatcher';
 import { applyTransformPipeline } from '../transformers/pipeline';
 import { applyRuleInverse } from '../engine/applyTransfer';
 
@@ -167,7 +167,16 @@ export class TagToFolderSync {
       });
 
       if (matchingRules.length > 0) {
-        const { rule } = matchingRules[0];
+        // F1 Step 3 — Use findBestMatch so group-precedence + specificity-aware
+        // resolution actually take effect. Earlier code took matchingRules[0]
+        // directly, which bypassed Step 1+2's sort-order swap.
+        const bestMatch = findBestMatch(tagWithoutHash, this.settings.rules, {
+          input: tagWithoutHash,
+          matchType: 'tag',
+          direction: 'tag-to-folder'
+        }, this.settings.groupPrecedence);
+
+        const { rule } = bestMatch ?? matchingRules[0];
 
         // Check if rule supports tag-to-folder
         if (rule.direction === 'folder-to-tag') {

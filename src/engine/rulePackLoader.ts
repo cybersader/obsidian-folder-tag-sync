@@ -140,6 +140,15 @@ export function loadRulePackFromJSON(json: string): LoadResult | LoadError {
 	const rules: MappingRule[] = [];
 	const seenIds = new Set<string>();
 
+	// Pack-level group: read top-level `group` if present; else derive from pack `id`.
+	// Per-rule `group` (if explicitly set on a rule) overrides this default.
+	// F1 Step 3 — provides cross-pack precedence partitioning.
+	const packGroup = typeof obj.group === 'string' && (obj.group as string).trim().length > 0
+		? (obj.group as string).trim()
+		: typeof obj.id === 'string' && (obj.id as string).trim().length > 0
+			? (obj.id as string).trim()
+			: undefined;
+
 	for (const [i, rawRule] of (obj.rules as RawRule[]).entries()) {
 		const ruleErrors = validateAndNormalizeRule(rawRule, i);
 		if (!ruleErrors.ok) {
@@ -150,6 +159,11 @@ export function loadRulePackFromJSON(json: string): LoadResult | LoadError {
 				errors.push(`Rule #${i}: duplicate id '${r.id}'`);
 			} else {
 				seenIds.add(r.id);
+				// F1 Step 3 — default group from pack-level group or pack id.
+				// Only set when the rule didn't declare its own group.
+				if (!r.group && packGroup) {
+					r.group = packGroup;
+				}
 				rules.push(r);
 			}
 		}

@@ -325,6 +325,170 @@ describe('findBestMatch', () => {
 
 		expect(best).toBeNull();
 	});
+
+	// ====================================================================
+	// F1 Step 3 — Group precedence
+	// ====================================================================
+
+	test('group precedence — listed group beats unlisted group', () => {
+		const rules = [
+			createRule({
+				id: 'unlisted-rule',
+				folderPattern: 'Projects/*',
+				group: 'rare-pack'
+			}),
+			createRule({
+				id: 'listed-rule',
+				folderPattern: 'Projects/*',
+				group: 'para'
+			})
+		];
+
+		const best = findBestMatch(
+			'Projects/Test',
+			rules,
+			{ input: 'Projects/Test', matchType: 'folder' },
+			['para']  // 'para' listed; 'rare-pack' not
+		);
+
+		expect(best).not.toBeNull();
+		expect(best?.rule.id).toBe('listed-rule');
+	});
+
+	test('group precedence — earlier in list beats later in list', () => {
+		const rules = [
+			createRule({
+				id: 'jd-rule',
+				folderPattern: 'Projects/*',
+				group: 'jd'
+			}),
+			createRule({
+				id: 'para-rule',
+				folderPattern: 'Projects/*',
+				group: 'para'
+			})
+		];
+
+		const best = findBestMatch(
+			'Projects/Test',
+			rules,
+			{ input: 'Projects/Test', matchType: 'folder' },
+			['para', 'jd']  // 'para' first = highest precedence
+		);
+
+		expect(best).not.toBeNull();
+		expect(best?.rule.id).toBe('para-rule');
+	});
+
+	test('group precedence — within-group specificity sort still applies', () => {
+		// Two rules in the same (highest-precedence) group with different specificities.
+		// Specificity sort wins within the group; group-precedence isn't a factor here.
+		const rules = [
+			createRule({
+				id: 'broad-in-para',
+				folderPattern: '^Projects/(.+)$',
+				folderAnchor: 'root',
+				group: 'para'
+			}),
+			createRule({
+				id: 'specific-in-para',
+				folderPattern: '^Projects/Web/(.+)$',
+				folderAnchor: 'root',
+				group: 'para'
+			})
+		];
+
+		const best = findBestMatch(
+			'Projects/Web/auth',
+			rules,
+			{ input: 'Projects/Web/auth', matchType: 'folder' },
+			['para']
+		);
+
+		expect(best).not.toBeNull();
+		// Specific rule wins on confidence within the para group.
+		expect(best?.rule.id).toBe('specific-in-para');
+	});
+
+	test('ungrouped rules default to lowest precedence', () => {
+		const rules = [
+			createRule({
+				id: 'ungrouped',
+				folderPattern: 'Projects/*'
+				// no group field
+			}),
+			createRule({
+				id: 'grouped',
+				folderPattern: 'Projects/*',
+				group: 'para'
+			})
+		];
+
+		const best = findBestMatch(
+			'Projects/Test',
+			rules,
+			{ input: 'Projects/Test', matchType: 'folder' },
+			['para']
+		);
+
+		expect(best).not.toBeNull();
+		// Ungrouped (default group '__default__') is lowest precedence; grouped wins.
+		expect(best?.rule.id).toBe('grouped');
+	});
+
+	test('no groupPrecedence argument — alphabetical group tiebreak', () => {
+		// When groupPrecedence is omitted, all groups have equal rank,
+		// alphabetical tiebreak chooses 'a-group' over 'b-group'.
+		const rules = [
+			createRule({
+				id: 'in-b',
+				folderPattern: 'Projects/*',
+				group: 'b-group'
+			}),
+			createRule({
+				id: 'in-a',
+				folderPattern: 'Projects/*',
+				group: 'a-group'
+			})
+		];
+
+		const best = findBestMatch('Projects/Test', rules, {
+			input: 'Projects/Test',
+			matchType: 'folder'
+		});
+
+		expect(best).not.toBeNull();
+		// Alphabetical tiebreak: 'a-group' < 'b-group'
+		expect(best?.rule.id).toBe('in-a');
+	});
+
+	test('all rules ungrouped — behaves like no-group case (Step 1+2 only)', () => {
+		const rules = [
+			createRule({
+				id: 'broad',
+				folderPattern: '^Projects/(.+)$',
+				folderAnchor: 'root',
+				priority: 10
+			}),
+			createRule({
+				id: 'specific',
+				folderPattern: '^Projects/Web/(.+)$',
+				folderAnchor: 'root',
+				priority: 20
+			})
+			// neither has a group field
+		];
+
+		const best = findBestMatch('Projects/Web/auth', rules, {
+			input: 'Projects/Web/auth',
+			matchType: 'folder'
+		});
+
+		expect(best).not.toBeNull();
+		// Both fall to '__default__' group; within-group specificity sort wins.
+		// Specific rule beats broad rule (Challenge 01 stress case still works).
+		expect(best?.rule.id).toBe('specific');
+	});
 });
 
 describe('findConflicts', () => {

@@ -473,3 +473,92 @@ describe('rulePackLoader × folderAnchor (Phase G)', () => {
 		expect(true).toBe(true);
 	});
 });
+
+// ===========================================================================
+// F1 Step 3 — Group field defaulting at load time
+// ===========================================================================
+
+describe('Group field defaulting at load time', () => {
+	function buildPackJson(overrides: Record<string, unknown>): string {
+		return JSON.stringify({
+			id: 'my-test-pack',
+			name: 'My Test Pack',
+			description: 'Test',
+			version: '1.0.0',
+			author: 'Test',
+			rules: [
+				{
+					id: 'rule-1',
+					name: 'Rule 1',
+					enabled: true,
+					priority: 10,
+					direction: 'bidirectional',
+					folderPattern: 'Projects/(.+)',
+					tagPattern: '^projects/',
+					options: {
+						createFolders: true,
+						addTags: true,
+						removeOrphanedTags: false,
+						syncOnFileCreate: true,
+						syncOnFileMove: true,
+						syncOnFileRename: true
+					}
+				}
+			],
+			...overrides
+		});
+	}
+
+	test('rules without group inherit pack id as default group', () => {
+		const json = buildPackJson({});
+		const result = loadRulePackFromJSON(json);
+
+		expect(result.ok).toBe(true);
+		if (result.ok) {
+			expect(result.pack.rules).toHaveLength(1);
+			expect(result.pack.rules[0].group).toBe('my-test-pack');
+		}
+	});
+
+	test('rule with explicit group field keeps its own group', () => {
+		const json = buildPackJson({
+			rules: [
+				{
+					id: 'rule-1',
+					name: 'Rule 1',
+					enabled: true,
+					priority: 10,
+					direction: 'bidirectional',
+					group: 'custom-cluster',  // explicit per-rule override
+					folderPattern: 'Projects/(.+)',
+					tagPattern: '^projects/',
+					options: {
+						createFolders: true,
+						addTags: true,
+						removeOrphanedTags: false,
+						syncOnFileCreate: true,
+						syncOnFileMove: true,
+						syncOnFileRename: true
+					}
+				}
+			]
+		});
+
+		const result = loadRulePackFromJSON(json);
+
+		expect(result.ok).toBe(true);
+		if (result.ok) {
+			expect(result.pack.rules[0].group).toBe('custom-cluster');
+		}
+	});
+
+	test('pack-level group field overrides pack-id default', () => {
+		const json = buildPackJson({ group: 'shared-cluster' });
+		const result = loadRulePackFromJSON(json);
+
+		expect(result.ok).toBe(true);
+		if (result.ok) {
+			expect(result.pack.rules[0].group).toBe('shared-cluster');
+		}
+	});
+});

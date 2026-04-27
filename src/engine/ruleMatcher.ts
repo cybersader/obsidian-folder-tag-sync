@@ -98,26 +98,32 @@ export function findMatchingRules(
 }
 
 /**
- * Find the best matching rule based on confidence (primary) and priority (tiebreak).
+ * Find the best matching rule with three-layer resolution: group precedence,
+ * confidence (specificity), and priority as the tiebreak.
  *
- * Increment 1 Step 2 promoted confidence to the primary sort key. Under the
- * previous sort, priority was primary and confidence was tiebreak — which meant
- * a more-specific rule at "lower priority" (higher number) would lose to a
- * broader rule at "higher priority" (lower number), even when the user's
- * intuition was "more specific should win." See Challenge 01 for the stress
- * case and the audit at `zz-log/2026-04-27-confidence-formula-audit.md` for
- * the validation that this swap is non-breaking on shipped rule packs (>92%
- * agreement on existing user-authored priorities).
+ * F1 Step 3 added the group-precedence layer. The resolution order is now:
  *
- * **Priority is now the manual override tiebreak.** It still resolves cases
- * where two rules have identical confidence (typically same-pattern, same-anchor
- * rules where the engine genuinely can't tell them apart from shape alone).
- * For everything else, the more-specific pattern wins by construction.
+ *   1. Partition matches by `MappingRule.group` (default `'__default__'`).
+ *   2. Pick the highest-precedence group with at least one match. Group
+ *      precedence is read from `groupPrecedence?: string[]` on settings;
+ *      groups not in the list fall to lowest precedence (alphabetical
+ *      tiebreak as a last resort).
+ *   3. Within the winning group, sort by confidence descending — the
+ *      Increment 1 Step 1+2 specificity-aware order.
+ *   4. Priority is the within-group tiebreak when confidences are equal.
+ *
+ * The function reads `groupPrecedence` from the optional `groupPrecedence`
+ * argument. When absent, group precedence defaults to alphabetical (so
+ * behavior on a vault that hasn't authored a precedence order is stable).
+ *
+ * **Priority is now the within-group manual override tiebreak.** Cross-group
+ * resolution uses the precedence list, not priority.
  */
 export function findBestMatch(
 	input: string,
 	rules: MappingRule[],
-	context: RuleEvaluationContext
+	context: RuleEvaluationContext,
+	groupPrecedence?: string[]
 ): RuleMatch | null {
 	const matches = findMatchingRules(input, rules, context);
 
@@ -125,16 +131,48 @@ export function findBestMatch(
 		return null;
 	}
 
-	// Sort by confidence first (higher = more specific = wins),
-	// then by priority as the tiebreak (lower number = higher precedence).
-	matches.sort((a, b) => {
+	// === F1 Step 3 — Partition matches by group ===
+	const byGroup = new Map<string, RuleMatch[]>();
+	for (const match of matches) {
+		const groupKey = match.rule.group ?? '__default__';
+		if (!byGroup.has(groupKey)) {
+			byGroup.set(groupKey, []);
+		}
+		byGroup.get(groupKey)!.push(match);
+	}
+
+	// === Sort groups by precedence ===
+	// Groups in groupPrecedence get rank by their list position (lower index = higher precedence).
+	// Groups not listed fall to lowest precedence with alphabetical tiebreak among themselves.
+	const groupRank = (g: string): number => {
+		if (groupPrecedence) {
+			const idx = groupPrecedence.indexOf(g);
+			if (idx !== -1) return idx;
+		}
+		// Unlisted: rank after all listed groups; sub-rank by alphabetical position
+		const listedCount = groupPrecedence?.length ?? 0;
+		return listedCount + 1; // shared "after-all-listed" bucket; alphabetical sort below distinguishes them
+	};
+
+	const groupsInOrder = Array.from(byGroup.keys()).sort((a, b) => {
+		const rankDiff = groupRank(a) - groupRank(b);
+		if (rankDiff !== 0) return rankDiff;
+		// Tiebreak: alphabetical (deterministic and stable for ungrouped/unlisted rules)
+		return a.localeCompare(b);
+	});
+
+	// === Within the winning group, apply the Step 1+2 specificity sort ===
+	const winningGroup = groupsInOrder[0];
+	const groupMatches = byGroup.get(winningGroup)!;
+
+	groupMatches.sort((a, b) => {
 		if (a.confidence !== b.confidence) {
 			return b.confidence - a.confidence;
 		}
 		return a.rule.priority - b.rule.priority;
 	});
 
-	return matches[0];
+	return groupMatches[0];
 }
 
 /**

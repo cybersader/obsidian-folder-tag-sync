@@ -15,7 +15,7 @@ Five real rules, four candidate abstraction shapes, drafted side-by-side. The us
 The four shapes evaluated (drawn from [Path abstractions Part 2](/obsidian-folder-tag-sync/agent-context/zz-log/2026-04-27-regex-vs-templates-part-2-solutions-in-practice/)):
 
 - **A — Regex (status quo)** — today's `MappingRule` with `folderPattern` / `tagPattern` and `TransformConfig`
-- **B — Named-slot path templates** — `folderTemplate: "Projects/{slug}"` ↔ `tagTemplate: "#projects/{slug}"`
+- **B — Named-slot path templates** — `folderTemplate: "Projects/{project}"` ↔ `tagTemplate: "#projects/{project}"` (slot name `{project}` describes the role; the canonical name varies per rule pack — see Q3)
 - **C — JSON slot-objects** — `folderShape: { literal, slots: [...] }` (verbose; explicit per-slot config)
 - **E — Lens-flavored explicit pair** — `lens: { get, put, iso }` (template-shape + bijectivity claim)
 
@@ -28,6 +28,37 @@ The five rules are drawn from the user's actual workflow shape, especially the c
 3. PARA inside a JD-numbered area
 4. Marker-only Inbox
 5. Truncation/aggregate Clips
+
+## Templates don't replace transfer operations — they're an authoring surface for them
+
+Before the per-rule comparison, the bridge that's been missing: **templates and the 8 transfer-op primitives are not in tension.** Templates are *how* you author a rule; transfer ops are *what the engine does* with the matched slots once a rule fires. The same eight ops still apply; templates just make their behavior visible at authoring time instead of asserting it via separate metadata.
+
+Concretely, every transfer op has a template form. The slot syntax encodes the op's behavior directly:
+
+| Transfer op | Template form (folder side ↔ tag side) | What the slot pattern says |
+|---|---|---|
+| `identity` | `Output/Public/{topic}/{deeper...}` ↔ `#publicTaxonomy/{topic}/{deeper...}` | Same slots both sides → bijective by construction |
+| `truncation/drop` (depth=2) | `Capture/Clips/{section}/{subsection}` ↔ `#-clip/{section}/{subsection}` | No glob slot → engine rejects deeper paths (matches the rule's depth) |
+| `truncation/aggregate` (depth=2) | `Capture/Clips/{section}/{subsection}/{deeper...}` ↔ `#-clip/{section}/{subsection}/{deeper \| join('-')}` | Glob slot with `\| join` filter → tail collapses with separator |
+| `truncation/flatten` (depth=2) | `Capture/Clips/{section}/{subsection}/{discarded-middle...}/{leaf}` ↔ `#-clip/{section}/{subsection}/{leaf}` | Glob slot named-but-discarded; leaf survives → middle ancestry dropped |
+| `promotion-to-root` | `Projects/{project}/{discarded-deeper...}` ↔ `#projects/{project}` | Glob slot only on folder side → deeper structure dropped |
+| `flattening-to-leaf` | `Sources/{discarded-ancestry...}/{leaf}` ↔ `#via/{leaf}` | Multiple slots only on folder side → ancestry dropped, leaf survives |
+| `post-coordination` | `Research/{axis-a}/{axis-b}` ↔ `[#{axis-a}, #{axis-b}]` | Tag template uses array form → multiple flat tags emitted |
+| `aggregation` | `Capture/Clips/{path...}` ↔ `#-clip/{path \| join('-')}` | Whole tail joins with separator → one tag segment |
+| `marker-only` | `Capture/Inbox/{discarded...}` ↔ `#-inbox` | Slot only on folder side, tag side is literal → fixed marker |
+| `opaque` | `Attachments/{discarded...}` ↔ (no `tagTemplate`) | No tag emitted at all → clustering only |
+
+Three patterns the table makes visible:
+
+- **Slots present on both sides** → the round-trip preserves them (bijective for that slot)
+- **Slots present only on the folder side** → matched-but-discarded (lossy forward)
+- **Slots only on the tag side** → unsourced (config error; engine warns at load time)
+
+The `cardinality` and `bijective` fields the typed model carries today (`'1:1' | '1:many' | 'many:1'`) become *derivable from slot overlap* rather than asserted as separate metadata. The engine still enforces them at runtime via the same eight ops; templates just make them visible at authoring time.
+
+**The "naming the slot" problem** the user has flagged: the table above uses domain-meaningful names (`{topic}`, `{project}`, `{owner}`, `{leaf}`, `{section}`, `{deeper...}`) not URL-routing placeholders (`{slug}`, `{rest}`). The slot's name should describe *what role that piece plays in the rule's domain*, not be a generic variable label. The per-rule examples below follow this convention.
+
+If a rule pack ships with `{topic}` slots, users authoring a similar rule will copy that name; if it ships with `{slug}`, they'll copy that. The community convention propagates from what the canonical packs use. Worth picking once and propagating — covered as a separate decision-gate question (Q3 — slot vocabulary).
 
 ## Rule 1 — Emoji-prefixed JD numbered area
 
@@ -63,12 +94,12 @@ Forward direction: kebab-case + emoji-strip + number-prefix-keep on tag side. In
 {
   "id": "jd-numbered-area",
   "priority": 10,
-  "folderTemplate": "📁? {jd-area}/{slug}/{tail...}",
-  "tagTemplate": "#{jd-area | num-prefix-keep | kebab}/{slug | kebab}/{tail | kebab}"
+  "folderTemplate": "📁? {jd-area}/{topic}/{deeper...}",
+  "tagTemplate": "#{jd-area | num-prefix-keep | kebab}/{topic | kebab}/{deeper | kebab}"
 }
 ```
 
-**Authoring**: a literate-flavored template. `{jd-area}` is the captured literal `10 - Projects`; the per-slot filters (`num-prefix-keep`, `kebab`) say what each slot does on the tag side. `📁?` makes the optional emoji prefix *visible* in the syntax — no regex character-class voodoo.
+**Authoring**: `{jd-area}` captures `10 - Projects` (the JD-shaped folder); `{topic}` is the inner organizational unit (`Web Auth`); `{deeper...}` is the rest of the path (`oauth/notes.md`). Per-slot filters (`num-prefix-keep`, `kebab`) say what each slot does on the tag side. `📁?` makes the optional emoji prefix *visible* in syntax — no regex character-class voodoo. Names describe roles, not placeholders.
 
 ### C — JSON slot-objects
 
@@ -80,16 +111,16 @@ Forward direction: kebab-case + emoji-strip + number-prefix-keep on tag side. In
     "literal": "📁? ",
     "slots": [
       { "name": "jd-area", "kind": "segment", "match": "\\d+ - [^/]+" },
-      { "name": "slug", "kind": "segment" },
-      { "name": "tail", "kind": "glob" }
+      { "name": "topic", "kind": "segment" },
+      { "name": "deeper", "kind": "glob" }
     ]
   },
   "tagShape": {
     "literal": "#",
     "slots": [
       { "name": "jd-area", "transforms": ["num-prefix-keep", "kebab"] },
-      { "name": "slug", "transforms": ["kebab"] },
-      { "name": "tail", "transforms": ["kebab"] }
+      { "name": "topic", "transforms": ["kebab"] },
+      { "name": "deeper", "transforms": ["kebab"] }
     ]
   }
 }
@@ -104,8 +135,8 @@ Forward direction: kebab-case + emoji-strip + number-prefix-keep on tag side. In
   "id": "jd-numbered-area",
   "priority": 10,
   "lens": {
-    "get": "📁? {jd-area}/{slug}/{tail...}",
-    "put": "#{jd-area | num-prefix-keep | kebab}/{slug | kebab}/{tail | kebab}",
+    "get": "📁? {jd-area}/{topic}/{deeper...}",
+    "put": "#{jd-area | num-prefix-keep | kebab}/{topic | kebab}/{deeper | kebab}",
     "iso": false
   }
 }
@@ -142,12 +173,12 @@ The `--` and `_` prefix markers come from SEACOW conventions (entity → `--`, o
 {
   "id": "seacow-entity-output",
   "priority": 10,
-  "folderTemplate": "Entity/{owner}/Output/Public/{topic}/{tail...}",
-  "tagTemplate": "#--{owner | kebab}/_publicTaxonomy/{topic | kebab}/{tail | kebab}"
+  "folderTemplate": "Entity/{owner}/Output/Public/{topic}/{deeper...}",
+  "tagTemplate": "#--{owner | kebab}/_publicTaxonomy/{topic | kebab}/{deeper | kebab}"
 }
 ```
 
-**Authoring**: `{owner}` flows through both sides. The per-entity quantification falls out naturally — same rule fires on `Entity/Bob/...`, `Entity/Alice/...`, etc., and the tag carries the entity name.
+**Authoring**: `{owner}` flows through both sides — same rule fires on `Entity/Bob/...`, `Entity/Alice/...`, and the tag carries the entity name. `{topic}` captures the top-level subject (`Security`); `{deeper...}` captures the rest (`Zero-Trust/principles.md`). Per-entity quantification falls out of slot reuse, no special syntax required.
 
 ### C — JSON slot-objects
 
@@ -161,7 +192,7 @@ The `--` and `_` prefix markers come from SEACOW conventions (entity → `--`, o
       { "name": "owner", "kind": "segment" },
       { "name": "_separator", "literal": "/Output/Public/" },
       { "name": "topic", "kind": "segment" },
-      { "name": "tail", "kind": "glob" }
+      { "name": "deeper", "kind": "glob" }
     ]
   },
   "tagShape": {
@@ -170,7 +201,7 @@ The `--` and `_` prefix markers come from SEACOW conventions (entity → `--`, o
       { "name": "owner", "transforms": ["kebab"] },
       { "name": "_separator", "literal": "/_publicTaxonomy/" },
       { "name": "topic", "transforms": ["kebab"] },
-      { "name": "tail", "transforms": ["kebab"] }
+      { "name": "deeper", "transforms": ["kebab"] }
     ]
   }
 }
@@ -184,8 +215,8 @@ The `--` and `_` prefix markers come from SEACOW conventions (entity → `--`, o
 {
   "id": "seacow-entity-output",
   "lens": {
-    "get": "Entity/{owner}/Output/Public/{topic}/{tail...}",
-    "put": "#--{owner | kebab}/_publicTaxonomy/{topic | kebab}/{tail | kebab}",
+    "get": "Entity/{owner}/Output/Public/{topic}/{deeper...}",
+    "put": "#--{owner | kebab}/_publicTaxonomy/{topic | kebab}/{deeper | kebab}",
     "iso": true
   }
 }
@@ -223,8 +254,8 @@ This is the case where Phase G's `folderAnchor.under` shines today.
 {
   "id": "para-inside-jd",
   "priority": 20,
-  "folderTemplate": "{jd-area:📁? \\d+ - [^/]+}/Projects/{topic}/{tail...}",
-  "tagTemplate": "#{topic | kebab}/{tail | kebab}"
+  "folderTemplate": "{jd-area:📁? \\d+ - [^/]+}/Projects/{topic}/{deeper...}",
+  "tagTemplate": "#{topic | kebab}/{deeper | kebab}"
 }
 ```
 
@@ -240,14 +271,14 @@ This is the case where Phase G's `folderAnchor.under` shines today.
       { "name": "jd-area", "kind": "segment", "match": "📁? \\d+ - [^/]+" },
       { "name": "_separator", "literal": "/Projects/" },
       { "name": "topic", "kind": "segment" },
-      { "name": "tail", "kind": "glob" }
+      { "name": "deeper", "kind": "glob" }
     ]
   },
   "tagShape": {
     "literal": "#",
     "slots": [
       { "name": "topic", "transforms": ["kebab"] },
-      { "name": "tail", "transforms": ["kebab"] }
+      { "name": "deeper", "transforms": ["kebab"] }
     ]
   }
 }
@@ -261,8 +292,8 @@ This is the case where Phase G's `folderAnchor.under` shines today.
 {
   "id": "para-inside-jd",
   "lens": {
-    "get": "{jd-area:📁? \\d+ - [^/]+}/Projects/{topic}/{tail...}",
-    "put": "#{topic | kebab}/{tail | kebab}",
+    "get": "{jd-area:📁? \\d+ - [^/]+}/Projects/{topic}/{deeper...}",
+    "put": "#{topic | kebab}/{deeper | kebab}",
     "iso": false
   }
 }
@@ -311,7 +342,7 @@ Folder: `Capture/Inbox/2026/Q2/notes.md`. Tag: `#-inbox`. The folder hierarchy b
   "folderShape": {
     "literal": "Capture/Inbox/",
     "slots": [
-      { "name": "_tail", "kind": "glob", "discarded": true }
+      { "name": "_inbox-content", "kind": "glob", "discarded": true }
     ]
   },
   "tagShape": {
@@ -371,12 +402,12 @@ Truncation depth 2; deeper segments aggregate with `-` separator.
 ```jsonc
 {
   "id": "clip-truncate",
-  "folderTemplate": "Capture/Clips/{level1}/{level2}/{tail...}",
-  "tagTemplate": "#-clip/{level1 | kebab}/{level2 | kebab}/{tail | join('-') | kebab}"
+  "folderTemplate": "Capture/Clips/{section}/{subsection}/{deeper...}",
+  "tagTemplate": "#-clip/{section | kebab}/{subsection | kebab}/{deeper | join('-') | kebab}"
 }
 ```
 
-**Authoring**: `{tail | join('-')}` filter says "aggregate the glob slot's segments with a `-` separator." Truncation depth is *derivable* from how many literal slots come before `{tail...}` (here, 2). The aggregation behavior is *visible* in the template via the `join` filter.
+**Authoring**: `{section}` and `{subsection}` are the two preserved levels; `{deeper...}` is the glob that aggregates with `| join('-')`. Truncation depth is *derivable* from how many literal slots come before `{deeper...}` (here, 2). The aggregation behavior is *visible* in the template via the `join` filter — no separate metadata field required.
 
 ### C — JSON slot-objects
 
@@ -386,16 +417,16 @@ Truncation depth 2; deeper segments aggregate with `-` separator.
   "folderShape": {
     "literal": "Capture/Clips/",
     "slots": [
-      { "name": "level1", "kind": "segment" },
-      { "name": "level2", "kind": "segment" },
-      { "name": "tail", "kind": "glob" }
+      { "name": "section", "kind": "segment" },
+      { "name": "subsection", "kind": "segment" },
+      { "name": "deeper", "kind": "glob" }
     ]
   },
   "tagShape": {
     "literal": "#-clip/",
     "slots": [
-      { "name": "level1", "transforms": ["kebab"] },
-      { "name": "level2", "transforms": ["kebab"] },
+      { "name": "section", "transforms": ["kebab"] },
+      { "name": "subsection", "transforms": ["kebab"] },
       { "name": "tail", "aggregateSeparator": "-", "transforms": ["kebab"] }
     ]
   }
@@ -410,8 +441,8 @@ Truncation depth 2; deeper segments aggregate with `-` separator.
 {
   "id": "clip-truncate",
   "lens": {
-    "get": "Capture/Clips/{level1}/{level2}/{tail...}",
-    "put": "#-clip/{level1 | kebab}/{level2 | kebab}/{tail | join('-') | kebab}",
+    "get": "Capture/Clips/{section}/{subsection}/{deeper...}",
+    "put": "#-clip/{section | kebab}/{subsection | kebab}/{deeper | join('-') | kebab}",
     "iso": false
   }
 }

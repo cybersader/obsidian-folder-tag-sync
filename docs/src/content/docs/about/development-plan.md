@@ -147,7 +147,40 @@ Within each track, items are sequenced by **what users notice first**:
 
 ---
 
+## Cross-cutting Foundation work: detection + preview normalization
+
+Surfaced during F1 Step 3 user testing — the user noticed that vault scan doesn't detect JD packs in their actual vault and the rule preview says "no vault folders match this rule" even though folders clearly match the rule's intent.
+
+**Diagnosis**: the user's real folders are emoji-prefixed (`📁 10 - Projects/`, `👤 VaultUser1/📁 \d+ - .*`). The JD pack's detection regex `^\d{2} - [A-Za-z]` doesn't match `📁 10 - Projects` because of the leading emoji. The runtime transform pipeline already handles this via `emojiHandling: 'strip'`, but **detection scan and rule preview don't apply the same normalization**.
+
+**The user's load-bearing principle on this**: *"our system should be made to fundamentally detect things without having to create yet more schemas on the import side."* Pack creators shouldn't have to enumerate emoji-prefix variants in detection regexes; the engine should normalize input before matching, the same way it does at runtime.
+
+**Concrete fix scope** (separate commit, lightweight):
+
+- `src/engine/detectPacks.ts` (or wherever vault-scan detection lives): apply the same emoji-prefix-strip + whitespace-normalize that `applyTransformPipeline` does, before testing folder names against pack detection regexes.
+- `src/engine/rulePreview.ts` (preview UI): apply the same normalization before testing folder names against the rule's `folderPattern` for "what folders match this rule" listings.
+- New tests covering: emoji-prefixed JD folder gets detected; preview lists emoji-prefixed folders for plain-text patterns; symbol-prefixed folders (`👤`, `📁`, `⬇️`) work consistently.
+
+**Composition**: this aligns with F2 (templates) because templates' literal-prefix matching benefits from the same normalization. When a template says `Projects/{slug}`, the engine should match `📁 Projects/Web Auth` — same principle. Worth landing the normalization before F2 so templates inherit the behavior.
+
+**When**: not blocked by F2 walkthrough; can ship in parallel as a small foundation commit. Estimated scope: ~30 LOC + ~20 LOC tests. ~1 commit.
+
+**Status**: queued. Will tackle alongside the F2 walkthrough or immediately after Q1's answer is recorded, depending on user preference.
+
+---
+
 ## Decision gate before Increment 2 — abstraction choice (templates / lens / hybrid)
+
+### Q1 — Default mode in the rule editor: ✅ **Template-first; existing rules open in their authored mode**
+
+Locked in 2026-04-27 (this session). When F2 ships:
+
+- New rule via "Add rule" → opens in Template mode.
+- Existing rule stored as regex → opens in Regex mode (don't auto-convert; preserve user authoring).
+- Mode toggle visible at top of the rule editor; power users can flip per-rule.
+- Aligns with the "easy to start, powerful as you align it" design principle.
+
+### Q2–Q6 (still open)
 
 Increment 2 commits to a specific authoring abstraction (path templates with named slots), but the broader question — **is this the right abstraction, or should we ship something closer to a lens calculus, or stay regex-first with better tooling** — has been researched but not finally settled. Before any code lands, surface the open questions to the user and discuss; don't just adopt the research's leaning recommendation.
 

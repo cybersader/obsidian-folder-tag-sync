@@ -30,8 +30,97 @@ export class SettingsTab extends PluginSettingTab {
 		// Mapping Rules
 		this.displayRulesSection(containerEl);
 
+		// Group precedence (F1 Step 3)
+		this.displayGroupPrecedenceSection(containerEl);
+
 		// Import/Export
 		this.displayImportExportSection(containerEl);
+	}
+
+	/**
+	 * F1 Step 3 — Group precedence config UI.
+	 *
+	 * Renders a list of currently-declared groups (from the rule set) with
+	 * up/down arrows to reorder. The order written to settings.groupPrecedence
+	 * determines cross-group resolution order in findBestMatch (highest
+	 * precedence first).
+	 */
+	private displayGroupPrecedenceSection(containerEl: HTMLElement) {
+		const section = containerEl.createDiv({ cls: 'dtf-section-divider' });
+		new Setting(section).setName('Group precedence').setHeading();
+
+		// Discover all distinct groups currently declared on the rule set.
+		const declaredGroups = Array.from(
+			new Set(
+				this.plugin.settings.rules
+					.map((r) => r.group)
+					.filter((g): g is string => typeof g === 'string' && g.length > 0)
+			)
+		);
+
+		// Compute the current ordering: items in groupPrecedence first (in their
+		// declared order), then any newly-discovered groups not yet in the list,
+		// alphabetically.
+		const current = this.plugin.settings.groupPrecedence ?? [];
+		const known = new Set(current);
+		const newlyDiscovered = declaredGroups.filter((g) => !known.has(g)).sort();
+		const ordered = [...current.filter((g) => declaredGroups.includes(g)), ...newlyDiscovered];
+
+		new Setting(section)
+			.setDesc(
+				'Cross-pack precedence: when multiple rules from different groups match ' +
+				'the same input, the highest-precedence group wins. Within a group, specificity ' +
+				'(and priority as tiebreak) decides. Move groups up to give them higher precedence.'
+			);
+
+		if (ordered.length === 0) {
+			section.createEl('p', {
+				text: 'No groups declared yet. Rule packs auto-declare their group at install time.',
+				cls: 'dtf-no-groups-message'
+			});
+			return;
+		}
+
+		const listEl = section.createDiv({ cls: 'dtf-group-precedence-list' });
+
+		ordered.forEach((group, index) => {
+			const itemEl = listEl.createDiv({ cls: 'dtf-group-precedence-item' });
+			itemEl.style.display = 'flex';
+			itemEl.style.alignItems = 'center';
+			itemEl.style.gap = '0.5em';
+			itemEl.style.padding = '0.4em 0.6em';
+			itemEl.style.borderBottom = '1px solid var(--background-modifier-border)';
+
+			const rankEl = itemEl.createSpan({ text: `${index + 1}.`, cls: 'dtf-group-rank' });
+			rankEl.style.minWidth = '2em';
+			rankEl.style.opacity = '0.7';
+
+			const nameEl = itemEl.createSpan({ text: group, cls: 'dtf-group-name' });
+			nameEl.style.flex = '1';
+			nameEl.style.fontFamily = 'var(--font-monospace)';
+
+			// Up button
+			const upBtn = itemEl.createEl('button', { text: '↑', cls: 'dtf-group-move-up' });
+			upBtn.disabled = index === 0;
+			upBtn.addEventListener('click', async () => {
+				const newOrder = [...ordered];
+				[newOrder[index - 1], newOrder[index]] = [newOrder[index], newOrder[index - 1]];
+				this.plugin.settings.groupPrecedence = newOrder;
+				await this.plugin.saveSettings();
+				this.display();
+			});
+
+			// Down button
+			const downBtn = itemEl.createEl('button', { text: '↓', cls: 'dtf-group-move-down' });
+			downBtn.disabled = index === ordered.length - 1;
+			downBtn.addEventListener('click', async () => {
+				const newOrder = [...ordered];
+				[newOrder[index + 1], newOrder[index]] = [newOrder[index], newOrder[index + 1]];
+				this.plugin.settings.groupPrecedence = newOrder;
+				await this.plugin.saveSettings();
+				this.display();
+			});
+		});
 	}
 
 	private displayGeneralOptions(containerEl: HTMLElement) {

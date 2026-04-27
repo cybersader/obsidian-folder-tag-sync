@@ -822,12 +822,14 @@ export class GuidedRuleEditorModal extends Modal {
 			this.notify();
 		});
 
-		// Priority
+		// Priority (override)
+		// F1 Step 1+2 promoted confidence to primary sort; priority is the within-group tiebreak.
 		const priWrap = row.createDiv();
-		priWrap.createEl('label', { text: 'Priority' });
+		priWrap.createEl('label', { text: 'Priority (override)' });
 		const priInput = priWrap.createEl('input', { type: 'text' });
 		priInput.value = String(this.state.priority);
 		priInput.style.width = '100%';
+		priInput.title = 'Within-group tiebreak. Specificity is now the primary sort key; priority only resolves ties between equally-specific rules.';
 		priInput.addEventListener('input', () => {
 			const n = parseInt(priInput.value, 10);
 			if (!Number.isNaN(n) && n >= 0) {

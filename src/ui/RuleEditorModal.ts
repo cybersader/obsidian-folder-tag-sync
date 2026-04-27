@@ -235,8 +235,12 @@ export class RuleEditorModal extends Modal {
 			);
 
 		new Setting(section)
-			.setName('Priority')
-			.setDesc('Lower numbers = higher priority (evaluated first)')
+			.setName('Priority (override)')
+			.setDesc(
+				'Within-group tiebreak when multiple rules tie on specificity. ' +
+				'After F1 Step 1+2, the engine sorts matches by pattern specificity first; ' +
+				'priority only resolves ties. Lower number = higher precedence.'
+			)
 			.addText(text => text
 				.setPlaceholder('100')
 				.setValue(String(this.rule.priority))
@@ -244,6 +248,27 @@ export class RuleEditorModal extends Modal {
 					const num = parseInt(value);
 					if (!isNaN(num) && num >= 0) {
 						this.rule.priority = num;
+					}
+				})
+			);
+
+		// F1 Step 3 — Group field (cross-pack precedence cluster)
+		new Setting(section)
+			.setName('Group')
+			.setDesc(
+				'Optional cross-pack precedence cluster. Rules in different groups are ' +
+				'partitioned by the vault\'s group-precedence list (Settings → Group precedence). ' +
+				'Default is the rule\'s pack ID. Leave empty for ungrouped (lowest precedence).'
+			)
+			.addText(text => text
+				.setPlaceholder('e.g. para, jd, seacow-cyberbase')
+				.setValue(this.rule.group ?? '')
+				.onChange(value => {
+					const trimmed = value.trim();
+					if (trimmed.length === 0) {
+						delete this.rule.group;
+					} else {
+						this.rule.group = trimmed;
 					}
 				})
 			);

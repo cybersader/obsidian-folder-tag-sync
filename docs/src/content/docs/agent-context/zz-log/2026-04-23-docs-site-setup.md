@@ -4,7 +4,7 @@ description: Scaffolded Astro Starlight docs site, Playwright tests, visual harn
 tags: [docs, testing, infrastructure]
 sidebar:
   label: "04-23 · Docs site setup"
-  order: -20260423
+  order: -20260423000
 date: 2026-04-23
 ---
 

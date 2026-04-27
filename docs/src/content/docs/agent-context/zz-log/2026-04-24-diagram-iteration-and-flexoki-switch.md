@@ -4,7 +4,7 @@ description: Session log for the polyhierarchy-diagram rewrites and the switch f
 tags: [docs, diagram, theme]
 sidebar:
   label: "04-24 · Diagram + Flexoki"
-  order: -20260424
+  order: -20260424000
 date: 2026-04-24
 ---
 

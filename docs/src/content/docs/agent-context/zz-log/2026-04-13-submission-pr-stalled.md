@@ -4,7 +4,7 @@ description: PR #8796 in obsidianmd/obsidian-releases is blocked on bot rescan +
 tags: [submission, process]
 sidebar:
   label: "04-13 · PR stalled"
-  order: -20260413
+  order: -20260413000
 date: 2026-04-13
 ---
 

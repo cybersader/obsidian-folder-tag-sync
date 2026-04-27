@@ -272,6 +272,40 @@ rule-packs/
 
 ---
 
+### 13. Resolution-Engine Improvements — match confidence + rule-group precedence
+
+**Problem**: Today's `findBestMatch` (`src/engine/ruleMatcher.ts:97-117`) sorts matches by `priority` then by `confidence` (specificity tiebreak). The `calculateMatchConfidence` heuristic at `ruleMatcher.ts:156-185` produces a 0..1 score from a regex pattern — but it has known weaknesses:
+
+- Doesn't penalize alternation (`(foo|bar|baz|...)` scores high on length but is *less* specific than a literal segment).
+- Anchor awareness is implicit — two patterns differing only in `^foo` vs `(?:^|/)foo` vs `^prefix/foo` score similarly under the current formula despite wildly different actual specificity.
+- Slot-count proxy is missing — when path templates land (Phase H), slot count *is* specificity in a clean way, but today's regex-shape heuristic can't see slots.
+- Tied scores are common — high tie rate means priority still ends up doing real disambiguation work the heuristic should do.
+
+Also: `findBestMatch` doesn't have a rule-group concept, so multiple third-party rule packs (PARA + JD + SEACOW) can silently collide on the same input.
+
+**Solution** (researched in detail at [Specificity + groups research](/obsidian-folder-tag-sync/agent-context/zz-log/2026-04-27-specificity-and-groups-research/)): two combined improvements.
+
+1. **Refine the specificity heuristic.** Promote `calculateMatchConfidence` from tiebreak to primary sort key. Add anchor-awareness (root / under / any-segment bonuses), slot-count handling for future template rules, and refined wildcard/alternation penalties (Formula 3 in the research entry).
+2. **Add rule groups (CSS @layer-style).** New optional `group?: string` field on `MappingRule`. Group precedence is configurable per-vault (default derived from SEACOW axes when groups declare axes). The combined algorithm: group precedence wins outright; within a group, specificity sort; priority becomes the manual override tiebreak.
+
+**File-by-file scope** (~150 LOC of production code, ~30 LOC of tests):
+
+- `src/engine/ruleMatcher.ts` — refine `calculateMatchConfidence`, swap sort key in `findBestMatch`, add group-by-precedence layer
+- `src/types/settings.ts` — add `group?: string` to `MappingRule`
+- `src/types/typed.ts` — add group field to `TypedRuleSpec`
+- `src/engine/rulePackLoader.ts` — validate group field; default group from pack ID if missing
+- `src/ui/SettingsTab.ts` — drag-to-reorder list of declared groups
+- `src/ui/RuleEditorModal.ts`, `src/ui/GuidedRuleEditorModal.ts` — group dropdown; rename "Priority" to "Priority (override)"
+- `rule-packs/*.json` — backfill `group` field on PARA/JD/SEACOW packs
+
+**Recommended phasing**: refine `calculateMatchConfidence` first (pure refactor, no behavior change), audit shipped packs to compare new vs old implied ordering, then swap the sort order. Add the group field as a separate phase.
+
+**Implementation Priority**: High — addresses Challenge 01 (rule priority stress test) and Challenge 04 (name collisions across hierarchy) directly.
+
+**Note on item #4 above**: the existing "Rule Groups/Folders" feature (line 159) is a *UI organization* feature — collapsible groups in the rule list for visual structure. It's distinct from the *resolution-engine groups* described here, which are layered partitions in the matching algorithm. Same word, different concepts; both can coexist (resolution-engine groups can drive the UI organization, but they don't have to be the same boundary).
+
+---
+
 ## Implementation Phases
 
 ### Phase 1: Core Functionality (Current)

@@ -7,6 +7,39 @@ sidebar:
   order: 5
 ---
 
+## Prompt for the dispatched agent
+
+Open this challenge in a fresh-context Claude / LLM session, paste the URL, and say *"research this challenge."* The reading list below is layered for **progressive disclosure** — start at level 1 if you're new to the project, jump deeper if you already know the context.
+
+**The question in one sentence:** how does the rule abstraction express "every entity gets the same internal organizational system, partitioned by name" without forcing the user to author N×M rules (entities × per-entity sub-rules) — and without losing the per-entity scope on the tag side?
+
+### Reading order (level 1 → level 4)
+
+1. **Foundations** (orient first if new to the project):
+   - [Terminology](/obsidian-folder-tag-sync/concepts/terminology/) — plain-English glossary; especially `polyhierarchy`, `axis`, `authority-root`
+   - [Philosophy](/obsidian-folder-tag-sync/concepts/philosophy/) — the typed-model layers; SEACOW axis framing
+2. **Core concepts for this question**:
+   - [SEACOW axes](/obsidian-folder-tag-sync/concepts/axes/) — Entity is one of the six axes; the structural shell this challenge sits inside
+   - [Folder classifiers](/obsidian-folder-tag-sync/concepts/folder-classifiers/) — especially `authority-root` (per-entity workspace root)
+   - [Tag vocabularies](/obsidian-folder-tag-sync/concepts/tag-vocabularies/) — pre/post-coordination determines whether entity flows into the tag namespace
+   - [Transfer operations](/obsidian-folder-tag-sync/concepts/transfer-operations/) — the eight primitives the per-entity rules dispatch against
+3. **Direct context** (the research that frames this challenge):
+   - [Solution brainstorm (working draft)](/obsidian-folder-tag-sync/agent-context/zz-log/2026-04-27-the-bidirectional-bijective-solution-work/) — the SEACOW-as-disambiguator framing; this challenge is one concrete instance
+   - [Path abstractions, part 2](/obsidian-folder-tag-sync/agent-context/zz-log/2026-04-27-regex-vs-templates-part-2-solutions-in-practice/) — slot capture as a candidate primitive for entity quantification
+   - [Challenge 04](/obsidian-folder-tag-sync/agent-context/zz-challenges/04-name-collisions-across-hierarchy/) and [Challenge 06](/obsidian-folder-tag-sync/agent-context/zz-challenges/06-compositional-rule-packs/) — sibling challenges in the layering/composition cluster
+4. **Reference (optional)**:
+   - [Rule schema](/obsidian-folder-tag-sync/reference/rule-schema/) — exact field definitions; `folderAnchor.under` is the existing literal-prefix mechanism this challenge would parameterize
+
+### Deliverable
+
+Short report at `agent-context/zz-log/YYYY-MM-DD-challenge-05-findings.md` (~1500–2500 words). Required sections: your framing of the quantification problem (one-rule-per-entity vs. one-rule-many-entities), prior-art mapping (Kubernetes namespaces? CSS scoping? AWS account boundaries?), evaluation of candidate solutions (parameterized anchor with slot capture, scoped pack instances, tag-side namespace slot, axis-derived precedence), recommended primary approach with migration sketch from the existing per-entity-hard-coded packs.
+
+### Tone
+
+Treat existing recommendations as **hypotheses to test, not conclusions to defend.** If the per-entity-hard-coded pattern turns out to be acceptable for typical vault sizes, that's a more valuable finding than confirming the explosion concern. Fresh-agent context-skepticism is the point.
+
+---
+
 ## Assumption under test
 
 The plugin's typed model includes the SEACOW `Entity` axis: a top-level partition of the vault by *who owns / authored / is the audience for* the content. The `seacow-cyberbase` rule pack hard-codes `Entity/Cybersader` as a literal prefix in its rule patterns; the `cyberbase-actual` pack has separate rules for `VaultUser1` and `VaultUser2` already.

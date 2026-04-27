@@ -7,6 +7,39 @@ sidebar:
   order: 2
 ---
 
+## Prompt for the dispatched agent
+
+Open this challenge in a fresh-context Claude / LLM session, paste the URL, and say *"research this challenge."* The reading list below is layered for **progressive disclosure** — start at level 1 if you're new to the project, jump deeper if you already know the context.
+
+**The question in one sentence:** are bidirectional rules actually reversible in practice, or do transformations and edge cases cause silent drift the user won't notice until a round-trip produces the wrong file location?
+
+### Reading order (level 1 → level 4)
+
+1. **Foundations** (orient first if new to the project):
+   - [Terminology](/obsidian-folder-tag-sync/concepts/terminology/) — plain-English glossary; especially the `bijection`, `lossless`, `lossy`, `cardinality`, and `surjection / injection / bijection` entries
+   - [Philosophy](/obsidian-folder-tag-sync/concepts/philosophy/) — the typed-model layers; why determinism is non-negotiable
+2. **Core concepts for this question**:
+   - [Bijection and loss](/obsidian-folder-tag-sync/concepts/bijection-and-loss/) — the bridge page; built bottom-up from the eight transfer ops; lossy/lossless flavors enumerated; collision-vs-lossy distinction
+   - [Transfer operations](/obsidian-folder-tag-sync/concepts/transfer-operations/) — the eight primitives with per-op forward + inverse worked examples; *the* answer to "which ops are reversible"
+   - [Compound cases](/obsidian-folder-tag-sync/concepts/compound-cases/) — when two ops would naively stack but collapse into one with a mode flag; reversibility implications
+3. **Direct context** (the research that frames this question):
+   - [Path abstractions, part 1](/obsidian-folder-tag-sync/agent-context/zz-log/2026-04-26-regex-vs-path-templates-research/) — argues bijection visibility is a load-bearing property of the abstraction
+   - [Frontmatter as bijection memory research](/obsidian-folder-tag-sync/agent-context/zz-log/2026-04-27-frontmatter-as-bijection-memory-research/) — a proposed feature that *changes* what's reversible on a per-file basis
+   - [Challenge 07](/obsidian-folder-tag-sync/agent-context/zz-challenges/07-frontmatter-as-bijection-memory-validation/) — practical-validation challenge for the frontmatter-memory feature
+4. **Reference (optional)**:
+   - [Rule schema](/obsidian-folder-tag-sync/reference/rule-schema/) — exact field definitions for `direction`, `cardinality`, `bijective`
+   - [Transformations reference](/obsidian-folder-tag-sync/reference/transformations/) — case / emoji / number-prefix / custom-regex transforms; the per-transform reversibility profile
+
+### Deliverable
+
+Short report at `agent-context/zz-log/YYYY-MM-DD-challenge-02-findings.md` (~1500–2500 words). Required sections: a formal definition of "reversibility" applicable to FTSync (string-equality? semantic equivalence? user-perceived equivalence?), enumeration of where the current pipeline breaks reversibility (per transform, per transfer op, per edge case), recommended mitigations (which can be fixed in code, which require rule-author discipline, which are inherent to the abstraction), and the residual question — "is silent drift acceptable when the user opted into a many:1 op?"
+
+### Tone
+
+Treat existing recommendations as **hypotheses to test, not conclusions to defend.** If your analysis says reversibility is mostly a non-issue in practice, that's a more valuable finding than confirming the warnings. Fresh-agent context-skepticism is the point.
+
+---
+
 ## Assumption under test
 
 A rule set with `direction: 'bidirectional'` and matching `folderTransforms` / `tagTransforms` should produce round-trip fidelity: sync a folder to a tag, then that tag back to a folder, and end up where you started.

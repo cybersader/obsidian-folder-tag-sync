@@ -7,6 +7,39 @@ sidebar:
   order: 4
 ---
 
+## Prompt for the dispatched agent
+
+Open this challenge in a fresh-context Claude / LLM session, paste the URL, and say *"research this challenge."* The reading list below is layered for **progressive disclosure** — start at level 1 if you're new to the project, jump deeper if you already know the context.
+
+**The question in one sentence:** when the same syntactic folder name (`Auth/`, `10 - Projects/`, `Projects/`) appears at different depths or under different parents, how should the system disambiguate and produce scope-correct tags — without forcing the user to author N rules per (org-system × entity × position) combination?
+
+### Reading order (level 1 → level 4)
+
+1. **Foundations** (orient first if new to the project):
+   - [Terminology](/obsidian-folder-tag-sync/concepts/terminology/) — plain-English glossary; especially `polyhierarchy`, `axis`, `pre/post-coordination`
+   - [Philosophy](/obsidian-folder-tag-sync/concepts/philosophy/) — the typed-model layers; folder-strict-hierarchy vs tag-polyhierarchy diagram
+2. **Core concepts for this question**:
+   - [SEACOW axes](/obsidian-folder-tag-sync/concepts/axes/) — the six classification dimensions; relevant because entity is one of them and this challenge is partly about per-entity scope partitioning
+   - [Folder classifiers](/obsidian-folder-tag-sync/concepts/folder-classifiers/) — `enumerative`, `hierarchical`, `authority-root`, etc.; the same folder name can be in different schemes
+   - [Bijection and loss](/obsidian-folder-tag-sync/concepts/bijection-and-loss/) — `collision` vs. `lossy` distinction is load-bearing here
+3. **Direct context** (the research that frames this challenge):
+   - [Path abstractions, part 1](/obsidian-folder-tag-sync/agent-context/zz-log/2026-04-26-regex-vs-path-templates-research/) — anchor as syntax-vs-semantics; how templates make layer explicit
+   - [Path abstractions, part 2](/obsidian-folder-tag-sync/agent-context/zz-log/2026-04-27-regex-vs-templates-part-2-solutions-in-practice/) — slot-overlap-based resolution; relevant for parameterized anchors
+   - [Specificity + groups research](/obsidian-folder-tag-sync/agent-context/zz-log/2026-04-27-specificity-and-groups-research/) — the recommended Phase 2.5 design; complements this challenge's solutions
+   - [Challenge 05](/obsidian-folder-tag-sync/agent-context/zz-challenges/05-multi-entity-namespace-partitioning/) and [Challenge 06](/obsidian-folder-tag-sync/agent-context/zz-challenges/06-compositional-rule-packs/) — sibling challenges in the layering/composition cluster; the three solutions overlap
+4. **Reference (optional)**:
+   - [Rule schema](/obsidian-folder-tag-sync/reference/rule-schema/) — exact field definitions for `folderAnchor`, `folderEntryPoint`
+
+### Deliverable
+
+Short report at `agent-context/zz-log/YYYY-MM-DD-challenge-04-findings.md` (~1500–2500 words). Required sections: your framing of the problem (does the original case cover all the variants?), prior-art mapping (what would FTSync look like under each prior-art approach?), evaluation of candidate solutions A–E (or sketch of a Solution F we missed), recommended primary approach with migration sketch, open questions left unresolved.
+
+### Tone
+
+Treat existing recommendations as **hypotheses to test, not conclusions to defend.** Fresh-agent context-skepticism is the point.
+
+---
+
 ## Assumption under test
 
 Today, a rule's identity is its **pattern**. The JD pack ships with `folderPattern: '^\\d{2} - [^/]+(?:/|$)'` and (after Phase G) optional `folderAnchor`. The pattern says *what shape of folder name to match*. The anchor says *where in the path to match*. Both are static.

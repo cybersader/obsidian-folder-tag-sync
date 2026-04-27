@@ -16,11 +16,20 @@ Focused research briefs that can be handed to a fresh agent (one with no prior c
 
 ## How to use
 
-1. Pick a challenge from the list below
-2. Hand it to a fresh agent (fresh Claude Code session, no prior context)
-3. Point the agent at the KB (`docs/src/content/docs/`) for background
-4. Let it research, critique, and report
-5. Log findings in [`zz-log/`](/obsidian-folder-tag-sync/agent-context/zz-log/) if decisions or insights surface
+Each challenge page is **self-dispatchable** — open it in a fresh Claude / LLM session, paste the URL, and say *"research this challenge."* Every challenge has a "Prompt for the dispatched agent" section at the top that includes:
+
+- The question in one sentence
+- A **layered reading list** (level 1 foundations → level 4 references) following progressive disclosure — fresh agents start at level 1 and work up; agents with context jump deeper
+- The deliverable format and target location
+- The tone (treat recommendations as hypotheses to test, not conclusions to defend)
+
+Step-by-step:
+
+1. Pick a challenge URL from the list below
+2. Open a fresh-context Claude / LLM session
+3. Paste the URL and say "research this challenge"
+4. The agent reads the prompt section, follows the layered reading list, and produces the deliverable
+5. Log findings in [`zz-log/`](/obsidian-folder-tag-sync/agent-context/zz-log/) at the path the prompt specifies (typically `YYYY-MM-DD-challenge-NN-findings.md`)
 
 ## Why fresh agents
 

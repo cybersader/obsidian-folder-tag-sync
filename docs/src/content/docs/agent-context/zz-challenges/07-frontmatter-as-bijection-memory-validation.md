@@ -7,6 +7,40 @@ sidebar:
   order: 7
 ---
 
+## Prompt for the dispatched agent
+
+Open this challenge in a fresh-context Claude / LLM session, paste the URL, and say *"research this challenge."* The reading list below is layered for **progressive disclosure** — start at level 1 if you're new to the project, jump deeper if you already know the context.
+
+**The question in one sentence:** does the proposed frontmatter-as-bijection-memory feature actually work in practice when walked through representative scenarios — or does the design under-specify behavior in ways the research entry missed?
+
+### Reading order (level 1 → level 4)
+
+1. **Foundations** (orient first if new to the project):
+   - [Terminology](/obsidian-folder-tag-sync/concepts/terminology/) — plain-English glossary; especially `bijection`, `lossy`, `lossless`, `cardinality`
+   - [Philosophy](/obsidian-folder-tag-sync/concepts/philosophy/) — the typed-model layers; why determinism is non-negotiable
+2. **Core concepts for this question**:
+   - [Bijection and loss](/obsidian-folder-tag-sync/concepts/bijection-and-loss/) — the bridge page; per-op lossy/lossless behavior; collision-vs-lossy distinction
+   - [Transfer operations](/obsidian-folder-tag-sync/concepts/transfer-operations/) — the eight primitives with per-op forward + inverse worked examples; the per-op claim validation in this challenge will trace each op
+3. **Direct context** (the design to validate):
+   - [Frontmatter as bijection memory research](/obsidian-folder-tag-sync/agent-context/zz-log/2026-04-27-frontmatter-as-bijection-memory-research/) — **the primary source.** Read this in full; the design space is mapped; this challenge tests it
+   - [Tag → folder resolution research](/obsidian-folder-tag-sync/agent-context/zz-log/2026-04-27-tag-to-folder-resolution-research/) — the broader inverse-direction problem this feature partially addresses
+   - [Specificity + groups research](/obsidian-folder-tag-sync/agent-context/zz-log/2026-04-27-specificity-and-groups-research/) — Phase 2.5 design; needed for the composition-with-related-work analysis in this challenge
+   - [Path abstractions, part 2](/obsidian-folder-tag-sync/agent-context/zz-log/2026-04-27-regex-vs-templates-part-2-solutions-in-practice/) — hybrid coexistence; needed for the templates-vs-frontmatter composition question
+   - [Challenge 02 — Pipeline reversibility](/obsidian-folder-tag-sync/agent-context/zz-challenges/02-pipeline-reversibility/) — adjacent question (transform-pipeline reversibility independent of the storage mechanism)
+4. **Reference (optional)**:
+   - [Rule schema](/obsidian-folder-tag-sync/reference/rule-schema/) — current rule structure; the proposed `frontmatterMemory` config would slot in here
+   - `src/sync/FolderToTagSync.ts:236-257` (`updateTags`), `src/sync/TagToFolderSync.ts:154-195` (`determineTargetFolder`), `src/engine/applyTransfer.ts:254-295` (`applyRuleInverse`) (read on the GitHub repo) — exact code paths the proposal would touch
+
+### Deliverable
+
+Short report at `agent-context/zz-log/YYYY-MM-DD-challenge-07-findings.md` (~1500–2500 words). Required sections: your framing of the practical-validation question, walked-through traces for at least 4 of the 6 scenarios in the challenge body (with actual before/after YAML snippets at each step), a small simulation or pseudocode of the round-trip algorithm, risk validation against the 6 named risks, per-op claim validation (especially the partially-recoverable `marker-only` and `post-coordination` cases), vault-scale cost estimates (frontmatter bytes, git diff size, backfill time, plugin-compatibility surface), composition analysis (Phase 2.5 + Phase H + conflict UI), and the go/no-go recommendation with the most-important reason in the first paragraph.
+
+### Tone
+
+Treat existing recommendations as **hypotheses to test, not conclusions to defend.** If the practical validation surfaces problems the research entry missed, that's the most valuable possible outcome — fresh-agent context-skepticism is exactly what's needed here.
+
+---
+
 ## Assumption under test
 
 The [Frontmatter as bijection memory research](/obsidian-folder-tag-sync/agent-context/zz-log/2026-04-27-frontmatter-as-bijection-memory-research/) proposes an opt-in feature where, when a forward sync fires (folder → tag), the engine writes origin information to the file's frontmatter:

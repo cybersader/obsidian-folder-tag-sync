@@ -7,6 +7,37 @@ sidebar:
   order: 3
 ---
 
+## Prompt for the dispatched agent
+
+Open this challenge in a fresh-context Claude / LLM session, paste the URL, and say *"research this challenge."* The reading list below is layered for **progressive disclosure** — start at level 1 if you're new to the project, jump deeper if you already know the context.
+
+**The question in one sentence:** how does the plugin behave on a 10K+ file vault with 50 rules across realistic event traffic — what breaks first, where are the optimization targets, and is the documented "10K+ files supported" claim actually true?
+
+### Reading order (level 1 → level 4)
+
+1. **Foundations** (orient first if new to the project):
+   - [Terminology](/obsidian-folder-tag-sync/concepts/terminology/) — plain-English glossary
+   - [Philosophy](/obsidian-folder-tag-sync/concepts/philosophy/) — the typed-model layers; relevant because Layer 1 (regex + transforms) is what runs on every file event, and the engine's hot path is regex evaluation
+2. **Core concepts for this question**:
+   - [Transfer operations](/obsidian-folder-tag-sync/concepts/transfer-operations/) — the eight primitives; pipeline shape (`match → extract → recoordinate → transform → emit`)
+   - [Wildcard matching](/obsidian-folder-tag-sync/concepts/wildcard-matching/) — pattern-shape considerations
+3. **Direct context** (constraints + related research):
+   - [Specificity + groups research](/obsidian-folder-tag-sync/agent-context/zz-log/2026-04-27-specificity-and-groups-research/) — relevant because the proposed B+C resolution-engine refinement adds work to `findBestMatch`; this challenge should evaluate whether that refinement scales
+   - [Frontmatter as bijection memory research](/obsidian-folder-tag-sync/agent-context/zz-log/2026-04-27-frontmatter-as-bijection-memory-research/) — relevant because per-file frontmatter writes increase per-event I/O
+4. **Reference (optional)**:
+   - [Rule schema](/obsidian-folder-tag-sync/reference/rule-schema/) — exact rule format; `MappingRule` shape determines memory footprint per rule
+   - `src/engine/ruleMatcher.ts:97-117` (`findBestMatch`), `src/sync/FolderToTagSync.ts`, `src/sync/TagToFolderSync.ts` (read on the GitHub repo) — the hot-path code the analysis should target
+
+### Deliverable
+
+Short report at `agent-context/zz-log/YYYY-MM-DD-challenge-03-findings.md` (~1500–2500 words). Required sections: profiling estimates for the documented hot paths (rule matching per file event, tag→folder bulk sync, vault-scan rule-pack detection), identification of which path breaks first under stress, optimization targets ordered by impact, the verdict on the "10K+ files supported" claim (is it true today, marginal, or aspirational), and concrete recommendations (algorithmic vs. caching vs. async/throttle vs. worker-thread).
+
+### Tone
+
+Treat existing recommendations as **hypotheses to test, not conclusions to defend.** If your analysis says the plugin is fine at scale and the optimization concerns are premature, that's a more valuable finding than confirming the warnings.
+
+---
+
 ## Assumption under test
 
 The plugin is documented as supporting vaults with 10,000+ files. In practice, nothing in the current implementation has been stress-tested at that scale.

@@ -7,6 +7,42 @@ sidebar:
   order: 6
 ---
 
+## Prompt for the dispatched agent
+
+Open this challenge in a fresh-context Claude / LLM session, paste the URL, and say *"research this challenge."* The reading list below is layered for **progressive disclosure** — start at level 1 if you're new to the project, jump deeper if you already know the context.
+
+**The question in one sentence:** how does the system express "stack these rule packs at this layer of the vault" (e.g., SEACOW-outer at root, PARA inside Work, ZK inside Capture/Inbox) — with the inner pack auto-anchoring to the outer's matched location, and the bidirectional consequences fully accounted for?
+
+### Reading order (level 1 → level 4)
+
+1. **Foundations** (orient first if new to the project):
+   - [Terminology](/obsidian-folder-tag-sync/concepts/terminology/) — plain-English glossary
+   - [Philosophy](/obsidian-folder-tag-sync/concepts/philosophy/) — typed-model layers; rule pack as the unit of import; the layer concept
+2. **Core concepts for this question**:
+   - [SEACOW axes](/obsidian-folder-tag-sync/concepts/axes/) — the six axes; SEACOW-outer is the structural shell this challenge composes inside of
+   - [Folder classifiers](/obsidian-folder-tag-sync/concepts/folder-classifiers/) — `enumerative` vs `hierarchical` vs `authority-root` etc.; pack-level composition has to handle all of these
+   - [Transfer operations](/obsidian-folder-tag-sync/concepts/transfer-operations/) — the eight primitives; pack stacking has to compose these correctly
+   - [Compound cases](/obsidian-folder-tag-sync/concepts/compound-cases/) — when two ops would naively stack but collapse into one with a mode flag; relevant analogy for what pack composition might absorb vs. require new machinery
+3. **Direct context** (the research that frames this challenge):
+   - [Path abstractions, part 1](/obsidian-folder-tag-sync/agent-context/zz-log/2026-04-26-regex-vs-path-templates-research/) — anchor concept and how templates make layer explicit
+   - [Path abstractions, part 2](/obsidian-folder-tag-sync/agent-context/zz-log/2026-04-27-regex-vs-templates-part-2-solutions-in-practice/) — hybrid coexistence; relevant for how multi-pack composition stays manageable
+   - [Specificity + groups research](/obsidian-folder-tag-sync/agent-context/zz-log/2026-04-27-specificity-and-groups-research/) — rule groups (CSS @layer-style precedence) is the closest existing primitive to what pack composition needs
+   - [Challenge 04](/obsidian-folder-tag-sync/agent-context/zz-challenges/04-name-collisions-across-hierarchy/) and [Challenge 05](/obsidian-folder-tag-sync/agent-context/zz-challenges/05-multi-entity-namespace-partitioning/) — sibling challenges in the layering/composition cluster
+4. **Reference (optional)**:
+   - [Rule schema](/obsidian-folder-tag-sync/reference/rule-schema/) — exact field definitions
+   - [Importing rule packs](/obsidian-folder-tag-sync/guides/importing-rule-packs/) — current pack import flow; the user-facing baseline this challenge would change
+   - [Writing a rule pack](/obsidian-folder-tag-sync/guides/writing-a-rule-pack/) — current pack format
+
+### Deliverable
+
+Short report at `agent-context/zz-log/YYYY-MM-DD-challenge-06-findings.md` (~1500–2500 words). Required sections: your framing of pack composition (what's the right mental model — layered cascade, namespace partition, scoped instance?), prior-art mapping (CSS @layer, Kubernetes namespaces, Tailwind layer system, ESLint extend cascade), evaluation of candidate solutions (anchor inheritance, scope declaration at install time, pack-level dependency declaration, tree-pattern matching), recommended primary approach with migration story from today's flat pack model, open questions about bidirectional consequences (especially: does inner-pack inverse direction know about outer-pack scope?).
+
+### Tone
+
+Treat existing recommendations as **hypotheses to test, not conclusions to defend.** Fresh-agent context-skepticism is the point.
+
+---
+
 ## Assumption under test
 
 A rule pack is a unit of import. The user picks a pack from the catalog, the loader adds its rules to the settings, the rules apply to the vault. Packs are flat and mostly independent.

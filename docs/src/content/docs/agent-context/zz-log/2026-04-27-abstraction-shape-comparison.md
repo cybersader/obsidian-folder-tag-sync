@@ -105,6 +105,136 @@ This isn't a vote for B alone (per the user's "start bulky, slim down" principle
 
 ---
 
+## Three architectural concerns the abstraction has to support (or leave room for)
+
+User-surfaced during the comparison review. Each addresses a different layer of "what FTSync is doing for me," and each constrains the abstraction choice differently.
+
+### 1. Rules within rules — how each abstraction handles composition
+
+Composition shows up in three patterns the user has hit in practice:
+
+- **Single rule scoped under a literal prefix** (e.g., PARA inside `Entity/Cybersader/`). Already handled today via [Phase G's](/obsidian-folder-tag-sync/concepts/folder-classifiers/) `folderAnchor: { under: 'Entity/Cybersader' }` field — works in regex (A) by adding the literal to `folderPattern`; works in templates (B) by including the literal in the template prefix.
+- **Single rule absorbing outer context as a slot** (e.g., one rule captures any entity, not just Cybersader). Templates handle this naturally: `Entity/{owner}/Projects/{project}` quantifies over entities. Regex needs an unnamed `(.+)` plus separate metadata to label it. Slot-objects (C) handle it but verbosely.
+- **Pack-level composition** (e.g., "install PARA inside JD inside SEACOW entity scope"). [Challenge 06](/obsidian-folder-tag-sync/agent-context/zz-challenges/06-compositional-rule-packs/) is the in-flight research. None of A/B/C/E *fully* solve it today; it's a layer above individual rules. But the chosen abstraction affects how cleanly it composes — templates' literal-prefix-as-anchor makes "this pack anchors under that pack's match" easier to compute than regex's positional capture groups.
+
+**For the abstraction choice**: B and E shine on pattern-2 (slot capture for outer context). All four shapes can do pattern-1 today. Pattern-3 needs Challenge 06 to land regardless of which shape we pick — but B and C make the pack-composition primitive easier to design (pack's `anchorTemplate` field can be a template literal that other packs' rules absorb).
+
+### 2. Coverage completeness — does every folder/tag have a rule?
+
+Aspiration: no folder is silently untouched by FTSync; no tag namespace is unowned by some rule.
+
+**Today**: not a feature. A folder that doesn't match any rule's pattern is invisible. A tag with no matching inverse rule sits inert. The plugin is *opt-in by rule*, not coverage-checking.
+
+**Future feature, abstraction-independent**: a "completeness audit" that scans the vault, identifies folders matching no rule + tags matching no inverse rule, and surfaces them for the user. Could ship behind any abstraction (A through E). Doesn't constrain the choice.
+
+**The closest thing today**: vault-scan rule-pack detection (`detectPacks.ts`) — surfaces packs that match the user's vault structure, but only suggests installation, doesn't audit coverage gaps.
+
+**For this piece**: not a blocker. Coverage completeness is a layer on top of any abstraction.
+
+### 3. The SEACOW meta-framework GUI vision — rule packs as compilation targets
+
+The user's bigger picture: at a higher level (a GUI, possibly a separate plugin), users design their organizational *system* by declaring axes (SEACOW: System / Entity / Activity / Capture / Output / Work), naming conventions, structural rules — *then* deploy that system into a vault. The FTSync plugin (and possibly the design plugin) keeps the system in sync over time.
+
+This makes rule packs the **compilation target** of a higher-level design tool, not the user's primary authoring surface. Direct implications for the abstraction choice:
+
+- **The abstraction needs to be machine-generatable.** A future GUI that lets users design SEACOW axes graphically and exports a rule pack needs a target shape that's easy to emit programmatically.
+- **A — Regex**: hardest to generate. Generators have to construct regex syntax, which is error-prone. User-friendly *to read* (sometimes); machine-friendly *to emit* — no.
+- **B — Templates**: easiest to generate. String concatenation of literals + slot names. Trivial for any tool to emit.
+- **C — Slot objects**: easiest to validate (explicit JSON schema), straightforward to generate. The verbosity tax is low when a generator emits it (no human typing).
+- **E — Lens**: same as B for emission; explicit `iso` field is one extra attribute the generator computes.
+
+**For the abstraction choice**: B and C are generator-friendly; A is hostile to generation. If the SEACOW GUI vision is ever pursued, the abstraction should not be regex-only. **B is most generator-friendly with reasonable hand-author ergonomics; C is most schema-validatable but verbose.** The hybrid path (B as primary, A as escape hatch) lets future tooling target B while preserving regex for cases B can't express.
+
+**Out of scope for this piece**: actually building the SEACOW design GUI. That's a separate product (probably a separate Obsidian plugin or a standalone tool that exports JSON rule packs). The abstraction choice for FTSync's rule format is the one piece this comparison settles; the GUI is downstream work that the chosen abstraction supports or hinders.
+
+### Summary — what this piece needs to account for
+
+- ✅ **Composition pattern 1 + 2** (rule scoping, slot-capture for outer context): all four shapes handle pattern 1; B and E handle pattern 2 most cleanly; affects ergonomics of common multi-entity / hierarchical workflows.
+- 🔄 **Composition pattern 3** (pack-level stacking): not solved by abstraction choice alone; lives in Challenge 06's pack-composition design. Abstraction *affects* how clean Challenge 06's design ends up.
+- 🚫 **Coverage completeness**: orthogonal; not a constraint on the abstraction.
+- 🔄 **System-design GUI as future product**: not built now, but the abstraction should be **generator-friendly**. Argues against regex-only; argues for B (templates) as the primary target, with A (regex) as escape hatch and C / E as alternatives the sandbox tries.
+
+The user's "ideally everything on both sides has a rule" intuition aligns with the SEACOW-GUI vision: a higher-level designer authors the rules so the user doesn't have to think about coverage gaps. **That future is enabled by an abstraction the GUI can target — i.e., B, C, or E. Not A.**
+
+---
+
+## What slot names actually do — comment-like vs load-bearing
+
+User question worth its own section: *"are the named-slot labels merely to help for readability similar to code comments?"*
+
+The honest answer is **mixed** — slot names are partly comment-like and partly functional. Four cases distinguish where:
+
+### 1. Within-rule consistent rename — comment-like
+
+Renaming a slot consistently on *both sides* of a rule has zero engine impact:
+
+```jsonc
+// These two rules behave identically at runtime:
+{ "folderTemplate": "Projects/{topic}", "tagTemplate": "#projects/{topic}" }
+{ "folderTemplate": "Projects/{x}",     "tagTemplate": "#projects/{x}" }
+```
+
+The engine doesn't care whether you call the slot `topic`, `x`, or `apple-pie`. It cares about the *value* bound to that name flowing through both sides. Within a single rule, the name is documentation for human readers — same role as a variable name in a function.
+
+### 2. Cross-side name match — load-bearing
+
+Renaming a slot on *only one side* breaks the round-trip:
+
+```jsonc
+// This rule is broken — the engine has no way to know `{topic}` and `{section}` are the same value:
+{ "folderTemplate": "Projects/{topic}", "tagTemplate": "#projects/{section}" }
+```
+
+The engine uses **name equality** to determine which slots round-trip. Folder-side `{topic}` matches tag-side `{topic}` → bidirectional binding. Folder-side `{topic}` and tag-side `{section}` → two unrelated slots; the tag-side `{section}` is *unsourced* (config error the engine flags at load time).
+
+This is the load-bearing role of the name. It's also how the engine derives `cardinality` and `bijective` from the rule shape — slots present on both sides are bijective binds; slots only on one side are lossy directions.
+
+### 3. Cross-rule naming conventions — comment-like for engine, load-bearing for humans + generators
+
+Two different rule packs using *different* names for the same role:
+
+```jsonc
+// Pack A:  { "folderTemplate": "Projects/{topic}",   ... }
+// Pack B:  { "folderTemplate": "Projects/{project}", ... }
+// Pack C:  { "folderTemplate": "Projects/{x}",       ... }
+```
+
+The engine treats all three as equivalent — they each have one slot, captured into a folder→tag binding within their own rule. But:
+
+- **Human readers** copy the name they see in canonical packs. If shipped PARA uses `{project}`, users authoring similar rules will use `{project}` too. The convention propagates.
+- **Future generators** (the SEACOW GUI vision) need a canonical name to emit. A design tool that produces rule packs from higher-level structure will pick one name and stick with it.
+
+So while the engine treats cross-rule names as comments, the broader ecosystem treats them as conventions worth picking once. That's why decision-gate Q3 (slot vocabulary for shipped packs) is a real decision, not just a stylistic preference.
+
+### 4. F4 future — property-driven destination makes names load-bearing as bindings
+
+When [F4 frontmatter-property-driven destination](/obsidian-folder-tag-sync/about/roadmap/) lands, slot names gain a third functional role: they bind to frontmatter properties on a file.
+
+```jsonc
+// Hypothetical F4 syntax:
+{
+  "folderTemplate": "Entity/{owner}/Projects/{project}",
+  "tagTemplate": "#projects/{project}",
+  "fromFrontmatter": ["owner"]  // {owner} sourced from file's frontmatter `owner:` field
+}
+```
+
+Renaming `{owner}` to `{user}` in this rule would *re-bind* the slot to a different frontmatter property. The engine reads `frontmatter.user` instead of `frontmatter.owner`. This is functional, not comment-like — the name *is* the property reference.
+
+### Summary
+
+| Case | Engine cares about name? | Why |
+|---|---|---|
+| Within-rule consistent rename (both sides) | No | Engine binds value to name; specific name doesn't matter as long as both sides match |
+| Cross-side name *mismatch* | Yes | Mismatch breaks round-trip — engine uses name equality to detect bidirectional slots |
+| Per-slot transform reference (`{topic \| kebab}`) | Yes | The transform pipeline references the slot by name to apply the filter |
+| Cross-rule naming conventions | No (engine) / Yes (humans + generators) | Engine treats different rules as independent; ecosystem benefits from canonical names |
+| F4 property binding (future) | Yes | Slot name *is* the frontmatter property reference |
+
+**One-line summary**: slot names are functional in three places (cross-side match, per-slot transform reference, future property binding) and comment-like in others (within-rule consistent rename, cross-rule convention). The names you choose for canonical rule packs become conventions the ecosystem inherits — that's why we'd pick `{topic}` over `{x}` even though the engine doesn't care, and why Q3 (slot vocabulary) is a real decision-gate question.
+
+---
+
 ## Rule 1 — Emoji-prefixed JD numbered area
 
 The user's actual case. Folder: `📁 10 - Projects/Web Auth/oauth.md`. Target tag: `#10-projects/web-auth/oauth`.

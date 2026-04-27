@@ -44,6 +44,11 @@ Every agent that works on a project accumulates context bias — it starts agree
 - [Challenge 05: Multi-entity vaults and namespace partitioning](/obsidian-folder-tag-sync/agent-context/zz-challenges/05-multi-entity-namespace-partitioning/)
 - [Challenge 06: Compositional rule packs and the layering primitive](/obsidian-folder-tag-sync/agent-context/zz-challenges/06-compositional-rule-packs/)
 - [Challenge 07: Frontmatter as bijection memory — does the design work in practice?](/obsidian-folder-tag-sync/agent-context/zz-challenges/07-frontmatter-as-bijection-memory-validation/)
+- [Challenge 08: Orphan and relation-tag semantics — what should `removeOrphanedTags` and `keepRelationTags` actually do?](/obsidian-folder-tag-sync/agent-context/zz-challenges/08-orphan-and-relation-tag-semantics/)
+- [Challenge 09: Per-transform reversibility profile — which transforms compose to a bijective whole?](/obsidian-folder-tag-sync/agent-context/zz-challenges/09-per-transform-reversibility-profile/)
+- [Challenge 10: Plugin API for Templater / QuickAdd integration — what's the right surface?](/obsidian-folder-tag-sync/agent-context/zz-challenges/10-plugin-api-for-templater-and-quickadd/)
+- [Challenge 11: Attachment and folder-note handling on tag→folder moves — what travels with note.md?](/obsidian-folder-tag-sync/agent-context/zz-challenges/11-attachment-and-folder-note-handling/)
+- [Challenge 12: Cross-device coordination — Obsidian Sync, undo/redo, and the multi-event trap](/obsidian-folder-tag-sync/agent-context/zz-challenges/12-cross-device-coordination/)
 
 ## Challenge clusters
 
@@ -55,4 +60,13 @@ Challenges 04, 05, 06 form a connected cluster on the *layering and composition*
 
 Recommended dispatch: hand each to a separate fresh agent in parallel; cross-reference findings when they all return.
 
-Challenge 07 is a **practical-validation challenge** rather than a design-space challenge. Where 01–06 ask "what should the architecture be?", 07 asks "we have a proposed design — does it actually work when you walk it through?" Recommended dispatch: pair 07 with the [frontmatter-as-bijection-memory research entry](/obsidian-folder-tag-sync/agent-context/zz-log/2026-04-27-frontmatter-as-bijection-memory-research/) so the agent has the full design to validate.
+Challenges 07, 08, 09 form a *runtime-semantics* cluster — what does the engine actually *do* with tags, transforms, and stored state at runtime? Recommended dispatch: 07 first (frontmatter memory validation), 08 and 09 after 07's findings inform their composition analysis.
+
+Challenges 10, 11, 12 form an *external-boundary* cluster — what does FTSync expose to the rest of the Obsidian ecosystem (10), how does it interact with Obsidian's native file-handling settings (11), and how does it behave across multiple devices and undo (12)? These can dispatch in parallel, but composition with the runtime-semantics cluster (especially Challenge 07's frontmatter memory) is essential.
+
+### Challenge type guide
+
+- **Design-space challenges (01–06, 08–12)** — ask "what should the architecture be?"
+- **Practical-validation challenges (07)** — ask "we have a proposed design — does it actually work?"
+
+Both types follow the same dispatch pattern: paste the URL into a fresh-context agent and say "research this challenge." The agent reads the prompt section first, follows the layered reading list, and produces a `zz-log/YYYY-MM-DD-challenge-NN-findings.md` deliverable.

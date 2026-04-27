@@ -306,6 +306,46 @@ Also: `findBestMatch` doesn't have a rule-group concept, so multiple third-party
 
 ---
 
+### 14. Frontmatter as Bijection Memory — opt-in per-file recovery for lossy ops
+
+**Problem**: Today the engine is *stateless* per-file. It computes tags from rules + folder paths, and computes folders from rules + tag names. Each file is processed independently. When a transfer op is lossy (`marker-only`, `truncation/aggregate`, `truncation/flatten`, `promotion-to-root`, `flattening-to-leaf`, `aggregation`), the inverse direction can only fall back to "the rule's entry folder + best guess" because the forward direction threw information away.
+
+**Theory** (researched in detail at [Frontmatter as bijection memory research](/obsidian-folder-tag-sync/agent-context/zz-log/2026-04-27-frontmatter-as-bijection-memory-research/)): if a forward sync writes the origin folder path to the file's frontmatter, the inverse direction can read it and reconstruct the *exact* source folder for that specific file — making lossy ops bijective on a per-file basis even though they remain lossy per-rule.
+
+**Trade-off** (the philosophy shift): the engine becomes *per-file stateful* rather than purely a function of rules + folder structure. This is honest but introduces:
+
+- Frontmatter pollution (~80 bytes per synced file × vault size)
+- Git diff churn (every sync writes frontmatter)
+- Shareability concerns (frontmatter exposes folder structure)
+- A two-class problem: forward-synced files have origin metadata (bijective inverse); manually-tagged files don't (fall-back-to-entry inverse)
+
+**Recommended design**: opt-in per-rule flag with vault-level override. Default off. Top-level namespaced `ftsync:` object in frontmatter (`ftsync.origin`, `ftsync.rule`, `ftsync.schema`). Migration command sweeps existing files and backfills origin from current location on opt-in. Strip-on-export support as Phase 4 polish.
+
+**Per-op coverage**:
+
+- ✅ **Fully recoverable with frontmatter memory**: `marker-only`, `truncation/aggregate`, `truncation/flatten`, `promotion-to-root`, `flattening-to-leaf`, `aggregation`
+- ⚠️ **Partially recoverable** (two-class or asymmetric inverse): `marker-only` (manual-tag class), `post-coordination`
+- 🔵 **Skip** (already bijective): `identity`, `truncation/drop`
+
+**File-by-file scope** (~200 LOC of production code, ~50 LOC of tests):
+
+- `src/types/settings.ts` — add `frontmatterMemory?: FrontmatterMemoryConfig` to `RuleOptions`
+- `src/types/typed.ts` — surface field on `TypedRuleSpec`
+- `src/sync/FolderToTagSync.ts` — extend `updateTags` (lines 236–257) to write origin
+- `src/sync/TagToFolderSync.ts` — read origin before line 206's `applyRuleInverse` call
+- `src/engine/rulePackLoader.ts` — validate the new config field
+- `src/ui/RuleEditorModal.ts`, `src/ui/GuidedRuleEditorModal.ts` — per-rule toggle + explainer
+- `src/ui/SettingsTab.ts` — vault-level override
+- New: migration backfill command + `frontmatterMemory.test.ts`
+
+**Recommended phasing**: pick field naming + schema versioning first (small RFC), then types/loader, then write side (behind flag), then read side, then settings UI, then migration sweep, then docs (concept-page extension on bijection-and-loss).
+
+**Implementation Priority**: Medium — wait for explicit user demand for bidirectional recovery on lossy ops. Useful for users who actively want round-trip behavior; pure overhead for users who don't.
+
+**Related**: addresses the inverse-direction case from [Challenge 04](/obsidian-folder-tag-sync/agent-context/zz-challenges/04-name-collisions-across-hierarchy/) for forward-synced files; composes orthogonally with Phase 2.5 specificity-aware matching and Phase H path templates (the three layers — rule design / per-file recovery / new-file behavior — are independent and complementary).
+
+---
+
 ## Implementation Phases
 
 ### Phase 1: Core Functionality (Current)
@@ -336,6 +376,7 @@ Also: `findBestMatch` doesn't have a rule-group concept, so multiple third-party
 - Conflict resolution strategies (interactive UI for genuinely ambiguous tag→folder cases — candidate D from the resolution research)
 - Rule groups (UI-organization version — item #4; distinct from resolution-engine groups in Phase 2.5)
 - Path templates (Phase H from the regex-vs-templates research)
+- Frontmatter as bijection memory (item #14) — opt-in per-rule storage of origin info to make lossy ops recoverable per-file
 
 ### Phase 4: Polish & Community
 - Rule pack marketplace

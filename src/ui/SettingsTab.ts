@@ -181,12 +181,20 @@ export class SettingsTab extends PluginSettingTab {
 
 		// Idiomatic Obsidian pattern: section heading above, then a Setting
 		// row with description on the left and the primary action on the
-		// right. The advanced editor is reachable from inside the guided
-		// modal via the "Open in advanced (regex)" link in the title row,
-		// so this section only needs one CTA.
+		// right. F2 — second CTA "+ Template rule" opens the advanced editor
+		// directly in template mode for users who want the Path Lens
+		// authoring path without the guided detour.
 		new Setting(section)
 			.setName('Create new rule')
 			.setDesc('Define rules for mapping between folders and tags. Lower priority numbers are evaluated first.')
+			.addButton(btn => {
+				btn
+					.setButtonText('+ Template rule')
+					.setTooltip('Open the advanced editor in template mode — author with named slots like Projects/{topic} (Path Lens, F2)')
+					.onClick(() => this.openRuleEditor(null));
+				// Stable e2e hook (matches dtf-add-rule-button pattern).
+				btn.buttonEl.addClass('dtf-add-template-rule-button');
+			})
 			.addButton(btn => {
 				btn
 					.setButtonText('Add rule')
@@ -529,6 +537,15 @@ export class SettingsTab extends PluginSettingTab {
 	 * to the better UX."
 	 */
 	private routeRuleEdit(rule: MappingRule): void {
+		// Path C (F2) — Path Lens template-shaped rule. Round-trip via the
+		// advanced editor in template mode; the guided modal's typed-spec
+		// inference doesn't apply to templates and would surface a
+		// misleading "Imported from regex" banner.
+		if (rule.folderTemplate || rule.tagTemplate) {
+			this.openRuleEditor(rule);
+			return;
+		}
+
 		// Path A — explicit typed fields already present (rule was authored
 		// via guided modal, or imported through the typed-spec path).
 		if (rule.folder && rule.tag && rule.transfer) {

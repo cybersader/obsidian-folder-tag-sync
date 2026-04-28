@@ -20,6 +20,7 @@ import type { MappingRule } from '../types/settings';
 import type { Axis, TypedRuleSpec } from '../types/typed';
 import { deriveRule } from './derive';
 import { inferTypedModel } from './inferTyped';
+import { compileTemplate, computeBijectivity, TemplateParseError } from './compileTemplate';
 
 // ─── Phase 2C extensions ─────────────────────────────────────────────────
 //
@@ -288,12 +289,136 @@ function validateFolderAnchor(value: unknown, prefix: string): string | null {
 	return `${prefix} folderAnchor must be 'root', 'any-segment', or { under: '<path>' }`;
 }
 
+/**
+ * F2 — validate a Path Lens template-shaped rule. Both templates compile
+ * via `compileTemplate`; on success, auto-derive `folderPattern` +
+ * `tagPattern` from the compiled regex sources so the existing
+ * `findMatchingRules` runtime gates work unchanged. The runtime layer
+ * (`applyTransfer.applyRuleForward` / `applyRuleInverse`) then dispatches
+ * to the template-driven pipeline via `isTemplateRule`.
+ *
+ * Mutual exclusivity with `typedSpec` is enforced one level up.
+ */
+function validateTemplateRule(
+	raw: RawRule,
+	idx: number,
+	prefix: string,
+): { ok: true; rule: MappingRule } | { ok: false; errors: string[] } {
+	const errors: string[] = [];
+
+	// Required base fields (same as Path B)
+	if (!raw.id) errors.push(`${prefix} missing 'id'`);
+	if (!raw.name) errors.push(`${prefix} missing 'name'`);
+	if (typeof raw.priority !== 'number') errors.push(`${prefix} missing or invalid 'priority'`);
+	if (!raw.direction) errors.push(`${prefix} missing 'direction'`);
+	if (!raw.options) errors.push(`${prefix} missing 'options'`);
+
+	// Direction-specific template requirements.
+	const needsFolder = raw.direction === 'folder-to-tag' || raw.direction === 'bidirectional';
+	const needsTag = raw.direction === 'tag-to-folder' || raw.direction === 'bidirectional';
+
+	if (needsFolder && !raw.folderTemplate) {
+		errors.push(`${prefix} folder-to-tag/bidirectional template rule requires 'folderTemplate'`);
+	}
+	if (needsTag && !raw.tagTemplate) {
+		errors.push(`${prefix} tag-to-folder/bidirectional template rule requires 'tagTemplate'`);
+	}
+
+	if (errors.length) return { ok: false, errors };
+
+	// Compile both templates; surface parse errors loudly.
+	let folderPattern: string | undefined;
+	let tagPattern: string | undefined;
+
+	if (raw.folderTemplate) {
+		try {
+			const compiled = compileTemplate(raw.folderTemplate);
+			folderPattern = compiled.regex.source;
+		} catch (e) {
+			if (e instanceof TemplateParseError) {
+				errors.push(`${prefix} invalid folderTemplate: ${e.message}`);
+			} else {
+				errors.push(`${prefix} folderTemplate compile failed: ${(e as Error).message}`);
+			}
+		}
+	}
+
+	if (raw.tagTemplate) {
+		try {
+			const compiled = compileTemplate(raw.tagTemplate);
+			tagPattern = compiled.regex.source;
+		} catch (e) {
+			if (e instanceof TemplateParseError) {
+				errors.push(`${prefix} invalid tagTemplate: ${e.message}`);
+			} else {
+				errors.push(`${prefix} tagTemplate compile failed: ${(e as Error).message}`);
+			}
+		}
+	}
+
+	if (errors.length) return { ok: false, errors };
+
+	// Compute the bijectivity verdict at load time. We don't reject lossy
+	// rules — lossy is a valid intentional shape (marker-only, aggregate,
+	// etc.). We just ensure the verdict is computable and stash it on
+	// `bijective` so the UI can surface the chip without recomputing.
+	let bijective: boolean | undefined;
+	if (raw.folderTemplate && raw.tagTemplate) {
+		const verdict = computeBijectivity(raw.folderTemplate, raw.tagTemplate);
+		bijective = verdict.status === 'total';
+	}
+
+	const rule: MappingRule = {
+		id: raw.id!,
+		name: raw.name!,
+		description: raw.description,
+		enabled: raw.enabled !== undefined ? raw.enabled : true,
+		priority: raw.priority!,
+		direction: raw.direction!,
+		// Auto-derived from compiled templates — gates `findMatchingRules`
+		folderPattern,
+		tagPattern,
+		// Preserve template source for the runtime
+		folderTemplate: raw.folderTemplate,
+		tagTemplate: raw.tagTemplate,
+		// Pass through other optional fields if present
+		folderEntryPoint: raw.folderEntryPoint,
+		tagEntryPoint: raw.tagEntryPoint,
+		folderTransforms: raw.folderTransforms,
+		tagTransforms: raw.tagTransforms,
+		folderAnchor: raw.folderAnchor,
+		group: raw.group,
+		options: raw.options!,
+		// Layer 2 verdict
+		bijective,
+	};
+
+	return { ok: true, rule };
+}
+
 function validateAndNormalizeRule(
 	raw: RawRule,
 	idx: number,
 ): { ok: true; rule: MappingRule } | { ok: false; errors: string[] } {
 	const errors: string[] = [];
 	const prefix = `Rule #${idx}${raw.id ? ` (${raw.id})` : ''}:`;
+
+	// Mutual exclusivity check — a rule should declare ONE shape.
+	const hasTemplate = Boolean(raw.folderTemplate || raw.tagTemplate);
+	const hasTypedSpec = Boolean(raw.typedSpec);
+	if (hasTemplate && hasTypedSpec) {
+		errors.push(
+			`${prefix} rule has both 'folderTemplate'/'tagTemplate' (Path Lens shape) and 'typedSpec' (typed-model shape). Choose one.`,
+		);
+		return { ok: false, errors };
+	}
+
+	// Path C: Path Lens template-shaped rule (F2). Compile both templates,
+	// auto-derive folderPattern + tagPattern from the compiled regex sources,
+	// preserve template fields for the runtime to use.
+	if (hasTemplate) {
+		return validateTemplateRule(raw, idx, prefix);
+	}
 
 	// Path A: typedSpec present → derive (anchor flows through deriveFolderPattern)
 	if (raw.typedSpec) {

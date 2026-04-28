@@ -562,3 +562,226 @@ describe('Group field defaulting at load time', () => {
 		}
 	});
 });
+
+// ─── F2 commit 1c — Path Lens template-shaped rules ─────────────────────
+
+describe('loadRulePackFromJSON — Path Lens template rules (Path C)', () => {
+	const baseOptions = {
+		createFolders: true,
+		addTags: true,
+		removeOrphanedTags: false,
+		syncOnFileCreate: true,
+		syncOnFileMove: true,
+		syncOnFileRename: true,
+	};
+
+	const baseRule = (overrides: Record<string, unknown>) => ({
+		id: 't-rule',
+		name: 'Test rule',
+		priority: 10,
+		direction: 'bidirectional',
+		options: baseOptions,
+		...overrides,
+	});
+
+	const buildPack = (rule: Record<string, unknown>) =>
+		JSON.stringify({
+			name: 'Template test pack',
+			description: 'Test',
+			version: '1.0.0',
+			author: 'Test',
+			rules: [rule],
+		});
+
+	test('loads a bidirectional template rule with both folder + tag templates', () => {
+		const json = buildPack(
+			baseRule({
+				folderTemplate: 'Projects/{topic}',
+				tagTemplate: '#projects/{topic}',
+			}),
+		);
+		const result = loadRulePackFromJSON(json);
+		expect(result.ok).toBe(true);
+		if (result.ok) {
+			const rule = result.pack.rules[0];
+			expect(rule.folderTemplate).toBe('Projects/{topic}');
+			expect(rule.tagTemplate).toBe('#projects/{topic}');
+			// Auto-derived from compiled regex source
+			expect(rule.folderPattern).toBeDefined();
+			expect(rule.tagPattern).toBeDefined();
+			// PARA identity → bijective: true
+			expect(rule.bijective).toBe(true);
+		}
+	});
+
+	test('auto-derived folderPattern matches the template at runtime', () => {
+		const json = buildPack(
+			baseRule({
+				folderTemplate: 'Projects/{topic}',
+				tagTemplate: '#projects/{topic}',
+			}),
+		);
+		const result = loadRulePackFromJSON(json);
+		if (!result.ok) throw new Error(result.errors.join('; '));
+		const folderPattern = new RegExp(result.pack.rules[0].folderPattern!);
+		expect(folderPattern.test('Projects/Web')).toBe(true);
+		expect(folderPattern.test('Projects/Web/Auth')).toBe(false); // segment slot bounds
+		expect(folderPattern.test('Areas/Health')).toBe(false);
+	});
+
+	test('lossy template rule loads (lossy is intentional, not an error)', () => {
+		const json = buildPack(
+			baseRule({
+				folderTemplate: 'Capture/Inbox/{discarded...}',
+				tagTemplate: '#-inbox',
+			}),
+		);
+		const result = loadRulePackFromJSON(json);
+		expect(result.ok).toBe(true);
+		if (result.ok) {
+			expect(result.pack.rules[0].bijective).toBe(false);
+		}
+	});
+
+	test('conditional template rule (kebab-case) loads with bijective: false', () => {
+		const json = buildPack(
+			baseRule({
+				folderTemplate: 'Projects/{topic}',
+				tagTemplate: '#projects/{topic | kebab-case}',
+			}),
+		);
+		const result = loadRulePackFromJSON(json);
+		expect(result.ok).toBe(true);
+		if (result.ok) {
+			// Conditional → not totally bijective
+			expect(result.pack.rules[0].bijective).toBe(false);
+		}
+	});
+
+	test('rejects invalid template syntax (unclosed slot)', () => {
+		const json = buildPack(
+			baseRule({
+				folderTemplate: 'Projects/{topic',
+				tagTemplate: '#projects/{topic}',
+			}),
+		);
+		const result = loadRulePackFromJSON(json);
+		expect(result.ok).toBe(false);
+		if (!result.ok) {
+			expect(result.errors.some((e) => e.includes('folderTemplate'))).toBe(true);
+			expect(result.errors.some((e) => e.includes('unclosed'))).toBe(true);
+		}
+	});
+
+	test('rejects rule with both typedSpec and folderTemplate', () => {
+		const json = buildPack(
+			baseRule({
+				folderTemplate: 'Projects/{topic}',
+				tagTemplate: '#projects/{topic}',
+				typedSpec: {
+					/* would normally be a full TypedRuleSpec */
+					id: 't-rule',
+					transfer: { op: 'identity' },
+				},
+			}),
+		);
+		const result = loadRulePackFromJSON(json);
+		expect(result.ok).toBe(false);
+		if (!result.ok) {
+			expect(result.errors.some((e) => e.includes('Path Lens') && e.includes('typed-model'))).toBe(true);
+		}
+	});
+
+	test('bidirectional rule requires both templates', () => {
+		const json = buildPack(
+			baseRule({
+				folderTemplate: 'Projects/{topic}',
+				// missing tagTemplate
+			}),
+		);
+		const result = loadRulePackFromJSON(json);
+		expect(result.ok).toBe(false);
+		if (!result.ok) {
+			expect(result.errors.some((e) => e.includes('tagTemplate'))).toBe(true);
+		}
+	});
+
+	test('folder-to-tag rule only needs folderTemplate', () => {
+		const json = buildPack(
+			baseRule({
+				direction: 'folder-to-tag',
+				folderTemplate: 'Projects/{topic}',
+				tagTemplate: '#projects/{topic}',
+			}),
+		);
+		const result = loadRulePackFromJSON(json);
+		expect(result.ok).toBe(true);
+	});
+
+	test('legacy regex rule still loads when no template fields present', () => {
+		const json = buildPack(
+			baseRule({
+				folderPattern: '^Projects/',
+				tagPattern: '^#projects/',
+			}),
+		);
+		const result = loadRulePackFromJSON(json);
+		expect(result.ok).toBe(true);
+		if (result.ok) {
+			const rule = result.pack.rules[0];
+			expect(rule.folderTemplate).toBeUndefined();
+			expect(rule.tagTemplate).toBeUndefined();
+			expect(rule.folderPattern).toBe('^Projects/');
+		}
+	});
+
+	test('mixed pack: regex rule + template rule load together', () => {
+		const json = JSON.stringify({
+			name: 'Mixed pack',
+			description: 'Hybrid coexistence test',
+			version: '1.0.0',
+			author: 'Test',
+			rules: [
+				baseRule({
+					id: 'legacy',
+					folderPattern: '^Projects/',
+					tagPattern: '^#projects/',
+				}),
+				baseRule({
+					id: 'template',
+					folderTemplate: 'Areas/{area}',
+					tagTemplate: '#areas/{area}',
+				}),
+			],
+		});
+		const result = loadRulePackFromJSON(json);
+		expect(result.ok).toBe(true);
+		if (result.ok) {
+			expect(result.pack.rules.length).toBe(2);
+			expect(result.pack.rules[0].folderTemplate).toBeUndefined();
+			expect(result.pack.rules[1].folderTemplate).toBe('Areas/{area}');
+			expect(result.pack.rules[1].bijective).toBe(true);
+		}
+	});
+
+	test('template rule inherits pack-level group default (F1 Step 3 compatibility)', () => {
+		const json = JSON.stringify({
+			name: 'Template pack',
+			description: 'Test',
+			version: '1.0.0',
+			author: 'Test',
+			id: 'my-template-pack',
+			rules: [
+				baseRule({
+					folderTemplate: 'Projects/{topic}',
+					tagTemplate: '#projects/{topic}',
+				}),
+			],
+		});
+		const result = loadRulePackFromJSON(json);
+		expect(result.ok).toBe(true);
+		if (result.ok) {
+			expect(result.pack.rules[0].group).toBe('my-template-pack');
+		}
+	});
+});

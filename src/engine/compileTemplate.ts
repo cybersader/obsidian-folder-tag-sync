@@ -7,14 +7,20 @@
  * `derive.ts` (template → MappingRule), `applyTransfer.ts` (slot extraction),
  * and `rulePackLoader.ts` (validation at load time).
  *
- * F2 commit 1a — Tier A operators only:
- * - `{name}` — single-segment slot
- * - `{name...}` — glob slot (one or more segments)
- * - `{name | filter1 | filter2}` — pipe filters (Jinja-style)
+ * Operators:
+ * - `{name}` — single-segment slot (matches `[^/]+`)
+ * - `{name...}` — glob slot (matches `.+`, can span path separators)
+ * - `{name:regex}` — Tier B inline regex constraint (validated to not break path-shape semantics)
+ * - `{name:regex...}` — glob slot with inline regex constraint
+ * - `{name | filter1 | filter2}` — pipe filters (Jinja-style, applied at runtime)
  * - Literal segments — anything not in `{}`
  *
- * Tier B operators (`{name?}`, `{name:regex}`, optional literal prefix `📁?`)
- * deferred to future commits.
+ * Tier B regex safety: for SEGMENT slots, the user-provided regex is rejected
+ * if it can match `/` (would let one slot eat multiple path segments — broken
+ * path-shape semantics). For glob slots, `/` matching is allowed by definition.
+ *
+ * Other Tier B operators (`{name?}` optional segment, optional literal prefix
+ * `📁?`) still deferred.
  *
  * Reference: docs/concepts/bijectivity-detection.md (storage layer + algorithm)
  * Reference: docs/agent-context/zz-log/2026-04-27-path-lens-operators-and-bijectivity-detection.md (research)
@@ -65,6 +71,15 @@ export interface SlotDef {
 
 	/** Filter pipeline applied to this slot's value, in order */
 	filters: string[];
+
+	/**
+	 * User-supplied inline regex constraint (Tier B — `{name:regex}` syntax).
+	 * Replaces the default capture body (`[^/]+` for segment, `.+` for glob).
+	 * Pre-validated by the compiler: for segment slots, must NOT match `/`
+	 * (otherwise rejected with TemplateParseError to prevent breaking
+	 * path-shape semantics).
+	 */
+	inlineRegex?: string;
 
 	/** Position in the template string (for error messages) */
 	templatePosition: number;
@@ -180,7 +195,18 @@ export function compileTemplate(template: PathTemplate): CompiledTemplate {
 
 		if (ch === '{') {
 			flushLiteral();
-			const slotEnd = template.indexOf('}', i);
+			// Balanced-brace search: regex quantifiers like `\d{1,2}` contain
+			// inner `}`, so a naive `indexOf('}')` breaks. Track nesting depth
+			// from `{` (this slot opener) to find the MATCHING `}`.
+			let depth = 1;
+			let slotEnd = -1;
+			for (let j = i + 1; j < template.length; j++) {
+				if (template[j] === '{') depth++;
+				else if (template[j] === '}') {
+					depth--;
+					if (depth === 0) { slotEnd = j; break; }
+				}
+			}
 			if (slotEnd === -1) {
 				throw new TemplateParseError(
 					'unclosed slot — expected `}`',
@@ -220,15 +246,19 @@ export function compileTemplate(template: PathTemplate): CompiledTemplate {
 			const trailingOptionalGlob =
 				isLastToken && slot.kind === 'glob' && lastPartEndsWithSlash;
 
+			// Capture body: user-supplied regex if present (Tier B), else the
+			// default segment (`[^/]+`) or glob (`.+`) pattern.
+			const defaultBody = slot.kind === 'glob' ? '.+' : '[^/]+';
+			const captureBody = slot.inlineRegex ?? defaultBody;
+
 			if (trailingOptionalGlob) {
 				slot.trailingOptionalGlob = true;
 				// Strip the trailing `/` from the preceding literal.
 				regexParts[regexParts.length - 1] = lastPart.slice(0, -1);
 				// Emit optional non-capturing group containing the leading `/`
 				// and the named capture.
-				regexParts.push(`(?:/(?<${slot.captureGroupName}>.+))?`);
+				regexParts.push(`(?:/(?<${slot.captureGroupName}>${captureBody}))?`);
 			} else {
-				const captureBody = slot.kind === 'glob' ? '.+' : '[^/]+';
 				regexParts.push(`(?<${slot.captureGroupName}>${captureBody})`);
 			}
 
@@ -273,19 +303,45 @@ function parseSlot(body: string, position: number, template: string): SlotDef {
 		throw new TemplateParseError('empty slot — expected name', template, position);
 	}
 
-	// Split on `|` for filters
+	// Split on `|` for filters. The first part is name (+ optional `...` glob
+	// suffix + optional `:regex` inline-regex constraint).
 	const parts = trimmed.split('|').map((p) => p.trim());
-	let nameWithKind = parts[0];
+	let nameKindRegex = parts[0];
 	const filters = parts.slice(1).filter((f) => f.length > 0);
+
+	// Tier B — extract `:regex` if present. The regex extends to the END of
+	// the first part (we already split on `|` so anything after `:` is part
+	// of the regex). Slot syntax: `{name:regex}` or `{name:regex...}`.
+	let inlineRegex: string | undefined;
+	const colonIdx = nameKindRegex.indexOf(':');
+	if (colonIdx > 0) {
+		const afterColon = nameKindRegex.slice(colonIdx + 1).trim();
+		nameKindRegex = nameKindRegex.slice(0, colonIdx).trim();
+		// `...` glob suffix can appear AFTER the regex: `{name:\d+...}`. Detect
+		// + strip it from the regex side.
+		if (afterColon.endsWith('...')) {
+			inlineRegex = afterColon.slice(0, -3).trim();
+			nameKindRegex = nameKindRegex + '...';
+		} else {
+			inlineRegex = afterColon;
+		}
+		if (inlineRegex.length === 0) {
+			throw new TemplateParseError(
+				'inline regex must not be empty (use `{name}` for default segment match, or `{name...}` for glob)',
+				template,
+				position,
+			);
+		}
+	}
 
 	// Detect glob suffix `...`
 	let kind: 'segment' | 'glob' = 'segment';
-	if (nameWithKind.endsWith('...')) {
+	if (nameKindRegex.endsWith('...')) {
 		kind = 'glob';
-		nameWithKind = nameWithKind.slice(0, -3);
+		nameKindRegex = nameKindRegex.slice(0, -3);
 	}
 
-	const name = nameWithKind.trim();
+	const name = nameKindRegex.trim();
 	if (!/^[a-zA-Z_][a-zA-Z0-9_-]*$/.test(name)) {
 		throw new TemplateParseError(
 			`invalid slot name "${name}" (must match /^[a-zA-Z_][a-zA-Z0-9_-]*$/)`,
@@ -294,17 +350,78 @@ function parseSlot(body: string, position: number, template: string): SlotDef {
 		);
 	}
 
+	// Tier B safety validation — for SEGMENT slots, the user regex must not
+	// be able to match `/`. Otherwise one slot could eat multiple path
+	// segments and break the rest of the template's anchoring.
+	if (inlineRegex !== undefined) {
+		validateInlineRegex(inlineRegex, kind, name, template, position);
+	}
+
 	return {
 		name,
 		captureGroupName: name, // overwritten in compileTemplate when added to slots[]
 		kind,
 		filters,
+		inlineRegex,
 		templatePosition: position,
 	};
 }
 
+/**
+ * Tier B safety validator — ensures user-supplied regex doesn't break path-
+ * shape semantics. For segment slots, the regex must NOT match `/`. For glob
+ * slots, all characters are allowed (matching `/` is the whole point).
+ *
+ * Why this matters: a segment-slot regex like `.+` or `\W` matches `/`, so
+ * the slot would eat across path boundaries — breaking the surrounding
+ * template's literal segments. The validator catches this at compile time
+ * with a clear error message instead of silent runtime mismatching.
+ */
+function validateInlineRegex(
+	pattern: string,
+	kind: 'segment' | 'glob',
+	slotName: string,
+	template: string,
+	position: number,
+): void {
+	let userRe: RegExp;
+	try {
+		userRe = new RegExp(pattern);
+	} catch (e) {
+		throw new TemplateParseError(
+			`inline regex for slot "${slotName}" is invalid: ${(e as Error).message}`,
+			template,
+			position,
+		);
+	}
+	if (kind === 'segment' && userRe.test('/')) {
+		throw new TemplateParseError(
+			`inline regex for slot "${slotName}" can match '/' — segment slots must not cross path boundaries. Use a glob slot ({${slotName}...}) for multi-segment matching, or constrain the regex (e.g. \\d+, [a-z]+, [A-Z]{2,3}).`,
+			template,
+			position,
+		);
+	}
+}
+
 function escapeRegex(literal: string): string {
 	return literal.replace(/[\\^$.*+?()[\]{}|]/g, '\\$&');
+}
+
+/**
+ * Find the index of the matching `}` for the opening `{` at `openIdx`.
+ * Tracks brace depth to skip over inner `{}` from regex quantifiers like
+ * `\d{1,2}`. Returns -1 if no matching close brace is found.
+ */
+function findMatchingCloseBrace(s: string, openIdx: number): number {
+	let depth = 1;
+	for (let j = openIdx + 1; j < s.length; j++) {
+		if (s[j] === '{') depth++;
+		else if (s[j] === '}') {
+			depth--;
+			if (depth === 0) return j;
+		}
+	}
+	return -1;
 }
 
 /**
@@ -364,6 +481,18 @@ export function instantiateTemplate(
 		const slotStartInTemplate = template.indexOf('{', lastIndex);
 		const literalBefore = template.slice(lastIndex, slotStartInTemplate);
 
+		// Find the matching closing `}` via balanced-brace counting (Tier B
+		// inline regex like `\d{1,2}` contains literal `}` that we must not
+		// confuse with the slot terminator).
+		const slotEnd = findMatchingCloseBrace(template, slotStartInTemplate);
+		if (slotEnd === -1) {
+			throw new TemplateParseError(
+				`unclosed slot in template`,
+				template,
+				slotStartInTemplate,
+			);
+		}
+
 		// Append the slot's value
 		const value = slotValues[slot.name];
 		if (value === undefined) {
@@ -373,7 +502,7 @@ export function instantiateTemplate(
 			// (bare entry) when no deeper path is provided.
 			if (slot.trailingOptionalGlob && literalBefore.endsWith('/')) {
 				result += literalBefore.slice(0, -1);
-				lastIndex = template.indexOf('}', slotStartInTemplate) + 1;
+				lastIndex = slotEnd + 1;
 				continue;
 			}
 			throw new TemplateParseError(
@@ -386,7 +515,7 @@ export function instantiateTemplate(
 		result += value;
 
 		// Advance past the slot's `}` in the template
-		lastIndex = template.indexOf('}', slotStartInTemplate) + 1;
+		lastIndex = slotEnd + 1;
 	}
 
 	// Append any trailing literal after the last slot

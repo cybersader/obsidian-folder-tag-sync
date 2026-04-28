@@ -570,4 +570,129 @@ describe('computeBijectivity', () => {
 			expect(compiled.regex.test('0 - Tasks, Planning/Annual Planning')).toBe(true);
 		});
 	});
+
+	describe('Tier B — inline regex slot constraints {name:regex}', () => {
+		describe('parsing + capture', () => {
+			test('{num:\\d+} captures only digits', () => {
+				const compiled = compileTemplate('{num:\\d+}');
+				expect(compiled.slots[0].inlineRegex).toBe('\\d+');
+				expect(extractSlots(compiled, '42')).toEqual({ num: '42' });
+				expect(extractSlots(compiled, 'abc')).toBeNull(); // letters fail the regex
+			});
+
+			test('{num:\\d{1,2}} captures 1-2 digits exactly', () => {
+				const compiled = compileTemplate('{num:\\d{1,2}}');
+				expect(extractSlots(compiled, '0')).toEqual({ num: '0' });
+				expect(extractSlots(compiled, '99')).toEqual({ num: '99' });
+				expect(extractSlots(compiled, '100')).toBeNull(); // 3 digits fails
+			});
+
+			test('{name:[A-Z][a-z]+} captures PascalCase words', () => {
+				const compiled = compileTemplate('{name:[A-Z][a-z]+}');
+				expect(extractSlots(compiled, 'Projects')).toEqual({ name: 'Projects' });
+				expect(extractSlots(compiled, 'projects')).toBeNull(); // lowercase first
+				expect(extractSlots(compiled, 'PROJECTS')).toBeNull(); // all caps
+			});
+
+			test('numbered-area template with regex constraint', () => {
+				const compiled = compileTemplate('{num:\\d{1,2}} - {name}/{deeper...}');
+				expect(extractSlots(compiled, '0 - Tasks/Annual')).toEqual({
+					num: '0',
+					name: 'Tasks',
+					deeper: 'Annual',
+				});
+				expect(extractSlots(compiled, '99 - Archive/Old')).toEqual({
+					num: '99',
+					name: 'Archive',
+					deeper: 'Old',
+				});
+				expect(extractSlots(compiled, 'foo - Tasks/X')).toBeNull(); // 'foo' fails \d{1,2}
+			});
+
+			test('inline regex composes with filter pipe', () => {
+				const compiled = compileTemplate('{num:\\d+ | keep}');
+				expect(compiled.slots[0].inlineRegex).toBe('\\d+');
+				expect(compiled.slots[0].filters).toEqual(['keep']);
+			});
+
+			test('glob slot with inline regex `{name:[a-z/-]+...}`', () => {
+				const compiled = compileTemplate('{tail:[a-z/-]+...}');
+				expect(compiled.slots[0].kind).toBe('glob');
+				expect(compiled.slots[0].inlineRegex).toBe('[a-z/-]+');
+				expect(extractSlots(compiled, 'web/auth/oauth')).toEqual({ tail: 'web/auth/oauth' });
+				expect(extractSlots(compiled, 'Web/Auth')).toBeNull(); // uppercase fails
+			});
+		});
+
+		describe('safety validation — regex must not break path-shape semantics', () => {
+			test('rejects segment-slot regex that matches `/`', () => {
+				expect(() => compileTemplate('{name:.+}')).toThrow(TemplateParseError);
+				expect(() => compileTemplate('{name:.*}')).toThrow(TemplateParseError);
+			});
+
+			test('rejects segment-slot regex with explicit `/` in character class', () => {
+				expect(() => compileTemplate('{name:[a-z/]+}')).toThrow(TemplateParseError);
+			});
+
+			test('rejects segment-slot regex with negated class containing `/`', () => {
+				// `[^a-z]` matches `/` (since `/` is not in [a-z])
+				expect(() => compileTemplate('{name:[^a-z]+}')).toThrow(TemplateParseError);
+			});
+
+			test('error message points at the safe alternative (use glob)', () => {
+				try {
+					compileTemplate('{name:.+}');
+					throw new Error('should have thrown');
+				} catch (e) {
+					expect(e).toBeInstanceOf(TemplateParseError);
+					expect((e as Error).message).toContain('cross path boundaries');
+					expect((e as Error).message).toContain('glob slot');
+				}
+			});
+
+			test('rejects empty regex', () => {
+				expect(() => compileTemplate('{name:}')).toThrow(TemplateParseError);
+			});
+
+			test('rejects malformed regex', () => {
+				expect(() => compileTemplate('{name:[a-}')).toThrow(TemplateParseError);
+			});
+
+			test('GLOB slots ALLOW regex that matches `/`', () => {
+				// `.+` includes `/` for glob slots — that's the whole point.
+				const compiled = compileTemplate('{tail:.+...}');
+				expect(extractSlots(compiled, 'a/b/c')).toEqual({ tail: 'a/b/c' });
+			});
+
+			test('common safe regexes pass validation', () => {
+				expect(() => compileTemplate('{num:\\d+}')).not.toThrow();
+				expect(() => compileTemplate('{name:[A-Za-z]+}')).not.toThrow();
+				expect(() => compileTemplate('{slug:[a-z][a-z0-9-]*}')).not.toThrow();
+				expect(() => compileTemplate('{date:\\d{4}-\\d{2}-\\d{2}}')).not.toThrow();
+				expect(() => compileTemplate('{code:[A-Z]{2,3}}')).not.toThrow();
+				expect(() => compileTemplate('{ver:v\\d+(?:\\.\\d+)*}')).not.toThrow();
+			});
+		});
+
+		describe('round-trip + bijectivity with inline regex', () => {
+			test('numbered-area template round-trips for matching paths', () => {
+				const compiled = compileTemplate('{num:\\d{1,2}} - {name}/{deeper...}');
+				const slots = extractSlots(compiled, '5 - Projects/Web');
+				expect(slots).toEqual({ num: '5', name: 'Projects', deeper: 'Web' });
+				const reconstructed = instantiateTemplate(compiled, slots!);
+				expect(reconstructed).toBe('5 - Projects/Web');
+			});
+
+			test('bijectivity verdict computes for inline-regex templates', () => {
+				const verdict = computeBijectivity(
+					'{num:\\d{1,2}} - {name}/{deeper...}',
+					'#{num}-{name | kebab-case}/{deeper...}',
+				);
+				// Layer 1: same slots (num, name, deeper) on both sides → pass
+				expect(verdict.layer1Pass).toBe(true);
+				// Layer 2: kebab-case on `name` is conditional → overall conditional
+				expect(verdict.status).toBe('conditional');
+			});
+		});
+	});
 });

@@ -76,6 +76,20 @@ const TEMPLATE_STARTERS: TemplateStarter[] = [
 		notes: 'ONE rule for ALL numbered roots. Files moving between areas (e.g., 0 - Tasks/X → 1 - Projects/X) re-tag automatically. ⚠ Bijectivity: round-trips cleanly if folder names contain no invalid-for-tags chars (.,;:?!@\\). Established-from-clean-names = total bijection. Existing names like "1 - Tasks, Planning" lose the comma on tag→folder inverse — F3 frontmatter witness (post-MVP) will close this gap by recording the original folder name per-file.',
 	},
 	{
+		id: 'jd-strict-numbered',
+		label: 'Strict numbered area (Tier B regex) — {num:\\d{1,2}} - {name}/{deeper...} ↔ #{num}-{name | strip-invalid-tag-chars | kebab-case}/{deeper...}',
+		folder: '{num:\\d{1,2}} - {name}/{deeper...}',
+		tag: '#{num}-{name | strip-invalid-tag-chars | kebab-case}/{deeper...}',
+		notes: 'Like the catch-all but {num:\\d{1,2}} only matches 1-2 digit prefixes. Rejects non-numbered roots (e.g., "Templates/" doesn\'t match). Use Tier B inline regex to constrain slot content.',
+	},
+	{
+		id: 'date-prefixed',
+		label: 'Date-prefixed notes (Tier B regex) — {date:\\d{4}-\\d{2}-\\d{2}}/{title} ↔ #notes/{date}/{title | kebab-case}',
+		folder: '{date:\\d{4}-\\d{2}-\\d{2}}/{title}',
+		tag: '#notes/{date}/{title | kebab-case}',
+		notes: 'Captures only YYYY-MM-DD prefixed folders. {date} slot rejects anything not matching the strict ISO date format.',
+	},
+	{
 		id: 'emoji-prefix',
 		label: 'Emoji-prefixed — 📁 Projects/{deeper...} ↔ #projects/{deeper...}',
 		folder: '📁 Projects/{deeper...}',
@@ -616,7 +630,8 @@ export class RuleEditorModal extends Modal {
 				.setDesc(
 					'Path Lens template. Empty matches NOTHING — to match every root folder use {root}/{deeper...}. ' +
 					'To match a specific root folder + descendants use Projects/{deeper...} (matches "Projects" AND "Projects/X"). ' +
-					'Use {topic} for a single segment, {deeper...} for one or more segments.',
+					'Slot kinds: {topic} = single segment, {deeper...} = one or more. ' +
+					'Tier B inline regex: {num:\\d{1,2}} = strict 1-2 digit constraint, {date:\\d{4}-\\d{2}-\\d{2}} = ISO-date constraint. Validator rejects regex that could match `/`.',
 				)
 				.addText(text => {
 					folderInput = text.inputEl;
@@ -943,8 +958,9 @@ export class RuleEditorModal extends Modal {
 	 */
 	private buildSlotObjectsSection(section: HTMLElement): void {
 		// Re-render the standard template input area first so the user can
-		// still author. The slot-objects view is a structured inspector layered
-		// on top — not a replacement.
+		// see the templates they're editing slots within. The slot-objects
+		// editor below the templates lets them edit per-slot details (regex,
+		// filters) without re-typing the inline `{name:regex|filter}` syntax.
 		this.buildTemplatePatternSection(section);
 
 		const inspectorSection = section.createDiv({ cls: 'dtf-slot-objects-inspector' });
@@ -958,14 +974,14 @@ export class RuleEditorModal extends Modal {
 		heading.style.fontWeight = '600';
 		heading.style.fontSize = '0.95em';
 		heading.style.marginBottom = '0.4em';
-		heading.setText('Slot inspector');
+		heading.setText('Slot definitions');
 
 		const explainer = inspectorSection.createDiv();
 		explainer.style.fontSize = '0.8em';
 		explainer.style.color = 'var(--text-muted)';
 		explainer.style.marginBottom = '0.6em';
 		explainer.setText(
-			"Structured view of the slots parsed from your templates above. v1 read-only; edit via the template inputs.",
+			"Edit per-slot regex + filters here without typing the inline syntax. Slot existence + kind (segment/glob) are still defined by the templates above. Changes here re-emit the templates with updated slot details.",
 		);
 
 		const tableEl = inspectorSection.createEl('table');
@@ -975,10 +991,7 @@ export class RuleEditorModal extends Modal {
 
 		this.renderSlotObjectsTable(tableEl);
 
-		// Hook into onOpen's input listener so the table refreshes as templates change.
-		// The contentEl-level 'input' listener already triggers renderVaultTestPreview
-		// — but slot-objects table is in a different DOM region. Add a separate
-		// listener on this section's parent.
+		// Refresh table when templates change in the inputs above
 		section.addEventListener('input', () => {
 			this.renderSlotObjectsTable(tableEl);
 		});
@@ -988,7 +1001,7 @@ export class RuleEditorModal extends Modal {
 		tableEl.empty();
 
 		const headerRow = tableEl.createEl('tr');
-		for (const colHeader of ['Slot', 'Kind', 'Filters', 'On folder?', 'On tag?']) {
+		for (const colHeader of ['Slot', 'Kind', 'Inline regex', 'Filters (folder | tag)', 'Sides']) {
 			const th = headerRow.createEl('th');
 			th.setText(colHeader);
 			th.style.textAlign = 'left';
@@ -997,30 +1010,23 @@ export class RuleEditorModal extends Modal {
 			th.style.fontWeight = '600';
 		}
 
-		let folderSlots: Array<{ name: string; kind: string; filters: string[] }> = [];
-		let tagSlots: Array<{ name: string; kind: string; filters: string[] }> = [];
-
+		let folderCompiled: ReturnType<typeof compileTemplate> | null = null;
+		let tagCompiled: ReturnType<typeof compileTemplate> | null = null;
 		try {
-			if (this.rule.folderTemplate) {
-				folderSlots = compileTemplate(this.rule.folderTemplate).slots;
-			}
-		} catch {
-			// shown in template error UI
-		}
+			if (this.rule.folderTemplate) folderCompiled = compileTemplate(this.rule.folderTemplate);
+		} catch { /* shown in template error UI */ }
 		try {
-			if (this.rule.tagTemplate) {
-				tagSlots = compileTemplate(this.rule.tagTemplate).slots;
-			}
-		} catch {
-			// shown in template error UI
-		}
+			if (this.rule.tagTemplate) tagCompiled = compileTemplate(this.rule.tagTemplate);
+		} catch { /* shown in template error UI */ }
 
-		const allSlotNames = new Set([
+		const folderSlots = folderCompiled?.slots ?? [];
+		const tagSlots = tagCompiled?.slots ?? [];
+		const allSlotNames = [...new Set([
 			...folderSlots.map(s => s.name),
 			...tagSlots.map(s => s.name),
-		]);
+		])];
 
-		if (allSlotNames.size === 0) {
+		if (allSlotNames.length === 0) {
 			const emptyRow = tableEl.createEl('tr');
 			const td = emptyRow.createEl('td');
 			td.colSpan = 5;
@@ -1034,29 +1040,147 @@ export class RuleEditorModal extends Modal {
 		for (const name of allSlotNames) {
 			const folderSlot = folderSlots.find(s => s.name === name);
 			const tagSlot = tagSlots.find(s => s.name === name);
+			const onFolder = !!folderSlot;
+			const onTag = !!tagSlot;
 
 			const row = tableEl.createEl('tr');
 
-			const cells: Array<{ text: string; mono?: boolean; muted?: boolean }> = [
-				{ text: `{${name}}`, mono: true },
-				{ text: (folderSlot ?? tagSlot)?.kind ?? '', mono: true },
-				{
-					text: [...new Set([...(folderSlot?.filters ?? []), ...(tagSlot?.filters ?? [])])].join(' | ') || '—',
-					mono: true,
-					muted: !folderSlot?.filters?.length && !tagSlot?.filters?.length,
-				},
-				{ text: folderSlot ? '✓' : '—', muted: !folderSlot },
-				{ text: tagSlot ? '✓' : '—', muted: !tagSlot },
-			];
+			// Column 1: slot name (read-only — defined by template, not here)
+			const nameTd = row.createEl('td');
+			nameTd.setText(`{${name}}`);
+			nameTd.style.padding = '0.25em 0.5em';
+			nameTd.style.borderBottom = '1px solid var(--background-modifier-border)';
+			nameTd.style.fontFamily = 'var(--font-monospace)';
+			nameTd.style.fontWeight = '600';
 
-			for (const cell of cells) {
-				const td = row.createEl('td');
-				td.setText(cell.text);
-				td.style.padding = '0.25em 0.5em';
-				td.style.borderBottom = '1px solid var(--background-modifier-border)';
-				if (cell.mono) td.style.fontFamily = 'var(--font-monospace)';
-				if (cell.muted) td.style.color = 'var(--text-muted)';
+			// Column 2: kind
+			const kindTd = row.createEl('td');
+			kindTd.setText((folderSlot ?? tagSlot)?.kind ?? '');
+			kindTd.style.padding = '0.25em 0.5em';
+			kindTd.style.borderBottom = '1px solid var(--background-modifier-border)';
+			kindTd.style.fontFamily = 'var(--font-monospace)';
+			kindTd.style.color = 'var(--text-muted)';
+
+			// Column 3: editable inline regex (applies to BOTH sides if either has it)
+			const regexTd = row.createEl('td');
+			regexTd.style.padding = '0.25em 0.5em';
+			regexTd.style.borderBottom = '1px solid var(--background-modifier-border)';
+			const currentRegex = folderSlot?.inlineRegex ?? tagSlot?.inlineRegex ?? '';
+			const regexInput = regexTd.createEl('input', { type: 'text' });
+			regexInput.value = currentRegex;
+			regexInput.placeholder = '— none —';
+			regexInput.style.fontFamily = 'var(--font-monospace)';
+			regexInput.style.fontSize = '0.85em';
+			regexInput.style.width = '100%';
+			regexInput.style.padding = '0.15em 0.3em';
+			regexInput.addEventListener('change', () => {
+				this.updateSlotInTemplates(name, { inlineRegex: regexInput.value || undefined });
+				this.onOpen();
+			});
+
+			// Column 4: filters input (comma-separated)
+			const filtersTd = row.createEl('td');
+			filtersTd.style.padding = '0.25em 0.5em';
+			filtersTd.style.borderBottom = '1px solid var(--background-modifier-border)';
+
+			const folderFiltersInput = filtersTd.createEl('input', { type: 'text' });
+			folderFiltersInput.placeholder = 'folder-side filters';
+			folderFiltersInput.value = (folderSlot?.filters ?? []).join(' | ');
+			folderFiltersInput.style.fontFamily = 'var(--font-monospace)';
+			folderFiltersInput.style.fontSize = '0.85em';
+			folderFiltersInput.style.width = 'calc(50% - 0.2em)';
+			folderFiltersInput.style.marginRight = '0.4em';
+			folderFiltersInput.style.padding = '0.15em 0.3em';
+			folderFiltersInput.title = 'Folder-side filters, pipe-separated. e.g. "kebab-case" or "strip-emoji | kebab-case"';
+			folderFiltersInput.addEventListener('change', () => {
+				const filters = folderFiltersInput.value.split('|').map(s => s.trim()).filter(s => s.length > 0);
+				this.updateSlotInTemplates(name, { folderFilters: filters }, 'folder');
+				this.onOpen();
+			});
+
+			const tagFiltersInput = filtersTd.createEl('input', { type: 'text' });
+			tagFiltersInput.placeholder = 'tag-side filters';
+			tagFiltersInput.value = (tagSlot?.filters ?? []).join(' | ');
+			tagFiltersInput.style.fontFamily = 'var(--font-monospace)';
+			tagFiltersInput.style.fontSize = '0.85em';
+			tagFiltersInput.style.width = 'calc(50% - 0.2em)';
+			tagFiltersInput.style.padding = '0.15em 0.3em';
+			tagFiltersInput.title = 'Tag-side filters, pipe-separated.';
+			tagFiltersInput.addEventListener('change', () => {
+				const filters = tagFiltersInput.value.split('|').map(s => s.trim()).filter(s => s.length > 0);
+				this.updateSlotInTemplates(name, { tagFilters: filters }, 'tag');
+				this.onOpen();
+			});
+
+			// Column 5: presence indicator
+			const sidesTd = row.createEl('td');
+			sidesTd.setText(`${onFolder ? '✓' : '✗'} folder · ${onTag ? '✓' : '✗'} tag`);
+			sidesTd.style.padding = '0.25em 0.5em';
+			sidesTd.style.borderBottom = '1px solid var(--background-modifier-border)';
+			sidesTd.style.fontSize = '0.8em';
+			sidesTd.style.color = 'var(--text-muted)';
+		}
+	}
+
+	/**
+	 * Slot-objects edit support — splices an updated slot definition into the
+	 * folder + tag templates by replacing just that slot's `{...}` block in
+	 * place. Preserves all literal content around the slot. The user defines
+	 * slot existence + kind via the template inputs; this method handles the
+	 * detail-update pathway (regex, filters).
+	 *
+	 * For regex updates: applies to both sides (if slot exists on both).
+	 * For filter updates: applied per side (folder vs tag).
+	 */
+	private updateSlotInTemplates(
+		name: string,
+		change: { inlineRegex?: string | undefined; folderFilters?: string[]; tagFilters?: string[] },
+		side?: 'folder' | 'tag',
+	): void {
+		const updateOne = (template: string | undefined, sideKey: 'folder' | 'tag'): string | undefined => {
+			if (!template) return template;
+			let compiled: ReturnType<typeof compileTemplate>;
+			try {
+				compiled = compileTemplate(template);
+			} catch {
+				return template; // can't update on parse errors; user will see error in UI
 			}
+			const slot = compiled.slots.find(s => s.name === name);
+			if (!slot) return template;
+			// Find the slot's `{...}` block in the source by walking forward
+			// from `slot.templatePosition` and matching closing brace.
+			const open = slot.templatePosition;
+			let depth = 1;
+			let close = -1;
+			for (let j = open + 1; j < template.length; j++) {
+				if (template[j] === '{') depth++;
+				else if (template[j] === '}') {
+					depth--;
+					if (depth === 0) { close = j; break; }
+				}
+			}
+			if (close === -1) return template;
+			// Build new slot body: name + (...) suffix + (:regex)? + (| filters)?
+			const newRegex = change.inlineRegex !== undefined ? change.inlineRegex : slot.inlineRegex;
+			const newFilters =
+				sideKey === 'folder' && change.folderFilters !== undefined ? change.folderFilters
+				: sideKey === 'tag' && change.tagFilters !== undefined ? change.tagFilters
+				: slot.filters;
+			let body = name;
+			if (newRegex) body += `:${newRegex}`;
+			if (slot.kind === 'glob') body += '...';
+			if (newFilters.length > 0) body += ' | ' + newFilters.join(' | ');
+			return template.slice(0, open) + '{' + body + '}' + template.slice(close + 1);
+		};
+
+		// Regex applies to both sides; filters are side-specific
+		if (change.inlineRegex !== undefined) {
+			this.rule.folderTemplate = updateOne(this.rule.folderTemplate, 'folder');
+			this.rule.tagTemplate = updateOne(this.rule.tagTemplate, 'tag');
+		} else if (side === 'folder') {
+			this.rule.folderTemplate = updateOne(this.rule.folderTemplate, 'folder');
+		} else if (side === 'tag') {
+			this.rule.tagTemplate = updateOne(this.rule.tagTemplate, 'tag');
 		}
 	}
 

@@ -393,8 +393,8 @@ export default class DynamicTagsFoldersPlugin extends Plugin {
 		try {
 			const syncEngine = new FolderToTagSync(this.app, this.settings, this.debugLogger);
 			const result = await syncEngine.previewVault();
-			new VaultSyncPreviewModal(this.app, result, async () => {
-				await this.runVaultSyncWithProgress();
+			new VaultSyncPreviewModal(this.app, result, async (selectedPaths) => {
+				await this.runVaultSyncWithProgress(selectedPaths);
 			}).open();
 		} catch (err) {
 			const msg = err instanceof Error ? err.message : String(err);
@@ -469,7 +469,7 @@ export default class DynamicTagsFoldersPlugin extends Plugin {
 	 * indicator. Updates the notice every 10 files; final notice shows
 	 * aggregate result.
 	 */
-	async runVaultSyncWithProgress(): Promise<void> {
+	async runVaultSyncWithProgress(onlyPaths?: Set<string>): Promise<void> {
 		const syncEngine = new FolderToTagSync(this.app, this.settings, this.debugLogger);
 		const progressNotice = new Notice('Syncing vault...', 0); // 0 = stay until manually closed
 		try {
@@ -477,7 +477,7 @@ export default class DynamicTagsFoldersPlugin extends Plugin {
 				if (current % 10 === 0 || current === total) {
 					progressNotice.setMessage(`Syncing ${current}/${total}: ${file}`);
 				}
-			});
+			}, onlyPaths);
 			progressNotice.hide();
 			const errSummary = result.errors.length > 0 ? ` (${result.errors.length} errors)` : '';
 			new Notice(
@@ -500,42 +500,92 @@ export default class DynamicTagsFoldersPlugin extends Plugin {
  * Modal that presents the vault-sync preview — aggregate counts + sample
  * folder→tag pairs — and gives the user 'Apply changes' / 'Cancel' actions.
  */
+/**
+ * Interactive hierarchical preview of vault forward-sync changes.
+ *
+ * Design goals:
+ *  - Render the full change set as a collapsible folder tree, not a flat list,
+ *    so 100+ changes stay scannable.
+ *  - Selective apply via tri-state checkboxes — folder checkboxes show
+ *    indeterminate when only some descendants are selected, and toggling a
+ *    folder cascades to all descendants.
+ *  - Per-rule colour coding so you can see at a glance which rule produced
+ *    which tags. Rule legend doubles as a filter (click a swatch to isolate).
+ *  - Tag chips render as proper diff-style add pills, not comma-separated
+ *    text — much faster to scan visually.
+ *  - Live "Apply N files" button that reflects current selection.
+ *  - Search box filters tree by file path or rule name.
+ *  - Optional flat-list view for users who want the old layout.
+ */
 class VaultSyncPreviewModal extends Modal {
+	private selectedPaths = new Set<string>();
+	private ruleFilter: string | null = null;
+	private searchQuery = '';
+	private viewMode: 'tree' | 'flat' = 'tree';
+	private listEl!: HTMLElement;
+	private applyBtn!: HTMLButtonElement;
+	private legendRows = new Map<string, HTMLElement>();
+
 	constructor(
 		app: App,
 		private readonly preview: import('./sync/FolderToTagSync').VaultPreviewResult,
-		private readonly onApply: () => Promise<void>,
+		private readonly onApply: (selectedPaths: Set<string>) => Promise<void>,
 	) {
 		super(app);
+		// Default to all files selected — user opts out of specifics.
+		for (const item of preview.items) this.selectedPaths.add(item.filePath);
 	}
 
 	onOpen(): void {
-		const { contentEl } = this;
+		const { contentEl, modalEl } = this;
 		contentEl.empty();
+		modalEl.style.width = 'min(1000px, 95vw)';
+		modalEl.style.maxHeight = '90vh';
 		contentEl.addClass('dtf-vault-preview-modal');
 
 		contentEl.createEl('h2', { text: 'Vault sync preview (folder → tag)' });
 
-		// Aggregate summary
-		const summary = contentEl.createDiv();
-		summary.style.padding = '0.6em 0.8em';
-		summary.style.background = 'var(--background-modifier-form-field)';
-		summary.style.borderRadius = '4px';
-		summary.style.marginBottom = '0.8em';
-		summary.style.fontSize = '0.95em';
-		summary.style.lineHeight = '1.6';
-		summary.createEl('div', { text: `Total markdown files: ${this.preview.totalFiles}` });
-		const aff = summary.createEl('div');
-		aff.createSpan({ text: `Would change: ` });
-		aff.createEl('strong', { text: String(this.preview.filesAffected) });
-		aff.createSpan({ text: ` files (${this.preview.totalTagsToAdd} tags to add)` });
-		summary.createEl('div', { text: `Already in sync (no change needed): ${this.preview.filesUnchanged}` });
-		summary.createEl('div', { text: `No matching rule: ${this.preview.filesNoMatch}` });
+		// ─── Aggregate stat cards (visual KPIs at a glance) ─────────────
+		const statBar = contentEl.createDiv();
+		statBar.style.display = 'grid';
+		statBar.style.gridTemplateColumns = 'repeat(auto-fit, minmax(140px, 1fr))';
+		statBar.style.gap = '0.5em';
+		statBar.style.marginBottom = '0.9em';
+
+		const makeStat = (label: string, value: string | number, hint?: string, accent?: string) => {
+			const card = statBar.createDiv();
+			card.style.padding = '0.5em 0.7em';
+			card.style.background = 'var(--background-secondary)';
+			card.style.borderRadius = '6px';
+			if (accent) card.style.borderLeft = `3px solid ${accent}`;
+			const v = card.createEl('div', { text: String(value) });
+			v.style.fontSize = '1.4em';
+			v.style.fontWeight = '600';
+			v.style.lineHeight = '1.1';
+			const l = card.createEl('div', { text: label });
+			l.style.fontSize = '0.78em';
+			l.style.color = 'var(--text-muted)';
+			l.style.marginTop = '0.15em';
+			if (hint) {
+				const h = card.createEl('div', { text: hint });
+				h.style.fontSize = '0.72em';
+				h.style.color = 'var(--text-faint)';
+			}
+		};
+		makeStat(
+			'Files to change',
+			this.preview.filesAffected,
+			`of ${this.preview.totalFiles} total`,
+			'var(--text-success, rgb(40, 140, 70))',
+		);
+		makeStat('Tags to add', this.preview.totalTagsToAdd);
+		makeStat('Already in sync', this.preview.filesUnchanged);
+		makeStat('No matching rule', this.preview.filesNoMatch);
 
 		// Empty state
 		if (this.preview.filesAffected === 0) {
 			const note = contentEl.createDiv();
-			note.style.padding = '0.6em 0.8em';
+			note.style.padding = '0.8em';
 			note.style.fontStyle = 'italic';
 			note.style.color = 'var(--text-muted)';
 			note.setText(
@@ -546,49 +596,376 @@ class VaultSyncPreviewModal extends Modal {
 			return;
 		}
 
-		// Sample list of changes
-		contentEl.createEl('h3', {
-			text: `Sample changes (showing ${Math.min(this.preview.items.length, this.preview.filesAffected)} of ${this.preview.filesAffected})`,
-		});
-		const list = contentEl.createDiv();
-		list.style.maxHeight = '40vh';
-		list.style.overflow = 'auto';
-		list.style.background = 'var(--background-secondary)';
-		list.style.padding = '0.5em';
-		list.style.borderRadius = '4px';
-		list.style.fontFamily = 'var(--font-monospace)';
-		list.style.fontSize = '0.85em';
-		list.style.lineHeight = '1.5';
-		list.style.marginBottom = '0.8em';
-		for (const item of this.preview.items) {
-			const row = list.createDiv();
-			row.createSpan({ text: `${item.filePath}` });
-			row.createSpan({ text: ' → ', cls: 'dtf-arrow' });
-			row.createSpan({
-				text: item.tagsToAdd.join(', '),
-				cls: 'dtf-tag-add',
-			});
-			(row.lastChild as HTMLElement).style.color = 'var(--text-success, rgb(40, 140, 70))';
-			row.createSpan({ text: ` (rule: ${item.matchedRule})` });
-			(row.lastChild as HTMLElement).style.color = 'var(--text-muted)';
-			(row.lastChild as HTMLElement).style.fontSize = '0.85em';
+		// Cap notice (preview was capped at 1000 items)
+		if (this.preview.items.length < this.preview.filesAffected) {
+			const cap = contentEl.createDiv();
+			cap.style.fontSize = '0.82em';
+			cap.style.color = 'var(--text-muted)';
+			cap.style.marginBottom = '0.5em';
+			cap.setText(
+				`Showing ${this.preview.items.length} of ${this.preview.filesAffected} affected files. ` +
+				`Apply will sync all matching files in the vault.`,
+			);
 		}
 
-		// Actions
+		// ─── Rule legend (per-rule colour swatches + counts, click to filter) ─
+		const ruleStats = computeRuleStats(this.preview.items);
+		const legend = contentEl.createDiv();
+		legend.style.display = 'flex';
+		legend.style.flexWrap = 'wrap';
+		legend.style.gap = '0.4em';
+		legend.style.marginBottom = '0.6em';
+		legend.style.padding = '0.4em 0.5em';
+		legend.style.background = 'var(--background-modifier-form-field)';
+		legend.style.borderRadius = '6px';
+
+		const allRuleChip = makeRuleChip(legend, 'All rules', null, this.preview.items.length, ruleColorFor(null));
+		this.legendRows.set('__all__', allRuleChip);
+		allRuleChip.addEventListener('click', () => {
+			this.ruleFilter = null;
+			this.refreshLegendActive();
+			this.renderList();
+		});
+		for (const [ruleName, count] of ruleStats) {
+			const color = ruleColorFor(ruleName);
+			const chip = makeRuleChip(legend, ruleName, ruleName, count, color);
+			this.legendRows.set(ruleName, chip);
+			chip.addEventListener('click', () => {
+				this.ruleFilter = this.ruleFilter === ruleName ? null : ruleName;
+				this.refreshLegendActive();
+				this.renderList();
+			});
+		}
+		this.refreshLegendActive();
+
+		// ─── Toolbar: search + view toggle + select-all/none + expand-all ────
+		const toolbar = contentEl.createDiv();
+		toolbar.style.display = 'flex';
+		toolbar.style.gap = '0.4em';
+		toolbar.style.alignItems = 'center';
+		toolbar.style.marginBottom = '0.5em';
+		toolbar.style.flexWrap = 'wrap';
+
+		const searchInput = toolbar.createEl('input', {
+			type: 'search',
+			placeholder: 'Filter files / rules…',
+		});
+		searchInput.style.flex = '1 1 220px';
+		searchInput.style.minWidth = '160px';
+		searchInput.addEventListener('input', () => {
+			this.searchQuery = searchInput.value.trim().toLowerCase();
+			this.renderList();
+		});
+
+		const treeBtn = toolbar.createEl('button', { text: 'Tree' });
+		treeBtn.addClass('mod-cta');
+		const flatBtn = toolbar.createEl('button', { text: 'Flat' });
+		const setViewMode = (m: 'tree' | 'flat') => {
+			this.viewMode = m;
+			if (m === 'tree') { treeBtn.addClass('mod-cta'); flatBtn.removeClass('mod-cta'); }
+			else { flatBtn.addClass('mod-cta'); treeBtn.removeClass('mod-cta'); }
+			this.renderList();
+		};
+		treeBtn.addEventListener('click', () => setViewMode('tree'));
+		flatBtn.addEventListener('click', () => setViewMode('flat'));
+
+		const selectAllBtn = toolbar.createEl('button', { text: 'Select all' });
+		selectAllBtn.addEventListener('click', () => {
+			for (const item of this.preview.items) this.selectedPaths.add(item.filePath);
+			this.renderList();
+			this.refreshApplyBtn();
+		});
+		const selectNoneBtn = toolbar.createEl('button', { text: 'Select none' });
+		selectNoneBtn.addEventListener('click', () => {
+			this.selectedPaths.clear();
+			this.renderList();
+			this.refreshApplyBtn();
+		});
+		const expandAllBtn = toolbar.createEl('button', { text: 'Expand all' });
+		const collapseAllBtn = toolbar.createEl('button', { text: 'Collapse all' });
+		expandAllBtn.addEventListener('click', () => this.toggleAllFolders(true));
+		collapseAllBtn.addEventListener('click', () => this.toggleAllFolders(false));
+
+		// ─── Tree / list container ──────────────────────────────────────
+		this.listEl = contentEl.createDiv();
+		this.listEl.style.maxHeight = '52vh';
+		this.listEl.style.overflow = 'auto';
+		this.listEl.style.background = 'var(--background-secondary)';
+		this.listEl.style.padding = '0.4em 0.5em';
+		this.listEl.style.borderRadius = '6px';
+		this.listEl.style.fontSize = '0.88em';
+		this.listEl.style.lineHeight = '1.45';
+		this.listEl.style.marginBottom = '0.8em';
+
+		this.renderList();
+
+		// ─── Footer actions (live apply count) ──────────────────────────
 		const actions = contentEl.createDiv();
 		actions.style.display = 'flex';
 		actions.style.gap = '0.5em';
 		actions.style.justifyContent = 'flex-end';
-		actions.style.marginTop = '1em';
+		actions.style.alignItems = 'center';
+		actions.style.marginTop = '0.5em';
 
 		const cancelBtn = actions.createEl('button', { text: 'Cancel' });
 		cancelBtn.addEventListener('click', () => this.close());
 
-		const applyBtn = actions.createEl('button', { text: `Apply changes (${this.preview.filesAffected} files)` });
-		applyBtn.addClass('mod-cta');
-		applyBtn.addEventListener('click', async () => {
+		this.applyBtn = actions.createEl('button', { text: '' });
+		this.applyBtn.addClass('mod-cta');
+		this.refreshApplyBtn();
+		this.applyBtn.addEventListener('click', async () => {
+			// Only forward selected paths if user has narrowed the selection.
+			// Empty = nothing to do; full = let syncVault do the whole vault
+			// (so files beyond the 1000-item preview cap also sync).
+			const isFullSelection = this.selectedPaths.size === this.preview.items.length;
+			const onlyPaths = isFullSelection ? undefined : new Set(this.selectedPaths);
 			this.close();
-			await this.onApply();
+			await this.onApply(onlyPaths!);
+		});
+	}
+
+	private refreshApplyBtn(): void {
+		const n = this.selectedPaths.size;
+		this.applyBtn.disabled = n === 0;
+		this.applyBtn.setText(
+			n === 0 ? 'Apply changes' :
+			n === this.preview.items.length ? `Apply all (${this.preview.filesAffected} files)` :
+			`Apply selected (${n} files)`,
+		);
+	}
+
+	private refreshLegendActive(): void {
+		for (const [key, el] of this.legendRows) {
+			const isActive = (this.ruleFilter === null && key === '__all__') ||
+			                 (this.ruleFilter !== null && key === this.ruleFilter);
+			el.style.outline = isActive ? '2px solid var(--interactive-accent)' : '';
+			el.style.opacity = (this.ruleFilter !== null && key !== this.ruleFilter && key !== '__all__') ? '0.45' : '1';
+		}
+	}
+
+	private filteredItems(): import('./sync/FolderToTagSync').VaultPreviewItem[] {
+		const q = this.searchQuery;
+		return this.preview.items.filter((item) => {
+			if (this.ruleFilter && item.matchedRule !== this.ruleFilter) return false;
+			if (q && !item.filePath.toLowerCase().includes(q) && !item.matchedRule.toLowerCase().includes(q)) {
+				const tagMatch = item.tagsToAdd.some((t) => t.toLowerCase().includes(q));
+				if (!tagMatch) return false;
+			}
+			return true;
+		});
+	}
+
+	private renderList(): void {
+		this.listEl.empty();
+		const items = this.filteredItems();
+		if (items.length === 0) {
+			const empty = this.listEl.createDiv();
+			empty.style.padding = '1em';
+			empty.style.fontStyle = 'italic';
+			empty.style.color = 'var(--text-muted)';
+			empty.style.textAlign = 'center';
+			empty.setText('No items match the current filter.');
+			return;
+		}
+		if (this.viewMode === 'tree') {
+			const tree = buildPreviewTree(items);
+			this.renderTreeNode(this.listEl, tree, 0);
+		} else {
+			this.renderFlatList(this.listEl, items);
+		}
+	}
+
+	private renderFlatList(parent: HTMLElement, items: import('./sync/FolderToTagSync').VaultPreviewItem[]): void {
+		for (const item of items) {
+			const row = parent.createDiv();
+			row.style.display = 'flex';
+			row.style.alignItems = 'center';
+			row.style.gap = '0.4em';
+			row.style.padding = '0.18em 0.3em';
+			row.style.borderRadius = '3px';
+			row.addEventListener('mouseenter', () => row.style.background = 'var(--background-modifier-hover)');
+			row.addEventListener('mouseleave', () => row.style.background = '');
+
+			const cb = row.createEl('input', { type: 'checkbox' });
+			cb.checked = this.selectedPaths.has(item.filePath);
+			cb.addEventListener('change', () => {
+				if (cb.checked) this.selectedPaths.add(item.filePath);
+				else this.selectedPaths.delete(item.filePath);
+				this.refreshApplyBtn();
+			});
+
+			const swatch = row.createSpan();
+			swatch.style.display = 'inline-block';
+			swatch.style.width = '8px';
+			swatch.style.height = '8px';
+			swatch.style.borderRadius = '50%';
+			swatch.style.background = ruleColorFor(item.matchedRule);
+
+			const path = row.createSpan({ text: item.filePath });
+			path.style.fontFamily = 'var(--font-monospace)';
+			path.style.fontSize = '0.92em';
+
+			const arrow = row.createSpan({ text: '→' });
+			arrow.style.color = 'var(--text-muted)';
+
+			renderTagChips(row, item.tagsToAdd);
+
+			const ruleLabel = row.createSpan({ text: item.matchedRule });
+			ruleLabel.style.fontSize = '0.78em';
+			ruleLabel.style.color = 'var(--text-muted)';
+			ruleLabel.style.marginLeft = 'auto';
+		}
+	}
+
+	private renderTreeNode(parent: HTMLElement, node: PreviewTreeNode, depth: number): void {
+		const childKeys = [...node.children.keys()].sort();
+		for (const key of childKeys) {
+			const child = node.children.get(key)!;
+			this.renderFolderRow(parent, child, depth);
+		}
+		for (const leaf of node.leaves) {
+			this.renderLeafRow(parent, leaf, depth);
+		}
+	}
+
+	private renderFolderRow(parent: HTMLElement, child: PreviewTreeNode, depth: number): void {
+		const allLeaves = collectLeaves(child);
+		const totalCount = allLeaves.length;
+		const expanded = { value: depth < 1 }; // root-level open, deeper collapsed by default
+
+		const folderRow = parent.createDiv();
+		folderRow.style.display = 'flex';
+		folderRow.style.alignItems = 'center';
+		folderRow.style.gap = '0.35em';
+		folderRow.style.padding = '0.18em 0.3em';
+		folderRow.style.paddingLeft = `${depth * 1.1 + 0.2}em`;
+		folderRow.style.cursor = 'pointer';
+		folderRow.style.userSelect = 'none';
+		folderRow.style.borderRadius = '3px';
+		folderRow.addEventListener('mouseenter', () => folderRow.style.background = 'var(--background-modifier-hover)');
+		folderRow.addEventListener('mouseleave', () => folderRow.style.background = '');
+
+		const arrow = folderRow.createSpan({ text: expanded.value ? '▾' : '▸' });
+		arrow.style.color = 'var(--text-muted)';
+		arrow.style.fontSize = '0.85em';
+		arrow.style.minWidth = '0.8em';
+
+		// Tri-state checkbox: checked (all), unchecked (none), indeterminate (some)
+		const cb = folderRow.createEl('input', { type: 'checkbox' });
+		const updateCbState = () => {
+			const selectedCount = allLeaves.filter((l) => this.selectedPaths.has(l.filePath)).length;
+			if (selectedCount === 0) { cb.checked = false; cb.indeterminate = false; }
+			else if (selectedCount === allLeaves.length) { cb.checked = true; cb.indeterminate = false; }
+			else { cb.checked = false; cb.indeterminate = true; }
+		};
+		updateCbState();
+		cb.addEventListener('click', (e) => e.stopPropagation());
+		cb.addEventListener('change', () => {
+			if (cb.checked) {
+				for (const l of allLeaves) this.selectedPaths.add(l.filePath);
+			} else {
+				for (const l of allLeaves) this.selectedPaths.delete(l.filePath);
+			}
+			this.renderList();
+			this.refreshApplyBtn();
+		});
+
+		folderRow.createSpan({ text: '📁' }).style.fontSize = '0.95em';
+		const nameSpan = folderRow.createSpan({ text: child.name });
+		nameSpan.style.fontWeight = '600';
+
+		const countSpan = folderRow.createSpan({ text: `${totalCount}` });
+		countSpan.style.fontSize = '0.78em';
+		countSpan.style.color = 'var(--text-on-accent)';
+		countSpan.style.background = 'var(--text-muted)';
+		countSpan.style.padding = '0.05em 0.45em';
+		countSpan.style.borderRadius = '8px';
+		countSpan.style.marginLeft = '0.2em';
+
+		// Inline rule swatches showing which rules touch this subtree
+		const subRules = new Set(allLeaves.map((l) => l.matchedRule));
+		if (subRules.size > 0) {
+			const swatchWrap = folderRow.createSpan();
+			swatchWrap.style.display = 'inline-flex';
+			swatchWrap.style.gap = '2px';
+			swatchWrap.style.marginLeft = '0.3em';
+			for (const r of [...subRules].slice(0, 6)) {
+				const sw = swatchWrap.createSpan();
+				sw.style.display = 'inline-block';
+				sw.style.width = '6px';
+				sw.style.height = '6px';
+				sw.style.borderRadius = '50%';
+				sw.style.background = ruleColorFor(r);
+				sw.title = r;
+			}
+		}
+
+		const childContainer = parent.createDiv();
+		childContainer.dataset.dtfTreeContainer = '1';
+		if (!expanded.value) childContainer.style.display = 'none';
+		this.renderTreeNode(childContainer, child, depth + 1);
+
+		folderRow.addEventListener('click', () => {
+			expanded.value = !expanded.value;
+			arrow.setText(expanded.value ? '▾' : '▸');
+			childContainer.style.display = expanded.value ? '' : 'none';
+		});
+	}
+
+	private renderLeafRow(parent: HTMLElement, leaf: PreviewLeaf, depth: number): void {
+		const row = parent.createDiv();
+		row.style.display = 'flex';
+		row.style.alignItems = 'center';
+		row.style.gap = '0.35em';
+		row.style.padding = '0.15em 0.3em';
+		row.style.paddingLeft = `${depth * 1.1 + 1.0}em`; // extra indent past arrow column
+		row.style.borderRadius = '3px';
+		row.addEventListener('mouseenter', () => row.style.background = 'var(--background-modifier-hover)');
+		row.addEventListener('mouseleave', () => row.style.background = '');
+
+		const cb = row.createEl('input', { type: 'checkbox' });
+		cb.checked = this.selectedPaths.has(leaf.filePath);
+		cb.addEventListener('change', () => {
+			if (cb.checked) this.selectedPaths.add(leaf.filePath);
+			else this.selectedPaths.delete(leaf.filePath);
+			this.renderList(); // re-render so ancestor folder checkboxes update tri-state
+			this.refreshApplyBtn();
+		});
+
+		const ruleSwatch = row.createSpan();
+		ruleSwatch.style.display = 'inline-block';
+		ruleSwatch.style.width = '8px';
+		ruleSwatch.style.height = '8px';
+		ruleSwatch.style.borderRadius = '50%';
+		ruleSwatch.style.background = ruleColorFor(leaf.matchedRule);
+		ruleSwatch.title = `Rule: ${leaf.matchedRule}`;
+
+		row.createSpan({ text: '📄' }).style.fontSize = '0.9em';
+		const fileName = leaf.filePath.split('/').pop() ?? leaf.filePath;
+		const fileSpan = row.createSpan({ text: fileName });
+		fileSpan.style.color = 'var(--text-normal)';
+
+		const arrow = row.createSpan({ text: '+' });
+		arrow.style.color = 'var(--text-success, rgb(40, 140, 70))';
+		arrow.style.fontWeight = '600';
+		arrow.style.marginLeft = '0.3em';
+
+		renderTagChips(row, leaf.tagsToAdd);
+
+		const ruleLabel = row.createSpan({ text: leaf.matchedRule });
+		ruleLabel.style.fontSize = '0.74em';
+		ruleLabel.style.color = 'var(--text-muted)';
+		ruleLabel.style.marginLeft = 'auto';
+		ruleLabel.style.whiteSpace = 'nowrap';
+	}
+
+	private toggleAllFolders(open: boolean): void {
+		const containers = this.listEl.querySelectorAll<HTMLElement>('[data-dtf-tree-container]');
+		containers.forEach((c) => { c.style.display = open ? '' : 'none'; });
+		// Also flip the arrow indicators next to each folder
+		const arrows = this.listEl.querySelectorAll<HTMLElement>('div > span:first-child');
+		arrows.forEach((a) => {
+			if (a.textContent === '▾' || a.textContent === '▸') a.textContent = open ? '▾' : '▸';
 		});
 	}
 }
@@ -770,5 +1147,159 @@ class RuleCoverageModal extends Modal {
 		const closeBtn = contentEl.createEl('button', { text: 'Close' });
 		closeBtn.style.marginTop = '1em';
 		closeBtn.addEventListener('click', () => this.close());
+	}
+}
+
+// ─── Hierarchical tree-view helpers for the vault sync preview ─────────
+
+interface PreviewLeaf {
+	filePath: string;
+	matchedRule: string;
+	tagsToAdd: string[];
+}
+
+interface PreviewTreeNode {
+	name: string;
+	fullPath: string;
+	children: Map<string, PreviewTreeNode>;
+	leaves: PreviewLeaf[];
+}
+
+/**
+ * Build a hierarchical tree from a flat list of preview items. Each item's
+ * path is split by `/`; the final segment is the file (leaf), the rest form
+ * folder nodes. Children are inserted by name into a Map so insertion order
+ * is preserved (stable rendering).
+ */
+function buildPreviewTree(
+	items: import('./sync/FolderToTagSync').VaultPreviewItem[],
+): PreviewTreeNode {
+	const root: PreviewTreeNode = {
+		name: '',
+		fullPath: '',
+		children: new Map(),
+		leaves: [],
+	};
+	for (const item of items) {
+		const segments = item.filePath.split('/').filter((s) => s.length > 0);
+		const fileName = segments.pop();
+		if (!fileName) continue;
+		let cursor = root;
+		let pathSoFar = '';
+		for (const seg of segments) {
+			pathSoFar = pathSoFar ? `${pathSoFar}/${seg}` : seg;
+			if (!cursor.children.has(seg)) {
+				cursor.children.set(seg, {
+					name: seg,
+					fullPath: pathSoFar,
+					children: new Map(),
+					leaves: [],
+				});
+			}
+			cursor = cursor.children.get(seg)!;
+		}
+		cursor.leaves.push({
+			filePath: item.filePath,
+			matchedRule: item.matchedRule,
+			tagsToAdd: item.tagsToAdd,
+		});
+	}
+	return root;
+}
+
+/** Walk a tree and return all leaves in flat order (used for tri-state checkboxes). */
+function collectLeaves(node: PreviewTreeNode): PreviewLeaf[] {
+	const out: PreviewLeaf[] = [...node.leaves];
+	for (const child of node.children.values()) out.push(...collectLeaves(child));
+	return out;
+}
+
+/**
+ * Tally items per matched rule, sorted descending by count. Used to populate
+ * the rule-legend chips at the top of the modal.
+ */
+function computeRuleStats(
+	items: import('./sync/FolderToTagSync').VaultPreviewItem[],
+): Array<[string, number]> {
+	const counts = new Map<string, number>();
+	for (const item of items) {
+		counts.set(item.matchedRule, (counts.get(item.matchedRule) ?? 0) + 1);
+	}
+	return [...counts.entries()].sort((a, b) => b[1] - a[1]);
+}
+
+/**
+ * Deterministic colour-from-string. Hashes the input into a hue (0–360) and
+ * returns an HSL string with fixed saturation/lightness. Stable across
+ * sessions — same rule name always gets the same colour.
+ */
+function ruleColorFor(name: string | null): string {
+	if (name === null) return 'var(--text-muted)';
+	let hash = 0;
+	for (let i = 0; i < name.length; i++) hash = (hash * 31 + name.charCodeAt(i)) | 0;
+	const hue = Math.abs(hash) % 360;
+	return `hsl(${hue}, 65%, 55%)`;
+}
+
+/**
+ * Build a clickable rule-legend chip with a colour swatch + name + count.
+ * Used in the rule-filter row at the top of the modal.
+ */
+function makeRuleChip(
+	parent: HTMLElement,
+	label: string,
+	_ruleName: string | null,
+	count: number,
+	color: string,
+): HTMLElement {
+	const chip = parent.createSpan();
+	chip.style.display = 'inline-flex';
+	chip.style.alignItems = 'center';
+	chip.style.gap = '0.3em';
+	chip.style.padding = '0.18em 0.55em';
+	chip.style.background = 'var(--background-secondary-alt)';
+	chip.style.border = '1px solid var(--background-modifier-border)';
+	chip.style.borderRadius = '999px';
+	chip.style.fontSize = '0.82em';
+	chip.style.cursor = 'pointer';
+	chip.style.userSelect = 'none';
+
+	const swatch = chip.createSpan();
+	swatch.style.display = 'inline-block';
+	swatch.style.width = '8px';
+	swatch.style.height = '8px';
+	swatch.style.borderRadius = '50%';
+	swatch.style.background = color;
+
+	chip.createSpan({ text: label });
+
+	const countBadge = chip.createSpan({ text: String(count) });
+	countBadge.style.fontSize = '0.75em';
+	countBadge.style.color = 'var(--text-muted)';
+	countBadge.style.marginLeft = '0.15em';
+
+	return chip;
+}
+
+/**
+ * Render a list of tag strings as inline pill chips with a `+` prefix to
+ * reinforce that these are additions. Pills wrap and don't overflow.
+ */
+function renderTagChips(parent: HTMLElement, tags: string[]): void {
+	const wrap = parent.createSpan();
+	wrap.style.display = 'inline-flex';
+	wrap.style.flexWrap = 'wrap';
+	wrap.style.gap = '0.25em';
+	for (const tag of tags) {
+		const chip = wrap.createSpan({ text: tag });
+		chip.style.display = 'inline-block';
+		chip.style.padding = '0.05em 0.45em';
+		chip.style.background = 'rgba(40, 140, 70, 0.15)';
+		chip.style.color = 'var(--text-success, rgb(40, 140, 70))';
+		chip.style.border = '1px solid rgba(40, 140, 70, 0.35)';
+		chip.style.borderRadius = '999px';
+		chip.style.fontSize = '0.78em';
+		chip.style.fontFamily = 'var(--font-monospace)';
+		chip.style.whiteSpace = 'nowrap';
 	}
 }

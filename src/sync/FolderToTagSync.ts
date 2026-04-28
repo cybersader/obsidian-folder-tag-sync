@@ -387,7 +387,9 @@ export class FolderToTagSync {
       if (tagsToAdd.length > 0) {
         filesAffected++;
         totalTagsToAdd += tagsToAdd.length;
-        if (items.length < 100) {
+        // Cap raised from 100 → 1000 because the hierarchical preview tree
+        // collapses subtrees on demand, so larger samples are still navigable.
+        if (items.length < 1000) {
           items.push({
             filePath: file.path,
             folderPath,
@@ -417,16 +419,22 @@ export class FolderToTagSync {
    */
   async syncVault(
     progressCallback?: (current: number, total: number, file: string) => void,
+    onlyPaths?: Set<string>,
   ): Promise<VaultSyncResult> {
     const allFiles = this.app.vault.getMarkdownFiles();
+    // If `onlyPaths` is supplied, restrict to just those files (selective apply
+    // from the preview modal). Otherwise process the entire vault.
+    const targetFiles = onlyPaths
+      ? allFiles.filter((f) => onlyPaths.has(f.path))
+      : allFiles;
     let filesProcessed = 0;
     let filesAffected = 0;
     let totalTagsAdded = 0;
     const errors: Array<{ file: string; error: string }> = [];
 
-    for (let i = 0; i < allFiles.length; i++) {
-      const file = allFiles[i];
-      progressCallback?.(i + 1, allFiles.length, file.path);
+    for (let i = 0; i < targetFiles.length; i++) {
+      const file = targetFiles[i];
+      progressCallback?.(i + 1, targetFiles.length, file.path);
       try {
         const result = await this.syncFile(file);
         filesProcessed++;
@@ -443,7 +451,7 @@ export class FolderToTagSync {
     }
 
     return {
-      totalFiles: allFiles.length,
+      totalFiles: targetFiles.length,
       filesProcessed,
       filesAffected,
       totalTagsAdded,

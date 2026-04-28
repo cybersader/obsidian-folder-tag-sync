@@ -480,6 +480,30 @@ If real-world testing surfaces friction with the Tier A slot syntax (`{name}` / 
 - **Scope**: extends rule schema with `frontmatterConditions` (or extends slot syntax with property-source markers); inverse-direction algorithm reads property values when populating slots; UX surface in rule editor for declaring property dependencies.
 - **Sequencing**: probably ships *after* F2 but *before* extensive A2 plugin API work (since the API has to commit to whether `getFolderForTag(tag, file)` reads frontmatter properties).
 
+### A7 — Tag fan-out via slot-content splitting (multi-tag emission from comma-separated names)
+
+- **What the user experiences**: a folder like `10 - Projects, Workspaces/note.md` produces TWO tags — `#10-projects` AND `#10-workspaces` — instead of one mashed-together `#10-projects-workspaces`. The comma in the folder name expresses "this folder belongs to multiple categories at the same level"; the fan-out preserves that semantic.
+- **Status**: open feature request (raised 2026-04-28 during the JD-PARA promotion-to-root discussion). No research yet.
+- **Distinction from existing `post-coordination` transfer op**: post-coordination splits along path SEGMENTS (`Projects/Web/Auth` → `#projects #web #auth` — three tags from three segments). A7 splits along CONTENT within a single segment (`Projects, Workspaces` → `#projects #workspaces` — two tags from one segment's comma-separated content). Both are valid fan-out mechanisms; user picks based on whether their structure encodes multi-categorization in nesting (post-coordination) or in naming (A7).
+- **Concrete examples**:
+  - `0 - Tasks, Planning/X.md` → `#0-tasks` AND `#0-planning` (two area-prefixed tags, both inheriting the JD number)
+  - `📁 Projects, Initiatives/X.md` → `#projects` AND `#initiatives`
+  - Configurable delimiter: `;` for `Projects; Workspaces`, ` & ` for `Projects & Workspaces`, etc.
+- **Design directions** (need research before picking):
+  - **As a filter** (`{name | split(',') | kebab-case}`): each value in the chain becomes an array; downstream filters apply to each element; final emission fans out to N tags. Composes naturally with existing filter syntax. Requires runtime to handle string|array slot values (currently string-only).
+  - **As a transform on the tag template** (`#{num}-{name}` → emits N tags when `{name}` resolves to an array): same mechanism, different syntactic stance.
+  - **Per-rule delimiter config** (`fanOut: { slot: 'name', delimiter: ',', trim: true }` on `RuleOptions`): explicit, less composable, easier to reason about.
+- **Bijectivity implications**:
+  - Forward direction: lossless if delimiter doesn't appear inside content (e.g., commas legitimately inside folder names would be split apart unintentionally — same problem as `aggregation/join` filter, just inverted).
+  - Inverse direction: structurally ambiguous. Given tags `#10-projects` AND `#10-workspaces`, the engine can't tell whether the source folder was `10 - Projects, Workspaces` (single folder, fan-out) or two separate folders (`10 - Projects` and `10 - Workspaces`). F3 frontmatter witness would store the original folder name to disambiguate.
+  - Recommended verdict: per-rule, mark fan-out rules as `lossy` for inverse direction; the user explicitly opts into the trade.
+- **Composition with other shipped/planned features**:
+  - **F2 templates**: fits naturally as a slot-side filter or as a tag-template transform
+  - **A5 ordinal priority**: each fanned-out tag inherits the ordinal value (`#10-projects` and `#10-workspaces` both at priority 10); promotion/demotion logic applies uniformly
+  - **A6 orphan cleanup**: when a folder is renamed from `10 - Projects, Workspaces` to `10 - Projects`, the engine should know to remove the now-orphaned `#10-workspaces` tag specifically. Requires F3 witness as always.
+- **User-facing escape hatch — custom transforms**: even before A7 ships natively, users could express this today via the existing custom regex-replace transform (Layer 1), at the cost of writing the regex by hand. A7's value is making it ergonomic via a Path Lens filter so users don't need regex literacy.
+- **Sequencing**: post-MVP. Sequenced AFTER F2 (templates settle filter chain semantics) and ideally after F3 (witness needed for orphan cleanup of fanned-out tags). Probably contemporaneous with A6.
+
 ### A6 — Implement `removeOrphanedTags` (gap; flag exists in data model but unwired)
 
 - **What the user experiences today (the gap)**: the `removeOrphanedTags` flag exists in `RuleOptions` and is settable per-rule, but the sync engine never reads it. When a file moves between folders that match the same rule with different slot captures (e.g., `0 - Tasks/X.md` → `5 - Archive/X.md`), the new tag (`#5-archive-...`) gets added but the old tag (`#0-tasks-...`) stays. Files accumulate stale tags over time.

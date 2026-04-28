@@ -4,6 +4,7 @@ import { DebugLogger } from '../utils/debug';
 import { findMatchingRules, findBestMatch } from '../engine/ruleMatcher';
 import { applyTransformPipeline } from '../transformers/pipeline';
 import { applyRuleInverse } from '../engine/applyTransfer';
+import { parseWitness } from './frontmatterWitness';
 
 /**
  * Handles tag-to-folder synchronization
@@ -43,8 +44,23 @@ export class TagToFolderSync {
         count: tags.length
       });
 
+      // F3 commit 2 — read the file's frontmatter witness so the inverse
+      // direction can use witness.origin for lossless recovery on rules
+      // with lossy filter chains (e.g., comma-name preservation).
+      let witness: ReturnType<typeof parseWitness> = null;
+      try {
+        const content = await this.app.vault.read(file);
+        const fmEnd = content.indexOf('---', 4);
+        if (content.startsWith('---') && fmEnd > 0) {
+          const fmRaw = content.slice(4, fmEnd);
+          witness = parseWitness(fmRaw);
+        }
+      } catch {
+        // No witness or unreadable — fall back to filter inverse
+      }
+
       // Find target folder based on tags
-      const targetFolder = await this.determineTargetFolder(tags);
+      const targetFolder = await this.determineTargetFolder(tags, witness);
 
       if (!targetFolder) {
         await this.logger.info('No matching rule found for tags', { tags });
@@ -151,7 +167,10 @@ export class TagToFolderSync {
    * Determine target folder based on file's tags
    * Uses first-match-wins based on rule order (consistent with folder-to-tag)
    */
-  private async determineTargetFolder(tags: string[]): Promise<string | null> {
+  private async determineTargetFolder(
+    tags: string[],
+    witness?: { origin: string; ruleId: string; tags: string[] } | null,
+  ): Promise<string | null> {
     // Try each tag against rules in order
     for (const tag of tags) {
       await this.logger.info('Checking tag against rules', { tag });
@@ -191,8 +210,9 @@ export class TagToFolderSync {
           rule: rule.name
         });
 
-        // Transform tag to folder path
-        const folderPath = await this.transformTagToFolder(tag, rule);
+        // Transform tag to folder path; pass witness if it was written by
+        // this rule (then inverse uses witness.origin directly — lossless).
+        const folderPath = await this.transformTagToFolder(tag, rule, witness);
 
         if (folderPath) {
           return folderPath;
@@ -210,9 +230,14 @@ export class TagToFolderSync {
    * lives in `engine/applyTransfer.ts`; this method just adapts to the
    * sync-engine's async logged context.
    */
-  private async transformTagToFolder(tag: string, rule: MappingRule): Promise<string | null> {
+  private async transformTagToFolder(
+    tag: string,
+    rule: MappingRule,
+    witness?: { origin: string; ruleId: string; tags: string[] } | null,
+  ): Promise<string | null> {
     try {
-      const result = applyRuleInverse(tag, rule);
+      const ctx = witness ? { witness } : undefined;
+      const result = applyRuleInverse(tag, rule, ctx);
       await this.logger.info('Recoordinated tag→folder', {
         originalTag: tag,
         op: rule.inverseTransfer?.op ?? rule.transfer?.op ?? 'identity',

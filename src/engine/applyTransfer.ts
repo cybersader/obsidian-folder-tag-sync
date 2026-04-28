@@ -258,10 +258,24 @@ function buildEntryStripPattern(rule: MappingRule): RegExp {
  * we use the first emitted segment list — one tag can only place a file
  * in one folder.
  */
-export function applyRuleInverse(tag: string, rule: MappingRule): InverseResult {
+/**
+ * Optional context passed by the sync engine. F3 commit 2: when the sync
+ * engine has access to the file's frontmatter witness, it forwards the
+ * data here so the template runtime can use the witness's recorded origin
+ * path for lossless inverse recovery.
+ */
+export interface InverseContext {
+	witness?: {
+		origin: string;
+		ruleId: string;
+		tags: string[];
+	};
+}
+
+export function applyRuleInverse(tag: string, rule: MappingRule, ctx?: InverseContext): InverseResult {
 	// F2: template-shaped rules use the template inverse runtime.
 	if (isTemplateRule(rule)) {
-		return applyTemplateRuleInverse(tag, rule);
+		return applyTemplateRuleInverse(tag, rule, ctx);
 	}
 
 	let tagContent = tag.startsWith('#') ? tag.slice(1) : tag;

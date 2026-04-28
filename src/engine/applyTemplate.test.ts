@@ -156,6 +156,62 @@ describe('applyTemplateRuleForward', () => {
 	});
 });
 
+describe('applyTemplateRuleInverse — F3 commit 2 witness-driven recovery', () => {
+	test('witness with matching ruleId returns origin path directly (lossless)', () => {
+		// Catch-all rule with lossy filter (strip-invalid-tag-chars). Forward
+		// loses comma, but witness recovers it for the original file.
+		const rule = ruleWithTemplates(
+			'{num} - {name}/{deeper...}',
+			'#{num}-{name | strip-invalid-tag-chars | kebab-case}/{deeper...}',
+		);
+		rule.id = 'test-rule-id';
+		const result = applyTemplateRuleInverse('#0-tasks-planning/Q1', rule, {
+			witness: {
+				origin: '0 - Tasks, Planning/Q1', // ← original folder with comma intact
+				ruleId: 'test-rule-id',
+				tags: ['0-tasks-planning/Q1'],
+			},
+		});
+		// Witness origin returned directly — comma preserved
+		expect(result.folder).toBe('0 - Tasks, Planning/Q1');
+		expect(result.lossy).toBe(false); // witness makes it bijective
+	});
+
+	test('witness from DIFFERENT rule is ignored — falls back to filter inverse', () => {
+		const rule = ruleWithTemplates('Projects/{topic}', '#projects/{topic}');
+		rule.id = 'rule-A';
+		const result = applyTemplateRuleInverse('#projects/Web', rule, {
+			witness: {
+				origin: 'SomeOtherFolder',
+				ruleId: 'rule-B', // ← different rule!
+				tags: [],
+			},
+		});
+		// Falls through to standard inverse (witness ignored)
+		expect(result.folder).toBe('Projects/Web');
+	});
+
+	test('no witness → standard filter inverse', () => {
+		const rule = ruleWithTemplates(
+			'{num} - {name}/{deeper...}',
+			'#{num}-{name | strip-invalid-tag-chars | kebab-case}/{deeper...}',
+		);
+		const result = applyTemplateRuleInverse('#0-tasks-planning/Q1', rule);
+		// Without witness: filter inverse runs, comma lost
+		// (Note: catch-all greedy-match also kicks in here — documented elsewhere)
+		expect(result.lossy).toBe(true);
+	});
+
+	test('empty witness origin falls through to filter inverse', () => {
+		const rule = ruleWithTemplates('Projects/{topic}', '#projects/{topic}');
+		const result = applyTemplateRuleInverse('#projects/Web', rule, {
+			witness: { origin: '', ruleId: rule.id, tags: [] },
+		});
+		// Empty origin treated as "no witness data" — filter inverse runs
+		expect(result.folder).toBe('Projects/Web');
+	});
+});
+
 describe('applyTemplateRuleInverse', () => {
 	describe('canonical round-trips (total bijection)', () => {
 		test('PARA identity: #projects/Web → Projects/Web', () => {

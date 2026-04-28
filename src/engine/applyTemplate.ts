@@ -143,14 +143,61 @@ export function applyTemplateRuleForward(folderPath: string, rule: MappingRule):
 }
 
 /**
+ * Optional context for inverse direction. Plugged in when the calling sync
+ * engine has access to the file's frontmatter witness (F3 commit 2).
+ *
+ * When `witness` is provided AND its `ruleId` matches the rule firing AND
+ * its `origin` path is non-empty, the inverse returns `witness.origin`
+ * directly instead of computing through the filter inverse chain. This
+ * preserves information that lossy filters would otherwise discard (e.g.,
+ * commas stripped by `strip-invalid-tag-chars`, original casing pre-kebab).
+ *
+ * Without context (or with non-matching witness), inverse falls back to
+ * the standard filter-inverse + instantiate path.
+ */
+export interface TemplateInverseContext {
+	witness?: {
+		origin: string;
+		ruleId: string;
+		tags: string[];
+	};
+}
+
+/**
  * Tag → folder via templates.
  *
  * Returns `{ folder: null, lossy: ... }` when:
  *   - the rule is not template-shaped
  *   - the tag doesn't match the tag template
  *   - template instantiation fails
+ *
+ * F3 commit 2: when `ctx.witness` is provided and matches this rule, the
+ * witness's recorded origin path is returned directly — bypassing the
+ * (potentially lossy) filter inverse chain. This makes round-trips
+ * lossless for files that have been forward-synced through this rule
+ * before, even when the rule uses lossy filters like
+ * `strip-invalid-tag-chars`.
  */
-export function applyTemplateRuleInverse(tag: string, rule: MappingRule): InverseResult {
+export function applyTemplateRuleInverse(
+	tag: string,
+	rule: MappingRule,
+	ctx?: TemplateInverseContext,
+): InverseResult {
+	// F3 commit 2 — Witness-driven recovery. If the caller supplied a
+	// witness AND it was written by this rule AND its origin is non-empty,
+	// use the witness's origin path directly. This preserves information
+	// that the rule's filter inverse would lose (commas, original casing).
+	if (
+		ctx?.witness &&
+		ctx.witness.ruleId === rule.id &&
+		ctx.witness.origin &&
+		typeof ctx.witness.origin === 'string'
+	) {
+		return {
+			folder: ctx.witness.origin,
+			lossy: false, // witness preserves original — bijective on round-trip
+		};
+	}
 	if (!rule.folderTemplate || !rule.tagTemplate) {
 		return { folder: null, lossy: false };
 	}

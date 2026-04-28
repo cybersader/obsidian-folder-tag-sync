@@ -667,6 +667,20 @@ export class RuleEditorModal extends Modal {
 					if (!starter) return;
 					this.rule.folderTemplate = starter.folder;
 					this.rule.tagTemplate = starter.tag;
+					// F3 auto-enable: when the starter uses lossy filters
+					// (strip-invalid-tag-chars / strip-emoji / strip-num-prefix /
+					// kebab-case on potentially non-clean inputs), turn on
+					// frontmatterMemory so inverse direction can recover
+					// the original folder name losslessly via the witness.
+					// Also auto-enable removeOrphanedTags so cross-area moves
+					// clean up old tags. User can override these defaults.
+					const hasLossyFilters = /\bstrip-(invalid-tag-chars|emoji|num-prefix)\b|\bkebab-case\b|\bjoin\(/.test(
+						starter.folder + ' ' + starter.tag,
+					);
+					if (hasLossyFilters) {
+						this.rule.options.frontmatterMemory = true;
+						this.rule.options.removeOrphanedTags = true;
+					}
 					// Auto-derive folderPattern + tagPattern so the vault-test
 					// preview pane has live data immediately (without waiting
 					// for save). Same logic as save-time auto-derivation.

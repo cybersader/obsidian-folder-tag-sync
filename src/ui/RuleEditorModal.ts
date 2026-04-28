@@ -611,7 +611,19 @@ export class RuleEditorModal extends Modal {
 					if (!starter) return;
 					this.rule.folderTemplate = starter.folder;
 					this.rule.tagTemplate = starter.tag;
-					this.onOpen(); // Re-render so input fields show new values
+					// Auto-derive folderPattern + tagPattern so the vault-test
+					// preview pane has live data immediately (without waiting
+					// for save). Same logic as save-time auto-derivation.
+					this.deriveTemplatePatternsForPreview();
+					// Preserve scroll position before full re-render — onOpen()
+					// rebuilds the modal contents which resets scrollTop to 0.
+					const bodyEl = this.contentEl.querySelector('.dtf-advanced-body') as HTMLElement | null;
+					const scrollTop = bodyEl?.scrollTop ?? 0;
+					this.onOpen();
+					requestAnimationFrame(() => {
+						const newBody = this.contentEl.querySelector('.dtf-advanced-body') as HTMLElement | null;
+						if (newBody) newBody.scrollTop = scrollTop;
+					});
 				});
 			});
 
@@ -640,6 +652,7 @@ export class RuleEditorModal extends Modal {
 						.setValue(this.rule.folderTemplate ?? '')
 						.onChange(value => {
 							this.rule.folderTemplate = value || undefined;
+							this.deriveTemplatePatternsForPreview();
 							this.updateTemplateValidationUI('folderTemplate', value, folderInput, folderErrEl);
 							refresh();
 						});
@@ -669,6 +682,7 @@ export class RuleEditorModal extends Modal {
 						.setValue(this.rule.tagTemplate ?? '')
 						.onChange(value => {
 							this.rule.tagTemplate = value || undefined;
+							this.deriveTemplatePatternsForPreview();
 							this.updateTemplateValidationUI('tagTemplate', value, tagInput, tagErrEl);
 							refresh();
 						});
@@ -708,6 +722,29 @@ export class RuleEditorModal extends Modal {
 		};
 
 		refresh();
+	}
+
+	/**
+	 * Auto-derive folderPattern + tagPattern from the current templates so the
+	 * vault-test preview pane (which uses the regex pattern, not the template
+	 * source) renders immediately during authoring — no need to wait for save.
+	 * Silently no-ops on parse errors; the validation UI surfaces those.
+	 */
+	private deriveTemplatePatternsForPreview(): void {
+		try {
+			if (this.rule.folderTemplate) {
+				this.rule.folderPattern = compileTemplate(this.rule.folderTemplate).regex.source;
+			} else {
+				this.rule.folderPattern = undefined;
+			}
+		} catch { /* parse error shown elsewhere */ }
+		try {
+			if (this.rule.tagTemplate) {
+				this.rule.tagPattern = compileTemplate(this.rule.tagTemplate).regex.source;
+			} else {
+				this.rule.tagPattern = undefined;
+			}
+		} catch { /* parse error shown elsewhere */ }
 	}
 
 	private makeInlineErrorEl(parent: HTMLElement): HTMLElement {

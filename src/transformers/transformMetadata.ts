@@ -135,9 +135,15 @@ export const TRANSFORM_METADATA: Record<string, TransformBijectivityProfile> = {
 	// === Tag-safety ===
 
 	'strip-invalid-tag-chars': {
-		reversibility: 'lossy',
+		reversibility: 'conditional',
 		reversibilityDomain:
-			'never reversible — invalid-for-tags chars (.,;:?!@\\) discarded. Use on tag side to keep emitted tags Obsidian-valid (e.g., {name | strip-invalid-tag-chars | kebab-case} on `Tasks, Planning` → `tasks-planning`).',
+			'reversible-as-identity for inputs containing no invalid-for-tags chars (.,;:?!@\\). For inputs WITH such chars, those chars are discarded and not recoverable on inverse — but for clean folder names (the common case), the filter is the identity. Use on tag side to keep emitted tags Obsidian-valid: {name | strip-invalid-tag-chars | kebab-case} on "Tasks, Planning" → "tasks-planning".',
+		isReversibleFor: (input) => !/[.,;:?!@\\]/.test(input),
+		// No inverse function — when the input was lossless, output equals input.
+		// When the input was lossy, no recovery is possible. The metadata's
+		// `inverse` is for in-domain inputs only; for this filter, identity
+		// works as the in-domain inverse.
+		inverse: (output) => output,
 	},
 
 	'keep-num-prefix': {

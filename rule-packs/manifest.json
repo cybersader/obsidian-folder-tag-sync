@@ -1,8 +1,8 @@
 {
   "version": 1,
-  "generatedAt": "2026-04-26T13:19:03.895Z",
-  "packCount": 5,
-  "totalBytes": 35221,
+  "generatedAt": "2026-04-28T01:40:37.783Z",
+  "packCount": 6,
+  "totalBytes": 38823,
   "packs": [
     {
       "id": "cyberbase-actual",
@@ -199,6 +199,30 @@
         "summary": "Lays down the four SEACOW outer roots — Capture, Entity, Output, System — with conventional sub-folders. Pick component packs (PARA, JD, etc.) to fill the inner axes."
       },
       "sizeBytes": 5857
+    },
+    {
+      "id": "templates-demo",
+      "file": "templates-demo.json",
+      "name": "Path Lens templates — demo",
+      "description": "Minimal demonstration pack showing each Path Lens shape (single-segment slot, glob slot, per-slot filters). Useful as a copy-paste reference when authoring template-shaped rules.",
+      "version": "1.0.0",
+      "author": "Cybersader",
+      "axes": [
+        "work"
+      ],
+      "compatibleWith": [],
+      "exclusiveWith": [],
+      "ruleCount": 4,
+      "detection": null,
+      "establish": {
+        "createFolders": [
+          "Projects/",
+          "Areas/",
+          "Capture/Inbox/"
+        ],
+        "summary": "Three folders demonstrating identity (Projects), filter chain (Areas with kebab-case), and marker-only-via-glob (Capture/Inbox)."
+      },
+      "sizeBytes": 3602
     }
   ]
 }

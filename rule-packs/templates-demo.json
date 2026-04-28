@@ -1,0 +1,103 @@
+{
+	"id": "templates-demo",
+	"name": "Path Lens templates — demo",
+	"description": "Minimal demonstration pack showing each Path Lens shape (single-segment slot, glob slot, per-slot filters). Useful as a copy-paste reference when authoring template-shaped rules.",
+	"version": "1.0.0",
+	"author": "Cybersader",
+
+	"axes": ["work"],
+	"compatibleWith": [],
+	"exclusiveWith": [],
+
+	"establish": {
+		"createFolders": ["Projects/", "Areas/", "Capture/Inbox/"],
+		"summary": "Three folders demonstrating identity (Projects), filter chain (Areas with kebab-case), and marker-only-via-glob (Capture/Inbox)."
+	},
+
+	"rules": [
+		{
+			"id": "templates-projects-identity",
+			"name": "Projects: identity round-trip",
+			"description": "Projects/{topic} ↔ #projects/{topic} — total bijection, single-segment slot",
+			"enabled": true,
+			"priority": 10,
+			"direction": "bidirectional",
+			"folderTemplate": "Projects/{topic}",
+			"tagTemplate": "#projects/{topic}",
+			"options": {
+				"createFolders": true,
+				"addTags": true,
+				"removeOrphanedTags": false,
+				"syncOnFileCreate": true,
+				"syncOnFileMove": true,
+				"syncOnFileRename": true,
+				"onConflict": "prompt"
+			}
+		},
+		{
+			"id": "templates-areas-kebab",
+			"name": "Areas: kebab-case filter on tag side",
+			"description": "Areas/{area} ↔ #areas/{area | kebab-case} — conditional bijection (round-trips for clean inputs)",
+			"enabled": true,
+			"priority": 11,
+			"direction": "bidirectional",
+			"folderTemplate": "Areas/{area}",
+			"tagTemplate": "#areas/{area | kebab-case}",
+			"options": {
+				"createFolders": true,
+				"addTags": true,
+				"removeOrphanedTags": false,
+				"syncOnFileCreate": true,
+				"syncOnFileMove": true,
+				"syncOnFileRename": true,
+				"onConflict": "prompt"
+			}
+		},
+		{
+			"id": "templates-projects-glob",
+			"name": "Projects: glob slot for arbitrary depth",
+			"description": "Projects/{topic}/{deeper...} ↔ #projects/{topic}/{deeper...} — glob slot preserves structure",
+			"enabled": false,
+			"priority": 12,
+			"direction": "bidirectional",
+			"folderTemplate": "Projects/{topic}/{deeper...}",
+			"tagTemplate": "#projects/{topic}/{deeper...}",
+			"options": {
+				"createFolders": true,
+				"addTags": true,
+				"removeOrphanedTags": false,
+				"syncOnFileCreate": true,
+				"syncOnFileMove": true,
+				"syncOnFileRename": true,
+				"onConflict": "prompt"
+			}
+		},
+		{
+			"id": "templates-inbox-marker",
+			"name": "Inbox: marker-only via discarded glob",
+			"description": "Capture/Inbox/{discarded...} ↔ #-inbox — provably lossy (folder-only slot). Recoverable per-file via F3 frontmatter witness.",
+			"enabled": false,
+			"priority": 5,
+			"direction": "folder-to-tag",
+			"folderTemplate": "Capture/Inbox/{discarded...}",
+			"tagTemplate": "#-inbox",
+			"options": {
+				"createFolders": false,
+				"addTags": true,
+				"removeOrphanedTags": false,
+				"syncOnFileCreate": true,
+				"syncOnFileMove": true,
+				"syncOnFileRename": true,
+				"onConflict": "skip"
+			}
+		}
+	],
+
+	"notes": [
+		"This pack ships 4 template rules — only the first 2 are enabled by default. Enable rules 3 and 4 manually to experiment.",
+		"Rule 1 (identity): green chip — round-trips perfectly. Use as a starting template.",
+		"Rule 2 (kebab-case filter): yellow chip — conditional. Round-trips for inputs that are already lowercase-with-hyphens.",
+		"Rule 3 (glob slot): green chip — round-trips when both sides use glob.",
+		"Rule 4 (marker-only): orange chip — lossy by design. Multiple inbox files collapse to one tag. Per-file recovery requires F3 (frontmatter witness, future)."
+	]
+}

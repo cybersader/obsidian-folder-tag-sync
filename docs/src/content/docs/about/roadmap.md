@@ -420,7 +420,8 @@ Three tracks, **not** a strict pipeline. The Foundation track is sequential by d
 - **Phase 1** — Core Functionality: transformation engine, rule matching, basic UI, folder→tag and tag→folder sync, manual sync commands ✅
 - **Phase 2** — Typed model + rule packs: `FolderClassifier` + `TagVocabulary` + `TransferOp`, eight transfer-op primitives, vault-scan organizational-system detection, four shipped rule packs (PARA, JD, SEACOW-cyberbase, Zettelkasten) ✅
 - **Phase G** — Layer-aware folder anchors (`'root'` / `'any-segment'` / `{ under: 'X' }`) ✅
-- **F1 Steps 1+2** — Specificity-aware matching: refined `calculateMatchConfidence` (Formula 3 with anchor-aware bonuses), swapped sort order in `findBestMatch` (confidence primary, priority tiebreak override) ✅
+- **F1 (Specificity-aware matching + rule groups) — all 3 steps** ✅: Step 1 refined `calculateMatchConfidence` (Formula 3 with anchor-aware bonuses); Step 2 swapped sort order in `findBestMatch` (confidence primary, priority tiebreak override); Step 3 added optional `group?: string` field on `MappingRule` + cross-pack `groupPrecedence` partition + drag-to-reorder UI + "Priority (override)" relabel.
+- **F2 (Path Lens templates) — commit 1 (compiler + runtime + loader + UI mode toggle)** ✅: pure compiler in `src/engine/compileTemplate.ts` with Tier A operators (`{name}`, `{name...}`, `{name | filter}`); per-transform reversibility metadata in `src/transformers/transformMetadata.ts`; runtime in `src/engine/applyTemplate.ts` with forward + inverse using `applyFilterChain` / `applyFilterChainInverse`; engine dispatch via `isTemplateRule` in `applyTransfer.ts`; loader Path C in `rulePackLoader.ts`; rule-editor mode toggle (Template/Regex) with bijectivity status chip; demo pack `rule-packs/templates-demo.json`. F3 (Frontmatter witness) plug-in seam documented in [bijectivity detection · Per-rule vs per-instance bijectivity](/obsidian-folder-tag-sync/concepts/bijectivity-detection/#per-rule-vs-per-instance-bijectivity--the-f3-plug-in-seam).
 
 The shipped foundation is what FTSync is *today*. The Foundation track below continues that lineage; these are the architectural primitives the user is researching and authoring rules against.
 
@@ -435,7 +436,7 @@ Sequence is mostly determined by dependencies (each item's "depends on" line). S
 ### F1 — Specificity-aware matching + rule groups
 
 - **What the user experiences**: rules just work better. A user with overlapping rules (`^Projects/(.+)$` and `^Projects/Web/(.+)$`) finds that the more-specific one fires without manually swapping priority numbers. Imported rule packs (PARA + JD + SEACOW) coexist without silent collision. The "Priority" field gets relabeled "Priority (override)" with a tooltip explaining when it actually matters.
-- **Status**: Steps 1+2 shipped (resolves Challenge 01 stress case). Step 3 (group field) ahead.
+- **Status**: ✅ All 3 steps shipped (resolves Challenge 01 stress case + cross-pack precedence).
 - **Depends on**: nothing.
 - **Unlocks**: ergonomic ordering for cross-pack composability; provides the natural specificity score for F2 (slot count = specificity once templates land).
 - **Step 3 — `group` field + cross-pack precedence**: optional `group?: string` on `MappingRule`; default group derived from pack ID; vault-level group-precedence config (drag-to-reorder); rename "Priority" → "Priority (override)" in rule editors.
@@ -444,7 +445,7 @@ Sequence is mostly determined by dependencies (each item's "depends on" line). S
 ### F2 — Bidirectional path templates
 
 - **What the user experiences**: the rule editor gets a top-of-pane mode toggle: **"Template" / "Regex"**. Template mode shows a single-line input with named slots (`Projects/{slug}` ↔ `#projects/{slug}`); the user authors without regex literacy. Regex mode is the existing surface, unchanged. New rules default to Template mode; existing regex rules keep working as-is. Each rule shows a per-rule status chip — *"This rule round-trips"* (green) or *"Lossy forward — `{owner}` is matched but discarded"* (orange) — explaining what's reversible. The README + docs reposition at this milestone: "regex" stops being the headline; templates become the default authoring surface.
-- **Status**: researched, decision-gated (see [development plan](/obsidian-folder-tag-sync/about/development-plan/) "Decision gate before Increment 2").
+- **Status**: ✅ Commit 1 shipped (compiler + runtime + loader + UI mode toggle + demo pack `templates-demo.json`). Commit 2 (lens-flavored shape — `iso` / `cardinality` annotations) and Commit 3 (slot-objects shape — JSON-flavored editor) decision-gated, pending decision-gate Q2–Q4 walkthrough (see [development plan](/obsidian-folder-tag-sync/about/development-plan/)).
 - **Depends on**: F1 ideally (so slot count can be the natural specificity score when templates land), but not strictly — templates can ship before F1 Step 3 if needed.
 - **Unlocks**: per-slot transforms; bijection visibility from slot overlap; the natural carrier for F4 property-driven destination; deeper specificity heuristic that replaces regex-shape scoring.
 - **Scope**: new `PathTemplate` type, slot syntax (`{slug}` / `{rest...}` decided at decision gate), pure compiler in `src/engine/compileTemplate.ts`, derive.ts extension for template-aware compilation, applyTransfer.ts slot-based extraction, loader validation, rule-editor template-mode toggle, per-rule status indicator (round-trips / lossy / asserted).

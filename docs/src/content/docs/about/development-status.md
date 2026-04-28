@@ -9,6 +9,13 @@ sidebar:
 
 This plugin is in **active development** (v0.1.7 beta). Core features are working, with advanced features in progress. See the [roadmap](/obsidian-folder-tag-sync/about/roadmap/) for what's coming.
 
+### Foundation track progress (2026-04-28)
+
+- **F1 — Specificity-aware matching** — shipped (all 3 steps: confidence formula, sort-order swap, group precedence)
+- **F2 — Path Lens templates** — commit 1 shipped (compiler + runtime + loader + UI mode toggle). End-to-end demo pack `templates-demo.json` ships with the plugin. Commits 2 (lens-flavored) + 3 (slot-objects) pending decision-gate questions.
+- **F3 — Frontmatter witness** — design seam in place (see [bijectivity detection · F3 plug-in seam](/obsidian-folder-tag-sync/concepts/bijectivity-detection/#per-rule-vs-per-instance-bijectivity--the-f3-plug-in-seam)); implementation gated on namespace/schema decisions
+- **F4 — Property-driven destination** — future, depends on F2 stable
+
 ## Also known as
 
 This plugin goes by several names that describe the same concept:

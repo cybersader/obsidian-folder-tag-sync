@@ -294,6 +294,60 @@ export const ENTERPRISE_JD_DEEP_VAULT = [
 ];
 
 /**
+ * SEACOW(r) cyberbase-style deeply-nested layout. Multi-axis composition:
+ * Entity at root, Output/Capture/System under each entity, JD numbering
+ * inside Output, free-form topic trees inside JD areas. 6+ levels deep.
+ *
+ * Tests that nested rules compose: an Entity-scoped rule + an Output rule +
+ * a JD numbered-area rule should ALL fire on a path like
+ *   Entity/Cybersader/Output/📁 01 - Projects/Cybersecurity/Pentest/2024-Q4/notes.md
+ *
+ * Source: github.com/cybersader/seacowr-knowledge-platform-meta-framework
+ * (cyberbase example, generalized for public testing).
+ */
+export const SEACOW_DEEPLY_NESTED_VAULT = [
+	'Entity',
+	'Entity/Cybersader',
+	'Entity/Cybersader/Output',
+	'Entity/Cybersader/Output/📁 01 - Projects',
+	'Entity/Cybersader/Output/📁 01 - Projects/Cybersecurity',
+	'Entity/Cybersader/Output/📁 01 - Projects/Cybersecurity/Pentest',
+	'Entity/Cybersader/Output/📁 01 - Projects/Cybersecurity/Pentest/2024-Q4',
+	'Entity/Cybersader/Output/📁 01 - Projects/Cybersecurity/Pentest/2024-Q4/lateral-movement',
+	'Entity/Cybersader/Output/📁 02 - Curations',
+	'Entity/Cybersader/Output/📁 06 - Learning, Notes',
+	'Entity/Cybersader/Output/📁 06 - Learning, Notes/Languages',
+	'Entity/Cybersader/Output/📁 06 - Learning, Notes/Languages/Rust',
+	'Entity/Cybersader/Output/📁 06 - Learning, Notes/Languages/Rust/Ownership',
+	'Entity/Cybersader/Capture',
+	'Entity/Cybersader/Capture/Inbox',
+	'Entity/Cybersader/Capture/Clips',
+	'Entity/Cybersader/Capture/Clips/2026',
+	'Entity/Cybersader/Capture/Clips/2026/04',
+	'Entity/Cybersader/Capture/Clips/2026/04/article-x',
+	'Entity/Cybersader/System',
+	'Entity/Cybersader/System/Templates',
+	'Entity/Bob',
+	'Entity/Bob/Output',
+	'Entity/Bob/Output/📁 01 - Personal',
+	'Entity/Bob/Output/📁 01 - Personal/Health',
+	'Entity/Bob/Capture',
+	'Entity/Bob/Capture/Inbox',
+	'Output',
+	'Output/Public',
+	'Output/Public/Programming',
+	'Output/Public/Programming/Rust',
+	'Output/Public/Programming/Rust/Patterns',
+	'Output/Main',
+	'Output/Main/Articles',
+	'Output/Main/Articles/2026',
+	'_attachments',
+	'🕸️ Daily Notes',
+	'🕸️ Daily Notes/2026',
+	'🕸️ Daily Notes/2026/04',
+];
+
+/**
  * LCSH-style deep classification taxonomy — 6+ levels, hyphenated names.
  * Documentation (folder-classifiers.md line 39) explicitly claims support
  * for "deep Output taxonomies (multi-level subject classifications like

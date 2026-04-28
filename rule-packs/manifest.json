@@ -1,8 +1,8 @@
 {
   "version": 1,
-  "generatedAt": "2026-04-28T14:47:41.045Z",
-  "packCount": 7,
-  "totalBytes": 47696,
+  "generatedAt": "2026-04-28T15:43:50.345Z",
+  "packCount": 8,
+  "totalBytes": 54064,
   "packs": [
     {
       "id": "cyberbase-actual",
@@ -268,6 +268,64 @@
         "summary": "Lays down the four SEACOW outer roots — Capture, Entity, Output, System — with conventional sub-folders. Pick component packs (PARA, JD, etc.) to fill the inner axes."
       },
       "sizeBytes": 5857
+    },
+    {
+      "id": "seacow-templates",
+      "file": "seacow-templates.json",
+      "name": "SEACOW(r) templates — multi-axis nested",
+      "description": "Template-shaped pack for SEACOW(r) framework vaults with multi-axis composition: per-entity scoping, Capture/Output/System axes, JD numbering inside Output, daily notes. Demonstrates nested implementations — rules compose so a path like Entity/User/Output/01 - Projects/X.md can match the more-specific Entity+Output+JD rule. All rules ship disabled.",
+      "version": "1.0.0",
+      "author": "Cybersader",
+      "axes": [
+        "system",
+        "entity",
+        "capture",
+        "output"
+      ],
+      "compatibleWith": [
+        "jd",
+        "para"
+      ],
+      "exclusiveWith": [],
+      "ruleCount": 7,
+      "detection": {
+        "anyOf": [
+          {
+            "folderRegex": "^Entity$",
+            "scope": "name",
+            "label": "Entity/ root (per-user scoping)"
+          },
+          {
+            "folderRegex": "^Capture$",
+            "scope": "name",
+            "label": "Capture/ root"
+          },
+          {
+            "folderRegex": "^Output$",
+            "scope": "name",
+            "label": "Output/ root"
+          },
+          {
+            "folderRegex": "^System$",
+            "scope": "name",
+            "label": "System/ root"
+          },
+          {
+            "folderRegex": "^Capture\\/(Inbox|Clips)$",
+            "scope": "path",
+            "label": "Capture/Inbox or Capture/Clips"
+          },
+          {
+            "folderRegex": "^Output\\/(Public|Main)$",
+            "scope": "path",
+            "label": "Output/Public or Output/Main"
+          }
+        ],
+        "minSignals": 2,
+        "scopedUnder": null
+      },
+      "establish": null,
+      "sizeBytes": 6368
     },
     {
       "id": "templates-demo",

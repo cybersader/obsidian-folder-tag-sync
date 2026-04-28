@@ -1,4 +1,4 @@
-import { Plugin, TFile, Notice, Modal } from 'obsidian';
+import { App, Plugin, TFile, Notice, Modal } from 'obsidian';
 import { DynamicTagsFoldersSettings, DEFAULT_SETTINGS, MappingRule } from './types/settings';
 import { SettingsTab } from './ui/SettingsTab';
 import { RulePackPickerModal } from './ui/RulePackPickerModal';
@@ -77,6 +77,23 @@ export default class DynamicTagsFoldersPlugin extends Plugin {
 			name: 'Scan vault for organizational systems',
 			callback: () => {
 				void this.scanVaultForSystems();
+			}
+		});
+
+		// Bulk sync — preview + apply across the entire vault
+		this.addCommand({
+			id: 'preview-vault-sync',
+			name: 'Preview vault sync (folder→tag, dry-run)',
+			callback: () => {
+				void this.previewVaultSync();
+			}
+		});
+
+		this.addCommand({
+			id: 'sync-entire-vault',
+			name: 'Sync entire vault (folder→tag)',
+			callback: () => {
+				void this.confirmAndSyncEntireVault();
 			}
 		});
 
@@ -354,5 +371,169 @@ export default class DynamicTagsFoldersPlugin extends Plugin {
 			});
 			new Notice(`Error: ${errorMessage}`);
 		}
+	}
+
+	/**
+	 * Preview what would happen if we ran forward sync against every markdown
+	 * file in the vault — opens a modal showing affected files, sample changes,
+	 * and aggregate counts. User can choose 'Apply changes' or 'Cancel'.
+	 */
+	async previewVaultSync(): Promise<void> {
+		new Notice('Computing vault sync preview...');
+		try {
+			const syncEngine = new FolderToTagSync(this.app, this.settings, this.debugLogger);
+			const result = await syncEngine.previewVault();
+			new VaultSyncPreviewModal(this.app, result, async () => {
+				await this.runVaultSyncWithProgress();
+			}).open();
+		} catch (err) {
+			const msg = err instanceof Error ? err.message : String(err);
+			await this.debugLogger.error('Vault preview failed', { error: msg });
+			new Notice(`Preview failed: ${msg}`);
+		}
+	}
+
+	/**
+	 * Confirm + run full vault sync. Skips the modal preview (user invoked
+	 * directly). Use the preview command first if you want to see changes first.
+	 */
+	async confirmAndSyncEntireVault(): Promise<void> {
+		const allFiles = this.app.vault.getMarkdownFiles();
+		const confirmed = confirm(
+			`Sync forward (folder → tag) across ${allFiles.length} markdown files?\n\n` +
+			`Forward sync is purely additive — adds tags to frontmatter, never moves files.\n\n` +
+			`Worst case: extra tags you can manually delete.\n\n` +
+			`Recommend running 'Preview vault sync' first to see changes before applying.`,
+		);
+		if (!confirmed) return;
+		await this.runVaultSyncWithProgress();
+	}
+
+	/**
+	 * Execute the full-vault forward sync with a Notice-based progress
+	 * indicator. Updates the notice every 10 files; final notice shows
+	 * aggregate result.
+	 */
+	async runVaultSyncWithProgress(): Promise<void> {
+		const syncEngine = new FolderToTagSync(this.app, this.settings, this.debugLogger);
+		const progressNotice = new Notice('Syncing vault...', 0); // 0 = stay until manually closed
+		try {
+			const result = await syncEngine.syncVault((current, total, file) => {
+				if (current % 10 === 0 || current === total) {
+					progressNotice.setMessage(`Syncing ${current}/${total}: ${file}`);
+				}
+			});
+			progressNotice.hide();
+			const errSummary = result.errors.length > 0 ? ` (${result.errors.length} errors)` : '';
+			new Notice(
+				`Synced ${result.filesAffected}/${result.filesProcessed} files; added ${result.totalTagsAdded} tags${errSummary}`,
+				6000,
+			);
+			if (result.errors.length > 0) {
+				await this.debugLogger.error('Vault sync errors', { errors: result.errors });
+			}
+		} catch (err) {
+			progressNotice.hide();
+			const msg = err instanceof Error ? err.message : String(err);
+			await this.debugLogger.error('Vault sync failed', { error: msg });
+			new Notice(`Sync failed: ${msg}`);
+		}
+	}
+}
+
+/**
+ * Modal that presents the vault-sync preview — aggregate counts + sample
+ * folder→tag pairs — and gives the user 'Apply changes' / 'Cancel' actions.
+ */
+class VaultSyncPreviewModal extends Modal {
+	constructor(
+		app: App,
+		private readonly preview: import('./sync/FolderToTagSync').VaultPreviewResult,
+		private readonly onApply: () => Promise<void>,
+	) {
+		super(app);
+	}
+
+	onOpen(): void {
+		const { contentEl } = this;
+		contentEl.empty();
+		contentEl.addClass('dtf-vault-preview-modal');
+
+		contentEl.createEl('h2', { text: 'Vault sync preview (folder → tag)' });
+
+		// Aggregate summary
+		const summary = contentEl.createDiv();
+		summary.style.padding = '0.6em 0.8em';
+		summary.style.background = 'var(--background-modifier-form-field)';
+		summary.style.borderRadius = '4px';
+		summary.style.marginBottom = '0.8em';
+		summary.style.fontSize = '0.95em';
+		summary.style.lineHeight = '1.6';
+		summary.createEl('div', { text: `Total markdown files: ${this.preview.totalFiles}` });
+		const aff = summary.createEl('div');
+		aff.createSpan({ text: `Would change: ` });
+		aff.createEl('strong', { text: String(this.preview.filesAffected) });
+		aff.createSpan({ text: ` files (${this.preview.totalTagsToAdd} tags to add)` });
+		summary.createEl('div', { text: `Already in sync (no change needed): ${this.preview.filesUnchanged}` });
+		summary.createEl('div', { text: `No matching rule: ${this.preview.filesNoMatch}` });
+
+		// Empty state
+		if (this.preview.filesAffected === 0) {
+			const note = contentEl.createDiv();
+			note.style.padding = '0.6em 0.8em';
+			note.style.fontStyle = 'italic';
+			note.style.color = 'var(--text-muted)';
+			note.setText(
+				'No changes needed. Either no files match an enabled rule, or all files already have their tags.',
+			);
+			const closeBtn = contentEl.createEl('button', { text: 'Close' });
+			closeBtn.addEventListener('click', () => this.close());
+			return;
+		}
+
+		// Sample list of changes
+		contentEl.createEl('h3', {
+			text: `Sample changes (showing ${Math.min(this.preview.items.length, this.preview.filesAffected)} of ${this.preview.filesAffected})`,
+		});
+		const list = contentEl.createDiv();
+		list.style.maxHeight = '40vh';
+		list.style.overflow = 'auto';
+		list.style.background = 'var(--background-secondary)';
+		list.style.padding = '0.5em';
+		list.style.borderRadius = '4px';
+		list.style.fontFamily = 'var(--font-monospace)';
+		list.style.fontSize = '0.85em';
+		list.style.lineHeight = '1.5';
+		list.style.marginBottom = '0.8em';
+		for (const item of this.preview.items) {
+			const row = list.createDiv();
+			row.createSpan({ text: `${item.filePath}` });
+			row.createSpan({ text: ' → ', cls: 'dtf-arrow' });
+			row.createSpan({
+				text: item.tagsToAdd.join(', '),
+				cls: 'dtf-tag-add',
+			});
+			(row.lastChild as HTMLElement).style.color = 'var(--text-success, rgb(40, 140, 70))';
+			row.createSpan({ text: ` (rule: ${item.matchedRule})` });
+			(row.lastChild as HTMLElement).style.color = 'var(--text-muted)';
+			(row.lastChild as HTMLElement).style.fontSize = '0.85em';
+		}
+
+		// Actions
+		const actions = contentEl.createDiv();
+		actions.style.display = 'flex';
+		actions.style.gap = '0.5em';
+		actions.style.justifyContent = 'flex-end';
+		actions.style.marginTop = '1em';
+
+		const cancelBtn = actions.createEl('button', { text: 'Cancel' });
+		cancelBtn.addEventListener('click', () => this.close());
+
+		const applyBtn = actions.createEl('button', { text: `Apply changes (${this.preview.filesAffected} files)` });
+		applyBtn.addClass('mod-cta');
+		applyBtn.addEventListener('click', async () => {
+			this.close();
+			await this.onApply();
+		});
 	}
 }

@@ -4,6 +4,7 @@ import { DebugLogger } from '../utils/debug';
 import { findMatchingRules, findBestMatch } from '../engine/ruleMatcher';
 import { applyTransformPipeline } from '../transformers/pipeline';
 import { applyRuleForward } from '../engine/applyTransfer';
+import { injectWitness as injectWitnessFn, parseWitness as parseWitnessFn } from './frontmatterWitness';
 
 /**
  * Handles folder-to-tag synchronization
@@ -112,8 +113,29 @@ export class FolderToTagSync {
       const currentTags = this.extractTags(frontmatter);
 
       const newTagsToAdd = tags.filter((t) => !currentTags.includes(t));
-      if (newTagsToAdd.length === 0) {
-        await this.logger.info('All emitted tags already present, no changes needed', { tags });
+
+      // A6 — orphan cleanup. When `removeOrphanedTags: true` AND the file
+      // has an `fts:` witness from a prior sync, identify FTS-owned tags
+      // that are no longer emitted and remove them. Without the witness,
+      // we can't tell which tags FTS owns vs which the user added —
+      // skipping cleanup is the safe behavior.
+      let tagsToRemove: string[] = [];
+      if (rule.options.removeOrphanedTags) {
+        const witness = this.parseWitness(frontmatter);
+        if (witness) {
+          // FTS-owned tags from prior sync are listed in witness.tags.
+          // Emitted tags now (from current rule + path) are `tags`.
+          // Remove tags that were FTS-owned but are no longer emitted.
+          const emittedNow = new Set(tags.map((t) => t.replace(/^#/, '')));
+          tagsToRemove = witness.tags
+            .filter((witnessed) => !emittedNow.has(witnessed))
+            .map((t) => `#${t}`)
+            .filter((withHash) => currentTags.includes(withHash));
+        }
+      }
+
+      if (newTagsToAdd.length === 0 && tagsToRemove.length === 0) {
+        await this.logger.info('All emitted tags already present, no orphans, no changes needed', { tags });
         return {
           success: true,
           tagsAdded: [],
@@ -122,28 +144,49 @@ export class FolderToTagSync {
         };
       }
 
-      // Add new tags
-      const updatedTags = [...currentTags, ...newTagsToAdd];
-      const newFrontmatter = this.updateTags(frontmatter, updatedTags);
+      // Compute final tag set: existing tags + new ones to add, MINUS orphans
+      const tagsToRemoveSet = new Set(tagsToRemove);
+      const updatedTags = [...currentTags.filter((t) => !tagsToRemoveSet.has(t)), ...newTagsToAdd];
+      let newFrontmatter = this.updateTags(frontmatter, updatedTags);
+
+      // F3 commit 1 — Passive frontmatter witness: when the rule has
+      // `frontmatterMemory: true`, write a tracking record so future syncs
+      // (and orphan cleanup) know which tags FTS owns and where this file
+      // came from. Off by default (explicit opt-in).
+      if (rule.options.frontmatterMemory) {
+        const witness = {
+          origin: folderPath,
+          ruleId: rule.id,
+          tags: updatedTags.map((t) => t.replace(/^#/, '')),
+          timestamp: new Date().toISOString(),
+        };
+        newFrontmatter = this.injectWitness(newFrontmatter, witness);
+      }
+
       const newContent = this.reconstructFile(newFrontmatter, body);
 
       // Write back to file
       await this.app.vault.modify(file, newContent);
 
-      await this.logger.info('Successfully added tag(s)', {
+      await this.logger.info('Successfully added/removed tag(s)', {
         added: newTagsToAdd,
+        removed: tagsToRemove,
         file: file.path,
+        witnessWritten: !!rule.options.frontmatterMemory,
       });
 
       if (this.settings.options.showNotifications) {
-        new Notice(`Added ${newTagsToAdd.length} tag(s): ${newTagsToAdd.join(', ')}`);
+        const addedMsg = newTagsToAdd.length > 0 ? `Added ${newTagsToAdd.length} tag(s)` : '';
+        const removedMsg = tagsToRemove.length > 0 ? `removed ${tagsToRemove.length} orphan(s)` : '';
+        const summary = [addedMsg, removedMsg].filter(Boolean).join('; ');
+        new Notice(summary || 'Tags up to date');
       }
 
       return {
         success: true,
         tagsAdded: newTagsToAdd,
-        tagsRemoved: [],
-        message: 'Tag(s) added successfully',
+        tagsRemoved: tagsToRemove,
+        message: 'Tag(s) updated successfully',
       };
 
     } catch (error) {
@@ -270,6 +313,17 @@ export class FolderToTagSync {
     }
   }
 
+  private parseWitness(frontmatter: string): { origin: string; ruleId: string; tags: string[] } | null {
+    return parseWitnessFn(frontmatter);
+  }
+
+  private injectWitness(
+    frontmatter: string,
+    witness: { origin: string; ruleId: string; tags: string[]; timestamp: string },
+  ): string {
+    return injectWitnessFn(frontmatter, witness);
+  }
+
   /**
    * Reconstruct file content with updated frontmatter
    */
@@ -279,6 +333,122 @@ export class FolderToTagSync {
     }
 
     return `---\n${frontmatter}\n---\n${body}`;
+  }
+
+  /**
+   * Preview what would happen if we ran forward sync on every markdown file
+   * in the vault — without actually modifying any files. Used by the
+   * 'Preview vault sync' command to give users confidence before bulk-applying.
+   */
+  async previewVault(): Promise<VaultPreviewResult> {
+    const allFiles = this.app.vault.getMarkdownFiles();
+    const items: VaultPreviewItem[] = [];
+    let filesAffected = 0;
+    let filesUnchanged = 0;
+    let filesNoMatch = 0;
+    let totalTagsToAdd = 0;
+
+    for (const file of allFiles) {
+      const folderPath = file.parent?.path || '';
+      const bestMatch = findBestMatch(folderPath, this.settings.rules, {
+        input: folderPath,
+        matchType: 'folder',
+        direction: 'folder-to-tag'
+      }, this.settings.groupPrecedence);
+
+      if (!bestMatch) {
+        filesNoMatch++;
+        continue;
+      }
+
+      const { rule } = bestMatch;
+      if (rule.direction === 'tag-to-folder') {
+        filesNoMatch++;
+        continue;
+      }
+
+      const tags = await this.transformFolderToTag(folderPath, rule);
+      if (tags.length === 0) {
+        filesNoMatch++;
+        continue;
+      }
+
+      // Read frontmatter to compute currentTags + diff (but DO NOT write).
+      let currentTags: string[] = [];
+      try {
+        const content = await this.app.vault.read(file);
+        const { frontmatter } = this.parseFrontmatter(content);
+        currentTags = this.extractTags(frontmatter);
+      } catch {
+        // unreadable; treat as empty current
+      }
+      const tagsToAdd = tags.filter(t => !currentTags.includes(t));
+
+      if (tagsToAdd.length > 0) {
+        filesAffected++;
+        totalTagsToAdd += tagsToAdd.length;
+        if (items.length < 100) {
+          items.push({
+            filePath: file.path,
+            folderPath,
+            matchedRule: rule.name,
+            currentTags,
+            tagsToAdd,
+          });
+        }
+      } else {
+        filesUnchanged++;
+      }
+    }
+
+    return {
+      totalFiles: allFiles.length,
+      filesAffected,
+      filesUnchanged,
+      filesNoMatch,
+      items,
+      totalTagsToAdd,
+    };
+  }
+
+  /**
+   * Run forward sync on every markdown file. Reports progress via callback.
+   * Returns aggregate result. Errors per file logged but don't abort the run.
+   */
+  async syncVault(
+    progressCallback?: (current: number, total: number, file: string) => void,
+  ): Promise<VaultSyncResult> {
+    const allFiles = this.app.vault.getMarkdownFiles();
+    let filesProcessed = 0;
+    let filesAffected = 0;
+    let totalTagsAdded = 0;
+    const errors: Array<{ file: string; error: string }> = [];
+
+    for (let i = 0; i < allFiles.length; i++) {
+      const file = allFiles[i];
+      progressCallback?.(i + 1, allFiles.length, file.path);
+      try {
+        const result = await this.syncFile(file);
+        filesProcessed++;
+        if (result.tagsAdded.length > 0) {
+          filesAffected++;
+          totalTagsAdded += result.tagsAdded.length;
+        }
+      } catch (err) {
+        errors.push({
+          file: file.path,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+
+    return {
+      totalFiles: allFiles.length,
+      filesProcessed,
+      filesAffected,
+      totalTagsAdded,
+      errors,
+    };
   }
 }
 
@@ -291,4 +461,29 @@ export interface SyncResult {
   tagsRemoved: string[];
   message?: string;
   error?: string;
+}
+
+export interface VaultPreviewItem {
+  filePath: string;
+  folderPath: string;
+  matchedRule: string;
+  currentTags: string[];
+  tagsToAdd: string[];
+}
+
+export interface VaultPreviewResult {
+  totalFiles: number;
+  filesAffected: number;
+  filesUnchanged: number;
+  filesNoMatch: number;
+  items: VaultPreviewItem[]; // capped at 100 for display
+  totalTagsToAdd: number;
+}
+
+export interface VaultSyncResult {
+  totalFiles: number;
+  filesProcessed: number;
+  filesAffected: number;
+  totalTagsAdded: number;
+  errors: Array<{ file: string; error: string }>;
 }

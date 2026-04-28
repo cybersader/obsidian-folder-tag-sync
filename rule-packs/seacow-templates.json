@@ -1,0 +1,168 @@
+{
+	"id": "seacow-templates",
+	"name": "SEACOW(r) templates — multi-axis nested",
+	"description": "Template-shaped pack for SEACOW(r) framework vaults with multi-axis composition: per-entity scoping, Capture/Output/System axes, JD numbering inside Output, daily notes. Demonstrates nested implementations — rules compose so a path like Entity/User/Output/01 - Projects/X.md can match the more-specific Entity+Output+JD rule. All rules ship disabled.",
+	"version": "1.0.0",
+	"author": "Cybersader",
+
+	"axes": ["system", "entity", "capture", "output"],
+	"compatibleWith": ["jd", "para"],
+	"exclusiveWith": [],
+
+	"detection": {
+		"anyOf": [
+			{ "folderRegex": "^Entity$", "scope": "name", "label": "Entity/ root (per-user scoping)" },
+			{ "folderRegex": "^Capture$", "scope": "name", "label": "Capture/ root" },
+			{ "folderRegex": "^Output$", "scope": "name", "label": "Output/ root" },
+			{ "folderRegex": "^System$", "scope": "name", "label": "System/ root" },
+			{ "folderRegex": "^Capture\\/(Inbox|Clips)$", "scope": "path", "label": "Capture/Inbox or Capture/Clips" },
+			{ "folderRegex": "^Output\\/(Public|Main)$", "scope": "path", "label": "Output/Public or Output/Main" }
+		],
+		"minSignals": 2,
+		"scopedUnder": null
+	},
+
+	"rules": [
+		{
+			"id": "seacow-tpl-capture-clip",
+			"name": "Capture: clips (web clippings)",
+			"description": "Capture/Clips/{deeper...} ↔ #-clip/{deeper...}",
+			"enabled": false,
+			"priority": 5,
+			"direction": "bidirectional",
+			"folderTemplate": "Capture/Clips/{deeper...}",
+			"tagTemplate": "#-clip/{deeper...}",
+			"options": {
+				"createFolders": true,
+				"addTags": true,
+				"removeOrphanedTags": false,
+				"frontmatterMemory": false,
+				"syncOnFileCreate": true,
+				"syncOnFileMove": true,
+				"syncOnFileRename": true
+			}
+		},
+		{
+			"id": "seacow-tpl-capture-inbox",
+			"name": "Capture: inbox (marker-only, lossy)",
+			"description": "Capture/Inbox/{discarded...} ↔ #-inbox — flat marker, deeper structure discarded going to tag. Recommend frontmatterMemory: true for inverse recovery.",
+			"enabled": false,
+			"priority": 5,
+			"direction": "folder-to-tag",
+			"folderTemplate": "Capture/Inbox/{discarded...}",
+			"tagTemplate": "#-inbox",
+			"options": {
+				"createFolders": false,
+				"addTags": true,
+				"removeOrphanedTags": false,
+				"frontmatterMemory": true,
+				"syncOnFileCreate": true,
+				"syncOnFileMove": true,
+				"syncOnFileRename": true
+			}
+		},
+		{
+			"id": "seacow-tpl-entity-scoped",
+			"name": "Entity: per-user namespace",
+			"description": "Entity/{owner}/{deeper...} ↔ #--{owner | kebab-case}/{deeper...}",
+			"enabled": false,
+			"priority": 10,
+			"direction": "bidirectional",
+			"folderTemplate": "Entity/{owner}/{deeper...}",
+			"tagTemplate": "#--{owner | strip-invalid-tag-chars | kebab-case}/{deeper...}",
+			"options": {
+				"createFolders": true,
+				"addTags": true,
+				"removeOrphanedTags": false,
+				"frontmatterMemory": false,
+				"syncOnFileCreate": true,
+				"syncOnFileMove": true,
+				"syncOnFileRename": true
+			}
+		},
+		{
+			"id": "seacow-tpl-entity-output-jd",
+			"name": "Entity + Output + JD nested (multi-axis composition)",
+			"description": "Entity/{owner}/Output/{num:\\d{1,2}} - {area}/{deeper...} ↔ #--{owner}/{num}-{area}/{deeper...}. Higher specificity wins over the entity-scope rule for matching paths.",
+			"enabled": false,
+			"priority": 8,
+			"direction": "bidirectional",
+			"folderTemplate": "Entity/{owner}/Output/{num:\\d{1,2}} - {area}/{deeper...}",
+			"tagTemplate": "#--{owner | strip-invalid-tag-chars | kebab-case}/{num:\\d{1,2}}-{area | strip-invalid-tag-chars | kebab-case}/{deeper...}",
+			"options": {
+				"createFolders": true,
+				"addTags": true,
+				"removeOrphanedTags": false,
+				"frontmatterMemory": false,
+				"syncOnFileCreate": true,
+				"syncOnFileMove": true,
+				"syncOnFileRename": true
+			}
+		},
+		{
+			"id": "seacow-tpl-output-public",
+			"name": "Output: public taxonomy",
+			"description": "Output/Public/{topic}/{deeper...} ↔ #_/{topic | kebab-case}/{deeper...}",
+			"enabled": false,
+			"priority": 12,
+			"direction": "bidirectional",
+			"folderTemplate": "Output/Public/{topic}/{deeper...}",
+			"tagTemplate": "#_/{topic | strip-invalid-tag-chars | kebab-case}/{deeper...}",
+			"options": {
+				"createFolders": true,
+				"addTags": true,
+				"removeOrphanedTags": false,
+				"frontmatterMemory": false,
+				"syncOnFileCreate": true,
+				"syncOnFileMove": true,
+				"syncOnFileRename": true
+			}
+		},
+		{
+			"id": "seacow-tpl-output-main",
+			"name": "Output: main (private)",
+			"description": "Output/Main/{deeper...} ↔ #_main/{deeper...}",
+			"enabled": false,
+			"priority": 12,
+			"direction": "bidirectional",
+			"folderTemplate": "Output/Main/{deeper...}",
+			"tagTemplate": "#_main/{deeper...}",
+			"options": {
+				"createFolders": true,
+				"addTags": true,
+				"removeOrphanedTags": false,
+				"frontmatterMemory": false,
+				"syncOnFileCreate": true,
+				"syncOnFileMove": true,
+				"syncOnFileRename": true
+			}
+		},
+		{
+			"id": "seacow-tpl-daily-notes",
+			"name": "Daily notes (relation tag)",
+			"description": "🕸️ Daily Notes/{deeper...} ↔ #daily/{deeper...}",
+			"enabled": false,
+			"priority": 15,
+			"direction": "bidirectional",
+			"folderTemplate": "🕸️ Daily Notes/{deeper...}",
+			"tagTemplate": "#daily/{deeper...}",
+			"options": {
+				"createFolders": true,
+				"addTags": true,
+				"removeOrphanedTags": false,
+				"frontmatterMemory": false,
+				"syncOnFileCreate": true,
+				"syncOnFileMove": true,
+				"syncOnFileRename": true
+			}
+		}
+	],
+
+	"notes": [
+		"All 7 rules ship DISABLED. Review and enable individually.",
+		"Multi-axis composition: when a path matches MULTIPLE rules (e.g., Entity/User/Output/01 - Projects/X), the more-specific rule wins via specificity-aware matching (lower priority number for tighter slot count).",
+		"Entity scoping (rule 3) is the catch-all for any Entity/{owner} subpath; Entity+Output+JD (rule 4) is more specific and overrides for matching paths.",
+		"Tag prefixes follow SEACOW(r) conventions: #- = capture, #-- = entity, #_ = output, # plain = relation. See github.com/cybersader/seacowr-knowledge-platform-meta-framework for the full vocabulary.",
+		"Capture/Inbox uses frontmatterMemory: true so the inverse direction can recover the original Inbox folder name despite the marker-only collapse."
+	]
+}

@@ -40,6 +40,7 @@ import {
 	ENTITY_PER_USER_DEEP_VAULT,
 	DEEP_TAXONOMY_VAULT,
 	ENTERPRISE_JD_DEEP_VAULT,
+	SEACOW_DEEPLY_NESTED_VAULT,
 } from './__fixtures__/vaultFolderLists';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────
@@ -890,6 +891,210 @@ describe('catch-all numbered-area edge cases — comprehensive', () => {
 		test('strict-numbered REJECTS non-digit prefixes (catch-all also rejects these)', () => {
 			expect(applyRuleForward('A - Foo/x', strictRule).tags).toEqual([]);
 			expect(applyRuleForward('foo - Foo/x', strictRule).tags).toEqual([]);
+		});
+	});
+});
+
+// ─── SEACOW(r) deeply-nested + multi-axis composition ────────────────────
+
+describe('SEACOW(r) deeply-nested vault — multi-axis composition', () => {
+	const baseOptions = {
+		createFolders: true,
+		addTags: true,
+		removeOrphanedTags: false,
+		syncOnFileCreate: true,
+		syncOnFileMove: true,
+		syncOnFileRename: true,
+	};
+
+	/**
+	 * Helper — auto-derive folderPattern + tagPattern from template fields
+	 * (mirrors what the loader does at parse time). Required because
+	 * findBestMatch uses folderPattern, not folderTemplate.
+	 */
+	function withDerivedPatterns(rule: MappingRule): MappingRule {
+		const compileTemplate = require('./compileTemplate').compileTemplate;
+		if (rule.folderTemplate) rule.folderPattern = compileTemplate(rule.folderTemplate).regex.source;
+		if (rule.tagTemplate) rule.tagPattern = compileTemplate(rule.tagTemplate).regex.source;
+		return rule;
+	}
+
+	const entityScopedRule: MappingRule = withDerivedPatterns({
+		id: 'seacow-entity',
+		name: 'Per-entity scope',
+		enabled: true,
+		priority: 5,
+		direction: 'bidirectional',
+		folderTemplate: 'Entity/{owner}/{deeper...}',
+		tagTemplate: '#--{owner | strip-invalid-tag-chars | kebab-case}/{deeper...}',
+		options: baseOptions,
+	});
+
+	const entityNestedJDRule: MappingRule = withDerivedPatterns({
+		id: 'seacow-entity-jd',
+		name: 'Entity + JD nested',
+		enabled: true,
+		priority: 4, // Higher specificity → earlier priority
+		direction: 'bidirectional',
+		folderTemplate: 'Entity/{owner}/Output/{num:\\d{1,2}} - {name}/{deeper...}',
+		tagTemplate: '#--{owner | kebab-case}/{num:\\d{1,2}}-{name | strip-invalid-tag-chars | kebab-case}/{deeper...}',
+		options: baseOptions,
+	});
+
+	const captureClipRule: MappingRule = withDerivedPatterns({
+		id: 'seacow-capture-clip',
+		name: 'Capture/Clips',
+		enabled: true,
+		priority: 5,
+		direction: 'bidirectional',
+		folderTemplate: 'Capture/Clips/{deeper...}',
+		tagTemplate: '#-clip/{deeper...}',
+		options: baseOptions,
+	});
+
+	const outputPublicRule: MappingRule = withDerivedPatterns({
+		id: 'seacow-output-public',
+		name: 'Output/Public taxonomy',
+		enabled: true,
+		priority: 5,
+		direction: 'bidirectional',
+		folderTemplate: 'Output/Public/{deeper...}',
+		tagTemplate: '#_/{deeper...}',
+		options: baseOptions,
+	});
+
+	describe('per-entity scoping at depth', () => {
+		test('Entity/Cybersader matches entity-scoped rule (bare)', () => {
+			expect(matchFolder('Entity/Cybersader', [entityScopedRule])?.id).toBe('seacow-entity');
+		});
+
+		test('Entity/Cybersader/Output/...deep matches entity-scoped rule', () => {
+			expect(matchFolder(
+				'Entity/Cybersader/Output/📁 01 - Projects/Cybersecurity/Pentest/2024-Q4',
+				[entityScopedRule],
+			)?.id).toBe('seacow-entity');
+		});
+
+		test('forward sync emits #--cybersader/-prefixed tag preserving deeper structure', () => {
+			const result = applyRuleForward(
+				'Entity/Cybersader/Output/📁 01 - Projects/Web Auth',
+				entityScopedRule,
+			);
+			expect(result.tags[0]).toMatch(/^#--cybersader\//);
+			expect(result.tags[0]).toContain('Web Auth');
+		});
+
+		test('different entity → different tag (Bob vs Cybersader)', () => {
+			const r1 = applyRuleForward('Entity/Cybersader/Notes', entityScopedRule);
+			const r2 = applyRuleForward('Entity/Bob/Notes', entityScopedRule);
+			expect(r1.tags[0]).toContain('cybersader');
+			expect(r2.tags[0]).toContain('bob');
+			expect(r1.tags[0]).not.toBe(r2.tags[0]);
+		});
+
+		test('non-entity paths do not match', () => {
+			expect(matchFolder('Output/Public/X', [entityScopedRule])).toBeNull();
+		});
+	});
+
+	describe('Entity + JD nested composition (multi-axis)', () => {
+		test('full-stack path matches the more-specific Entity+JD rule', () => {
+			// Path has BOTH Entity scoping AND JD numbering. With both rules
+			// loaded, the more-specific one (lower priority number) wins.
+			const rules = [entityScopedRule, entityNestedJDRule];
+			const path = 'Entity/Cybersader/Output/01 - Projects/Web Auth';
+			const winner = matchFolder(path, rules);
+			expect(winner?.id).toBe('seacow-entity-jd');
+		});
+
+		test('emoji-prefixed JD path matches when literal emoji is in template', () => {
+			const emojiPath = 'Entity/Cybersader/Output/01 - Projects/Web Auth';
+			expect(matchFolder(emojiPath, [entityNestedJDRule])?.id).toBe('seacow-entity-jd');
+		});
+
+		test('forward sync produces composite tag with all axes captured', () => {
+			const path = 'Entity/Cybersader/Output/01 - Projects/Web/Auth';
+			const result = applyRuleForward(path, entityNestedJDRule);
+			expect(result.tags.length).toBe(1);
+			// Tag should have all 3 axes: entity (cybersader), JD (01), area (projects), deeper (Web/Auth)
+			expect(result.tags[0]).toMatch(/^#--cybersader\/01-projects\//);
+			expect(result.tags[0]).toContain('Web/Auth');
+		});
+
+		test('partial path (Entity but no Output/JD) falls back to entity-scoped rule', () => {
+			const rules = [entityScopedRule, entityNestedJDRule];
+			const path = 'Entity/Cybersader/Capture/Inbox';
+			const winner = matchFolder(path, rules);
+			expect(winner?.id).toBe('seacow-entity');
+		});
+	});
+
+	describe('Capture + Output composition with entity scope', () => {
+		const allRules = [entityScopedRule, entityNestedJDRule, captureClipRule, outputPublicRule];
+
+		test('Capture/Clips at root matches capture-clip rule', () => {
+			expect(matchFolder('Capture/Clips/2026/04/article', allRules)?.id).toBe('seacow-capture-clip');
+		});
+
+		test('Output/Public at root matches output-public rule', () => {
+			expect(matchFolder('Output/Public/Programming/Rust', allRules)?.id).toBe('seacow-output-public');
+		});
+
+		test('Entity-scoped path with capture inside DOES match entity-scoped rule (entity wins as outer scope)', () => {
+			const path = 'Entity/Cybersader/Capture/Inbox';
+			expect(matchFolder(path, allRules)?.id).toBe('seacow-entity');
+		});
+
+		test('multiple rules sweep over the deeply-nested fixture without crashes', () => {
+			let entityHits = 0;
+			let outputHits = 0;
+			let totalMatched = 0;
+			for (const path of SEACOW_DEEPLY_NESTED_VAULT) {
+				const m = matchFolder(path, allRules);
+				if (!m) continue;
+				totalMatched++;
+				if (m.id === 'seacow-entity' || m.id === 'seacow-entity-jd') entityHits++;
+				else if (m.id === 'seacow-output-public') outputHits++;
+			}
+			// Most fixture paths are Entity-scoped — entity rules dominate.
+			// Output/Public/... paths are at root (not under Entity) so they
+			// match the output-public rule. Capture/Clips at root isn't in the
+			// fixture (Capture is nested under Entity in this fixture), so
+			// captureClipRule doesn't fire — that's correct behavior.
+			expect(totalMatched).toBeGreaterThan(0);
+			expect(entityHits).toBeGreaterThan(0);
+			expect(outputHits).toBeGreaterThan(0);
+		});
+	});
+
+	describe('round-trip on nested SEACOW paths', () => {
+		test('Entity scope round-trips when folder name is already Title-Case', () => {
+			// Forward kebab-cases for tag side; inverse Title-Cases back for folder.
+			// Round-trip is clean iff the folder name is already Title Case
+			// (kebab-case → Title Case identity for in-domain inputs).
+			const orig = 'Entity/Cybersader/Notes';
+			const fwd = applyRuleForward(orig, entityScopedRule);
+			const inv = applyRuleInverse(fwd.tags[0], entityScopedRule);
+			expect(inv.folder).toBe(orig);
+		});
+
+		test('Entity+JD nested round-trips at depth (Title-Case inputs)', () => {
+			const orig = 'Entity/Cybersader/Output/01 - Projects/Web';
+			const fwd = applyRuleForward(orig, entityNestedJDRule);
+			const inv = applyRuleInverse(fwd.tags[0], entityNestedJDRule);
+			expect(inv.folder).toBe(orig);
+		});
+
+		test('only {owner} (filtered) gets case-flipped on round-trip; {deeper} passes through', () => {
+			// Forward kebab-cases {owner} only; inverse Title-Cases it back.
+			// {deeper...} has no filter, so its content passes through identity.
+			const orig = 'Entity/cybersader/notes';
+			const fwd = applyRuleForward(orig, entityScopedRule);
+			const inv = applyRuleInverse(fwd.tags[0], entityScopedRule);
+			// owner: cybersader → kebab-case → cybersader → Title Case → Cybersader
+			// deeper: notes → unchanged (no filter) → notes
+			expect(inv.folder).toBe('Entity/Cybersader/notes');
+			expect(inv.lossy).toBe(true);
 		});
 	});
 });

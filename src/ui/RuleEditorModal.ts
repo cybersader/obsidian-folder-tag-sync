@@ -94,7 +94,56 @@ const TEMPLATE_STARTERS: TemplateStarter[] = [
 		label: 'Root-only tag (promotion-to-root) — {num} - {name}/{deeper...} ↔ #{num}-{name | strip-invalid-tag-chars | kebab-case}',
 		folder: '{num} - {name}/{deeper...}',
 		tag: '#{num}-{name | strip-invalid-tag-chars | kebab-case}',
-		notes: 'Tag reflects ONLY the root area, ignoring deeper folder structure. File at "0 - Tasks/Q1/X.md" → tag "#0-tasks". File moved to "5 - Archive/Q1/X.md" → tag "#5-archive". Lossy by design (deeper info discarded going to tag), but that\'s the point — promotion-to-root semantics. Note: orphan-cleanup of the OLD tag on file move is not yet implemented (gap pending F3 frontmatter witness); the new tag gets added but the old one remains until manually removed.',
+		notes: 'Tag reflects ONLY the root area, ignoring deeper folder structure. File at "0 - Tasks/Q1/X.md" → tag "#0-tasks". File moved to "5 - Archive/Q1/X.md" → tag "#5-archive". Lossy by design (deeper info discarded going to tag), but that\'s the point — promotion-to-root semantics. With the F3 frontmatter witness enabled (per-rule), orphan cleanup correctly removes the old #0-tasks tag when the file moves to area 5.',
+	},
+	// ─── SEACOW(r) nested implementations ────────────────────────────────
+	// Templates following the cyberbase tag-prefix conventions:
+	//   #-     → CAPTURE
+	//   #--    → ENTITY (+ WORK by composition)
+	//   #_     → OUTPUT
+	//   #      → RELATION (plain)
+	// Source: github.com/cybersader/seacowr-knowledge-platform-meta-framework
+	{
+		id: 'seacow-capture-clip',
+		label: 'SEACOW capture/clip — Capture/Clips/{deeper...} ↔ #-clip/{deeper...}',
+		folder: 'Capture/Clips/{deeper...}',
+		tag: '#-clip/{deeper...}',
+		notes: 'Web clippings + raw captured material. Two-level depth recommended per SEACOW(r) capture rules. The "-" prefix sorts captures together at the top of Obsidian\'s tag pane.',
+	},
+	{
+		id: 'seacow-capture-inbox',
+		label: 'SEACOW capture/inbox (marker-only) — Capture/Inbox/{discarded...} ↔ #-inbox',
+		folder: 'Capture/Inbox/{discarded...}',
+		tag: '#-inbox',
+		notes: 'Flat marker tag for inbox items; deeper structure discarded going to tag. Lossy by design. Pair with F3 frontmatter witness (per-rule "Remember origin in frontmatter") for inverse round-trip recovery.',
+	},
+	{
+		id: 'seacow-entity-scoped',
+		label: 'SEACOW per-entity scoping — Entity/{owner}/{deeper...} ↔ #--{owner | kebab-case}/{deeper...}',
+		folder: 'Entity/{owner}/{deeper...}',
+		tag: '#--{owner | strip-invalid-tag-chars | kebab-case}/{deeper...}',
+		notes: 'Per-entity namespace. File at "Entity/Cybersader/Projects/Web/note.md" → tag "#--cybersader/Projects/Web/note.md". The "--" prefix marks Entity tags. Bidirectional. Composes naturally with other rules — descendants under Entity/Owner can also match nested rules (Output, Capture, etc.) for multi-axis tagging.',
+	},
+	{
+		id: 'seacow-entity-scoped-jd',
+		label: 'SEACOW Entity + JD nested — Entity/{owner}/Output/{num} - {area}/{deeper...}',
+		folder: 'Entity/{owner}/Output/{num:\\d{1,2}} - {name}/{deeper...}',
+		tag: '#--{owner | kebab-case}/{num}-{name | strip-invalid-tag-chars | kebab-case}/{deeper...}',
+		notes: 'Multi-axis: Entity + Output + JD numbering combined. Tier B regex on {num} ensures only digit-prefixed Output folders match. Demonstrates nested implementations — "Entity/Cybersader/Output/01 - Projects/Web Auth" → "#--cybersader/01-projects/Web Auth".',
+	},
+	{
+		id: 'seacow-output-public',
+		label: 'SEACOW Output/Public taxonomy — Output/Public/{topic}/{deeper...} ↔ #_/{topic | kebab-case}/{deeper...}',
+		folder: 'Output/Public/{topic}/{deeper...}',
+		tag: '#_/{topic | strip-invalid-tag-chars | kebab-case}/{deeper...}',
+		notes: 'Public-facing audience taxonomy. The "_" prefix marks OUTPUT tags. Deep nesting allowed (per SEACOW Output rules). Round-trips cleanly for inputs without invalid-tag chars.',
+	},
+	{
+		id: 'seacow-daily-notes',
+		label: 'Daily notes (date-glob) — 🕸️ Daily Notes/{deeper...} ↔ #daily/{deeper...}',
+		folder: '🕸️ Daily Notes/{deeper...}',
+		tag: '#daily/{deeper...}',
+		notes: 'Daily-notes folder with date-organized children. Plain "#daily" tag for RELATION axis (cross-cutting). Emoji prefix in the literal matches your folder convention exactly.',
 	},
 	{
 		id: 'emoji-prefix',

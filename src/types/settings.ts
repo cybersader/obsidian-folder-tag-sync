@@ -188,6 +188,21 @@ export interface RuleOptions {
 	// Special handling
 	handleFolderNote?: boolean;
 	moveAttachments?: boolean;
+
+	/**
+	 * F3 commit 1 — Passive frontmatter witness. When true, forward sync
+	 * writes a tracking record under the `fts:` namespace in the file's
+	 * frontmatter recording: origin folder path, rule id, slot values, and
+	 * the tags FTS wrote. This data unblocks safe orphan-cleanup (A6) and
+	 * cross-area-move detection (A5) — without it, the engine can't tell
+	 * which tags it owns vs which the user added manually.
+	 *
+	 * Off by default — explicit opt-in to avoid polluting frontmatter unless
+	 * the user wants the recovery / cleanup features.
+	 *
+	 * Per docs/concepts/bijectivity-detection.md "F3 plug-in seam".
+	 */
+	frontmatterMemory?: boolean;
 }
 
 export const DEFAULT_SETTINGS: DynamicTagsFoldersSettings = {

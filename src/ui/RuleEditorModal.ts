@@ -11,12 +11,15 @@ import { isTransformReversible } from '../transformers/pipeline';
 import { validateRegexPattern } from '../transformers/regexTransformers';
 import { previewRule } from '../engine/rulePreview';
 import { inferTypedModel } from '../engine/inferTyped';
+import { compileTemplate, computeBijectivity, TemplateParseError } from '../engine/compileTemplate';
 import { ConfirmModal } from './ConfirmModal';
 import {
 	EntryPathSuggest,
 	collectFolderSources,
 	collectTagSources,
 } from './suggest/EntryPathSuggest';
+
+type RuleEditorMode = 'template' | 'regex';
 
 /**
  * Optional callback for the "Try guided" return-link in the advanced
@@ -44,6 +47,16 @@ export class RuleEditorModal extends Modal {
 		tagPattern: null,
 	};
 
+	// F2 commit 1d — Path Lens template mode toggle. New rules default to
+	// 'template'; existing regex-shaped rules open in 'regex' mode.
+	// Existing template-shaped rules (folderTemplate set) open in 'template'.
+	private editMode: RuleEditorMode = 'template';
+	// Template-side validation errors, mirror of regexErrors for the template mode.
+	private templateErrors: Record<'folderTemplate' | 'tagTemplate', string | null> = {
+		folderTemplate: null,
+		tagTemplate: null,
+	};
+
 	// Cached vault folder list — computed once on open, reused by the live
 	// preview panel on every input change.
 	private vaultFolderPaths: string[] = [];
@@ -64,6 +77,18 @@ export class RuleEditorModal extends Modal {
 
 		// Initialize with default values if new rule
 		this.rule = rule || this.createDefaultRule();
+
+		// Initial editor mode:
+		//  - existing rule with templates → template mode
+		//  - existing rule with only regex → regex mode
+		//  - new rule → template mode (canonical authoring path)
+		if (this.rule.folderTemplate || this.rule.tagTemplate) {
+			this.editMode = 'template';
+		} else if (this.rule.folderPattern || this.rule.tagPattern) {
+			this.editMode = 'regex';
+		} else {
+			this.editMode = 'template';
+		}
 	}
 
 	private createDefaultRule(): MappingRule {
@@ -298,6 +323,30 @@ export class RuleEditorModal extends Modal {
 		const section = containerEl.createDiv({ cls: 'rule-editor-section' });
 		new Setting(section).setName('Patterns').setHeading();
 
+		// F2 commit 1d — mode toggle: template vs regex.
+		new Setting(section)
+			.setName('Authoring shape')
+			.setDesc(
+				'Template mode uses named slots ({topic}, {deeper...}) and is the canonical path. ' +
+				'Regex mode is the power-user surface — for patterns templates cannot express.',
+			)
+			.addDropdown(dd => {
+				dd.addOption('template', 'Template (Path Lens)');
+				dd.addOption('regex', 'Regex (advanced)');
+				dd.setValue(this.editMode);
+				dd.onChange(value => {
+					this.editMode = value as RuleEditorMode;
+					// Re-render the modal to swap sections. Same pattern as
+					// the direction toggle.
+					this.onOpen();
+				});
+			});
+
+		if (this.editMode === 'template') {
+			this.buildTemplatePatternSection(section);
+			return;
+		}
+
 		const needsFolderPattern = this.rule.direction === 'folder-to-tag' || this.rule.direction === 'bidirectional';
 		const needsTagPattern = this.rule.direction === 'tag-to-folder' || this.rule.direction === 'bidirectional';
 
@@ -407,6 +456,151 @@ export class RuleEditorModal extends Modal {
 						});
 					new EntryPathSuggest(this.app, text.inputEl, tagSources);
 				});
+		}
+	}
+
+	/**
+	 * F2 commit 1d — render the template-mode pattern editor. Two text inputs
+	 * (folderTemplate + tagTemplate), a parse-error indicator under each, and
+	 * a status chip showing the bijectivity verdict (computed live).
+	 */
+	private buildTemplatePatternSection(section: HTMLElement) {
+		const needsFolder = this.rule.direction === 'folder-to-tag' || this.rule.direction === 'bidirectional';
+		const needsTag = this.rule.direction === 'tag-to-folder' || this.rule.direction === 'bidirectional';
+
+		const statusChip = section.createDiv({ cls: 'dtf-template-chip' });
+		statusChip.style.padding = '0.4em 0.7em';
+		statusChip.style.borderRadius = '4px';
+		statusChip.style.fontSize = '0.85em';
+		statusChip.style.marginBottom = '0.6em';
+		statusChip.style.display = 'inline-block';
+
+		const refreshChip = () => {
+			if (!this.rule.folderTemplate || !this.rule.tagTemplate) {
+				statusChip.style.background = 'var(--background-modifier-hover)';
+				statusChip.style.color = 'var(--text-muted)';
+				statusChip.setText('Authoring — both templates required for bijectivity check');
+				return;
+			}
+			const verdict = computeBijectivity(this.rule.folderTemplate, this.rule.tagTemplate);
+			if (verdict.status === 'total') {
+				statusChip.style.background = 'rgba(80, 200, 120, 0.15)';
+				statusChip.style.color = 'rgb(40, 140, 70)';
+				const slotNames = Object.keys(verdict.perSlot);
+				statusChip.setText(
+					slotNames.length > 0
+						? `Round-trips. Shared slots: ${slotNames.map((n) => `{${n}}`).join(', ')}`
+						: 'Round-trips (literal-only).',
+				);
+			} else if (verdict.status === 'conditional') {
+				statusChip.style.background = 'rgba(240, 180, 50, 0.18)';
+				statusChip.style.color = 'rgb(180, 110, 0)';
+				statusChip.setText(`Conditional bijection — ${verdict.reason ?? 'depends on input domain'}`);
+			} else {
+				statusChip.style.background = 'rgba(220, 90, 90, 0.16)';
+				statusChip.style.color = 'rgb(170, 50, 50)';
+				statusChip.setText(`Lossy — ${verdict.reason ?? 'cannot reverse'}`);
+			}
+		};
+
+		if (needsFolder) {
+			let folderInput: HTMLInputElement | null = null;
+			let folderErrEl: HTMLElement | null = null;
+			new Setting(section)
+				.setName('Folder template')
+				.setDesc('Path Lens template — e.g., Projects/{topic} or {area}/{topic}/{deeper...}')
+				.addText(text => {
+					folderInput = text.inputEl;
+					text
+						.setPlaceholder('Projects/{topic}')
+						.setValue(this.rule.folderTemplate ?? '')
+						.onChange(value => {
+							this.rule.folderTemplate = value || undefined;
+							this.updateTemplateValidationUI('folderTemplate', value, folderInput, folderErrEl);
+							refreshChip();
+						});
+				});
+			folderErrEl = section.createDiv({ cls: 'dtf-template-error' });
+			folderErrEl.style.color = 'var(--text-error)';
+			folderErrEl.style.fontSize = '0.8em';
+			folderErrEl.style.marginTop = '-0.3em';
+			folderErrEl.style.marginBottom = '0.5em';
+			folderErrEl.style.paddingLeft = '0.25em';
+			folderErrEl.style.display = 'none';
+			this.updateTemplateValidationUI(
+				'folderTemplate',
+				this.rule.folderTemplate ?? '',
+				folderInput,
+				folderErrEl,
+			);
+		}
+
+		if (needsTag) {
+			let tagInput: HTMLInputElement | null = null;
+			let tagErrEl: HTMLElement | null = null;
+			new Setting(section)
+				.setName('Tag template')
+				.setDesc('Path Lens template — e.g., #projects/{topic | kebab-case}')
+				.addText(text => {
+					tagInput = text.inputEl;
+					text
+						.setPlaceholder('#projects/{topic}')
+						.setValue(this.rule.tagTemplate ?? '')
+						.onChange(value => {
+							this.rule.tagTemplate = value || undefined;
+							this.updateTemplateValidationUI('tagTemplate', value, tagInput, tagErrEl);
+							refreshChip();
+						});
+				});
+			tagErrEl = section.createDiv({ cls: 'dtf-template-error' });
+			tagErrEl.style.color = 'var(--text-error)';
+			tagErrEl.style.fontSize = '0.8em';
+			tagErrEl.style.marginTop = '-0.3em';
+			tagErrEl.style.marginBottom = '0.5em';
+			tagErrEl.style.paddingLeft = '0.25em';
+			tagErrEl.style.display = 'none';
+			this.updateTemplateValidationUI(
+				'tagTemplate',
+				this.rule.tagTemplate ?? '',
+				tagInput,
+				tagErrEl,
+			);
+		}
+
+		refreshChip();
+	}
+
+	private updateTemplateValidationUI(
+		field: 'folderTemplate' | 'tagTemplate',
+		value: string,
+		inputEl: HTMLInputElement | null,
+		errorEl: HTMLElement | null,
+	) {
+		if (!inputEl || !errorEl) return;
+		if (!value) {
+			this.templateErrors[field] = null;
+			inputEl.removeClass('dtf-input-invalid');
+			inputEl.style.borderColor = '';
+			errorEl.style.display = 'none';
+			errorEl.setText('');
+			return;
+		}
+		try {
+			compileTemplate(value);
+			this.templateErrors[field] = null;
+			inputEl.removeClass('dtf-input-invalid');
+			inputEl.style.borderColor = '';
+			errorEl.style.display = 'none';
+			errorEl.setText('');
+		} catch (e) {
+			const msg = e instanceof TemplateParseError
+				? e.message.split('\n')[0].replace('Template parse error at position ', 'Position ')
+				: (e as Error).message;
+			this.templateErrors[field] = msg;
+			inputEl.addClass('dtf-input-invalid');
+			inputEl.style.borderColor = 'var(--text-error)';
+			errorEl.style.display = 'block';
+			errorEl.setText(msg);
 		}
 	}
 
@@ -790,18 +984,75 @@ export class RuleEditorModal extends Modal {
 		});
 
 		saveButton.addEventListener('click', () => {
-			// Block save on invalid regex — the user has already been shown
-			// the inline error, so just nudge them with a notice.
-			const regexProblems: string[] = [];
-			if (this.regexErrors.folderPattern) {
-				regexProblems.push(`Folder pattern: ${this.regexErrors.folderPattern}`);
-			}
-			if (this.regexErrors.tagPattern) {
-				regexProblems.push(`Tag pattern: ${this.regexErrors.tagPattern}`);
-			}
-			if (regexProblems.length > 0) {
-				new Notice(`Fix regex errors before saving: ${regexProblems.join('; ')}`);
-				return;
+			// F2 commit 1d — template-mode save: validate templates parse,
+			// auto-derive folderPattern + tagPattern from compiled regex, and
+			// clear the legacy regex fields if present (rule shape mutual
+			// exclusivity).
+			if (this.editMode === 'template') {
+				const templateProblems: string[] = [];
+				if (this.templateErrors.folderTemplate) {
+					templateProblems.push(`Folder template: ${this.templateErrors.folderTemplate}`);
+				}
+				if (this.templateErrors.tagTemplate) {
+					templateProblems.push(`Tag template: ${this.templateErrors.tagTemplate}`);
+				}
+				if (templateProblems.length > 0) {
+					new Notice(`Fix template errors before saving: ${templateProblems.join('; ')}`);
+					return;
+				}
+
+				// Direction-specific requirements
+				const needsFolder = this.rule.direction === 'folder-to-tag' || this.rule.direction === 'bidirectional';
+				const needsTag = this.rule.direction === 'tag-to-folder' || this.rule.direction === 'bidirectional';
+				if (needsFolder && !this.rule.folderTemplate) {
+					new Notice('Folder template is required for the selected direction.');
+					return;
+				}
+				if (needsTag && !this.rule.tagTemplate) {
+					new Notice('Tag template is required for the selected direction.');
+					return;
+				}
+
+				// Auto-derive runtime patterns from compiled templates so the
+				// matcher gates work. Same logic as rulePackLoader.validateTemplateRule.
+				try {
+					if (this.rule.folderTemplate) {
+						this.rule.folderPattern = compileTemplate(this.rule.folderTemplate).regex.source;
+					} else {
+						this.rule.folderPattern = undefined;
+					}
+					if (this.rule.tagTemplate) {
+						this.rule.tagPattern = compileTemplate(this.rule.tagTemplate).regex.source;
+					} else {
+						this.rule.tagPattern = undefined;
+					}
+				} catch (e) {
+					new Notice(`Template compile failed at save: ${(e as Error).message}`);
+					return;
+				}
+
+				// Stash the bijectivity verdict
+				if (this.rule.folderTemplate && this.rule.tagTemplate) {
+					const verdict = computeBijectivity(this.rule.folderTemplate, this.rule.tagTemplate);
+					this.rule.bijective = verdict.status === 'total';
+				}
+			} else {
+				// Regex mode — clear template fields so the rule shape stays clean.
+				this.rule.folderTemplate = undefined;
+				this.rule.tagTemplate = undefined;
+
+				// Block save on invalid regex.
+				const regexProblems: string[] = [];
+				if (this.regexErrors.folderPattern) {
+					regexProblems.push(`Folder pattern: ${this.regexErrors.folderPattern}`);
+				}
+				if (this.regexErrors.tagPattern) {
+					regexProblems.push(`Tag pattern: ${this.regexErrors.tagPattern}`);
+				}
+				if (regexProblems.length > 0) {
+					new Notice(`Fix regex errors before saving: ${regexProblems.join('; ')}`);
+					return;
+				}
 			}
 
 			const validation = validateRule(this.rule);

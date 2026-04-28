@@ -1,8 +1,8 @@
 {
   "version": 1,
-  "generatedAt": "2026-04-28T01:40:37.783Z",
+  "generatedAt": "2026-04-28T02:49:28.536Z",
   "packCount": 6,
-  "totalBytes": 38823,
+  "totalBytes": 40804,
   "packs": [
     {
       "id": "cyberbase-actual",
@@ -204,7 +204,7 @@
       "id": "templates-demo",
       "file": "templates-demo.json",
       "name": "Path Lens templates — demo",
-      "description": "Minimal demonstration pack showing each Path Lens shape (single-segment slot, glob slot, per-slot filters). Useful as a copy-paste reference when authoring template-shaped rules.",
+      "description": "Demonstration pack showing each Path Lens shape — identity, glob, filters, and convention-tolerant variants for emoji-prefixed and Johnny-Decimal-prefixed folder names. Use as a copy-paste reference when authoring template-shaped rules.",
       "version": "1.0.0",
       "author": "Cybersader",
       "axes": [
@@ -212,7 +212,7 @@
       ],
       "compatibleWith": [],
       "exclusiveWith": [],
-      "ruleCount": 4,
+      "ruleCount": 6,
       "detection": null,
       "establish": {
         "createFolders": [
@@ -222,7 +222,7 @@
         ],
         "summary": "Three folders demonstrating identity (Projects), filter chain (Areas with kebab-case), and marker-only-via-glob (Capture/Inbox)."
       },
-      "sizeBytes": 3602
+      "sizeBytes": 5583
     }
   ]
 }

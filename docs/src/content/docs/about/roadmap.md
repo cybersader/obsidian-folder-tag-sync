@@ -480,6 +480,28 @@ If real-world testing surfaces friction with the Tier A slot syntax (`{name}` / 
 - **Scope**: extends rule schema with `frontmatterConditions` (or extends slot syntax with property-source markers); inverse-direction algorithm reads property values when populating slots; UX surface in rule editor for declaring property dependencies.
 - **Sequencing**: probably ships *after* F2 but *before* extensive A2 plugin API work (since the API has to commit to whether `getFolderForTag(tag, file)` reads frontmatter properties).
 
+### A5 — Ordinal slot-value priority + auto-orphan-cleanup on cross-area moves
+
+- **What the user experiences**: in vaults that use numbered organizational systems (single-digit JD, two-digit JD, mixed JD-PARA), the captured slot value carries an *ordinal meaning* — lower number = higher priority / earlier in the workflow / closer to active work; higher number = archived / deeper / colder. When a file moves between numbered areas (e.g., `0 - Tasks/X` → `5 - Archive/X`, the user is implicitly *demoting* the file). The engine should recognize the cross-area move semantically and automatically clean up the now-orphaned higher-priority tag (`#0-tasks/x` removed when `#5-archive/x` is added).
+- **Status**: open feature request (raised 2026-04-28 during the catch-all `{num} - {name}/{deeper...}` discussion). No research yet.
+- **Depends on**: F1 (priority + group precedence — the structural framing); F2 (templates with the `{num}` slot to extract the numeric value); F3 (frontmatter witness — so the *previous* numeric slot value is recorded per-file and the engine knows what to clean up); A1 (conflict UI — surfacing the "tag to remove" decision before applying).
+- **Unlocks**: ergonomic JD-PARA hybrid workflows; "promote/demote a file" becomes a meaningful action; orphan-tag cleanup becomes value-aware rather than rule-presence-based; surfaces the underlying ordinal semantics that users already mentally use.
+- **Concrete example (the JD-PARA mix scenario)**:
+  - User has rule `{num} - {name}/{deeper...}` ↔ `#{num}-{name | strip-invalid-tag-chars | kebab-case}/{deeper...}` covering all numbered roots
+  - File at `0 - Tasks, Planning/Q4-Roadmap.md` has tag `#0-tasks-planning/q4-roadmap`
+  - User moves the file to `5 - Archive, Admin/Q4-Roadmap.md`
+  - Engine sees: same file, same `{name}` slot value (`Q4-Roadmap`), `{num}` changed from `0` to `5`. Recognizes cross-area move via slot-value diff.
+  - Forward sync emits new tag `#5-archive-admin/q4-roadmap`. The OLD tag `#0-tasks-planning/q4-roadmap` is now orphaned because the file isn't in `0 - Tasks, Planning` anymore.
+  - With `removeOrphanedTags: true` AND ordinal-priority awareness, engine knows to remove the lower-numbered tag automatically (the user "promoted to a higher number" = "archived" = "let the lower-priority tag go").
+  - Without ordinal-priority awareness, the orphan cleanup is purely structural — the engine removes ANY tag that no longer matches a rule's pattern. That works for clean cross-area moves but isn't ordinal-aware (e.g., wouldn't know that promoting *up* in priority should keep the lower-priority tag).
+- **Frontmatter-as-priority-source variant (can of worms — flagged for caution)**: priority could come from a frontmatter property (`status: archived` or `priority: low`) rather than a numeric slot. This composes with F4 (property-driven destination) — slot value pulled from frontmatter rather than path. Same ordinal-priority logic applies, but with arbitrary property values instead of digits. Risk: introduces a second source-of-truth for priority that can disagree with the path's numeric prefix; needs a clear precedence rule (e.g., "frontmatter wins for files that have it set; path-prefix used otherwise"). Defer until F4 is settled.
+- **Scope when designed**:
+  - Per-rule flag: `priorityFromSlot: '<slot-name>'` (e.g., `priorityFromSlot: 'num'`) marks which slot carries ordinal priority. Engine compares slot values to determine cross-area moves.
+  - Diff detection: at sync time, compare current vs previous slot values for the same file (requires F3 frontmatter witness for the "previous" reference).
+  - Cleanup policy: configurable — "always remove lower-priority orphans," "always remove any orphan," "prompt on diff," or "never auto-remove."
+  - UI: status chip per rule indicates "ordinal-priority-aware" + tooltip explaining the cleanup behavior.
+- **Implementation Priority**: post-MVP, after F3 lands (since this depends on the witness for tracking previous state). Genuinely complex; expect a research entry first.
+
 ### A4 — Information-flow asymmetry UX (which side preserves more info?)
 
 - **What the user experiences**: per-rule, the editor shows a directional indicator: *"Creating from the folder side preserves more information than the tag side"* (or vice versa, or "symmetric"). Surfaces the per-instance bijectivity reality that lossy filters create. Concrete example: with `{name | strip-invalid-tag-chars | kebab-case}`, authoring `1 - Tasks, Planning/note.md` produces tag `#1-tasks-planning/note.md`. If a future user creates JUST the tag `#1-tasks-planning` (no folder yet), the inverse-created folder is `1 - tasks-planning` (no comma, no Title Case). The tag→folder direction can't recover what the original folder had.

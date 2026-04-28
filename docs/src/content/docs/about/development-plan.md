@@ -474,6 +474,20 @@ The modal is silent for unambiguous cases (single match, or specificity-clear wi
 
 **Cross-cutting**: this is genuinely a research-frontier-adjacent feature (no current tool does context-aware destination resolution at file granularity). Treating it carefully — explicit research entry, decision gate, user testing partnership at every step.
 
+## A5 — Ordinal slot-value priority + auto-orphan-cleanup on cross-area moves (Application, post-MVP)
+
+Surfaced 2026-04-28 during JD-PARA hybrid testing. Full description in [roadmap A5](/obsidian-folder-tag-sync/about/roadmap/#a5--ordinal-slot-value-priority--auto-orphan-cleanup-on-cross-area-moves). Brief summary for sequencing:
+
+**The insight**: when a slot captures an ordinal value (e.g., `{num}` capturing `0`/`1`/`...99`), that value carries semantic meaning beyond identity matching. Lower number = higher priority / closer to active work; higher number = archived. Cross-area file moves are *ordinal demotions or promotions*, and the engine could recognize them as such for smarter orphan cleanup.
+
+**Why this comes after F3**: the engine needs the *previous* slot value to detect a cross-area move. F3 (frontmatter witness) is the natural place to record that. Without F3, the engine only sees "rule X no longer matches, rule Y now does" — purely structural orphan, no ordinal awareness.
+
+**Sequencing**: post-MVP. Probably after F3 commit 1 + F3 commit 2 (active disambiguator) since those provide the prior-state lookup. Worth its own research entry before implementation — the frontmatter-as-priority-source variant in particular is a can-of-worms that needs careful design (precedence between path-prefix priority and frontmatter priority when they disagree).
+
+**Relationship to F1 (priority + groups)**: F1 has *static* priority (set at rule-author time, used for cross-rule ordering). A5 is *dynamic* priority (derived per-instance from the slot value at sync time). They compose: F1 picks which rule wins; A5 informs orphan cleanup once the rule has fired.
+
+**Out-of-scope for this iteration**: implementation. This entry exists to ensure the design space is captured before we forget; concrete work is gated on F3 first.
+
 ---
 
 ## Cross-cutting work: orphan and relation-tag semantics

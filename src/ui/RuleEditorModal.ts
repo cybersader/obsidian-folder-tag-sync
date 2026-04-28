@@ -1600,9 +1600,13 @@ export class RuleEditorModal extends Modal {
 			for (const sample of preview.samples) {
 				const row = samplesList.createDiv();
 				row.style.color = 'var(--text-normal)';
+				// applyRuleForward (and applyTemplateRuleForward) already
+				// return tags with their `#` prefix. Don't double-prepend.
 				const tagPart = preview.opaqueByDesign
 					? '(no tag emitted)'
-					: sample.tags.map((t) => `#${t}`).join(', ');
+					: sample.tags
+							.map((t) => (t.startsWith('#') ? t : `#${t}`))
+							.join(', ');
 				row.setText(`${sample.folder} → ${tagPart}`);
 			}
 		} else if (preview.matchCount === 0 && !preview.opaqueByDesign) {

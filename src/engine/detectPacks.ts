@@ -23,6 +23,15 @@
  * Exclusivity: callers (UI) consult `pack.exclusiveWith` to flag conflicts
  * AFTER detection — the engine itself doesn't filter exclusives, it just
  * reports what fires.
+ *
+ * Emoji / number-prefix normalization: real-world Obsidian vaults often use
+ * decorative emoji and Johnny-Decimal-style numeric prefixes on folder
+ * names (`📁 01 - Projects`, `⬇️ INBOX`, etc.). Pack signals are typically
+ * written against the *semantic* name (`^Projects$`, `^INBOX$`). To bridge
+ * the two, every target string is tested in both raw form AND a normalized
+ * form (emoji + JD-prefix stripped). Either match counts as a signal hit.
+ * Without this, JD users would silently get "0 packs detected" on a vault
+ * that very obviously uses a known organizational system.
  */
 
 export interface DetectionSignalResult {
@@ -70,6 +79,59 @@ export interface ManifestPackEntry {
 const MAX_EXAMPLES = 3;
 
 /**
+ * Strip decorative emoji + JD numeric prefix from a folder/path string for
+ * detection purposes only. The original string is preserved in the result
+ * (for example display); normalization is purely a matching-time operation.
+ *
+ * Examples:
+ *   "📁 01 - Projects" → "Projects"
+ *   "⬇️ INBOX"        → "INBOX"
+ *   "21 - Work"       → "Work"
+ *   "Projects"        → "Projects"  (no-op)
+ *
+ * Path-scoped targets get per-segment normalization to handle nested
+ * decorations like "📁 01 - Areas/⬇️ Inbox/...".
+ */
+function normalizeForMatching(target: string): string {
+	// Strip emoji using the same Unicode ranges as `transformers/emojiTransformers.ts`
+	// (kept inline rather than imported to keep this engine module dependency-free).
+	const stripped = target
+		.replace(/[\u{1F600}-\u{1F64F}]/gu, '')
+		.replace(/[\u{1F300}-\u{1F5FF}]/gu, '')
+		.replace(/[\u{1F680}-\u{1F6FF}]/gu, '')
+		.replace(/[\u{1F1E0}-\u{1F1FF}]/gu, '')
+		.replace(/[\u{2600}-\u{26FF}]/gu, '')
+		.replace(/[\u{2700}-\u{27BF}]/gu, '')
+		.replace(/[\u{1F900}-\u{1F9FF}]/gu, '')
+		.replace(/[\u{2B00}-\u{2BFF}]/gu, '')
+		.replace(/[\u{FE00}-\u{FE0F}]/gu, '')
+		.replace(/\s+/g, ' ')
+		.trim();
+
+	// Strip JD numeric prefix per segment ("01 - Projects" → "Projects").
+	const stripJD = (segment: string): string => {
+		const jdMatch = segment.match(/^\d+\s*-\s*(.+)$/);
+		if (jdMatch) return jdMatch[1].trim();
+		const simpleMatch = segment.match(/^\d+\.?\s+(.+)$/);
+		if (simpleMatch) return simpleMatch[1].trim();
+		return segment;
+	};
+
+	return stripped.split('/').map(stripJD).join('/');
+}
+
+/**
+ * Test a regex against both the raw target and a normalized form (emoji-
+ * stripped, JD-prefix-stripped). Either match counts.
+ */
+function matchesNormalized(regex: RegExp, target: string): boolean {
+	if (regex.test(target)) return true;
+	const normalized = normalizeForMatching(target);
+	if (normalized !== target && regex.test(normalized)) return true;
+	return false;
+}
+
+/**
  * Score every pack in `manifest` against the vault's `folderPaths`.
  * Returns results in descending score order. Packs that don't fire (zero
  * matched signals) are omitted.
@@ -112,7 +174,9 @@ export function detectPacks(
 				const target = scope === 'path' ? f.path : scope === 'leafName' ? f.leaf : f.leaf;
 				// Note: 'name' and 'leafName' both check the leaf — the field exists
 				// for clarity in pack authoring; treat them as aliases at runtime.
-				if (regex.test(target)) {
+				// Emoji + JD-prefix normalization happens transparently — see
+				// `matchesNormalized` for why.
+				if (matchesNormalized(regex, target)) {
 					examples.push(f.path);
 					if (examples.length >= MAX_EXAMPLES) break;
 				}

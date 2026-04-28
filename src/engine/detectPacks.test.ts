@@ -388,3 +388,75 @@ describe('detectPacks — fixture vaults × real pack metadata', () => {
 		expect(results).toEqual([]);
 	});
 });
+
+// ─── Emoji + JD-prefix normalization (user-reported bug fix) ────────────
+
+describe('detectPacks — emoji + JD-prefix tolerance', () => {
+	const PARA_PACK: ManifestPackEntry = {
+		id: 'para',
+		name: 'PARA',
+		detection: {
+			anyOf: [
+				{ folderRegex: '^Projects$', scope: 'name', label: 'Projects' },
+				{ folderRegex: '^Areas$', scope: 'name', label: 'Areas' },
+				{ folderRegex: '^Resources$', scope: 'name', label: 'Resources' },
+				{ folderRegex: '^Archive$', scope: 'name', label: 'Archive' },
+			],
+			minSignals: 2,
+		},
+	};
+
+	const JD_PACK: ManifestPackEntry = {
+		id: 'jd',
+		name: 'Johnny Decimal',
+		detection: {
+			anyOf: [
+				{ folderRegex: '^\\d{2}-\\d{2}\\s', scope: 'name', label: 'JD area' },
+			],
+			minSignals: 1,
+		},
+	};
+
+	test('emoji-prefixed PARA folders detected (📁 Projects, 📁 Areas)', () => {
+		const folders = ['📁 Projects', '📁 Areas', 'random'];
+		const results = detectPacks(folders, [PARA_PACK]);
+		expect(results.length).toBeGreaterThan(0);
+		const para = results.find((r) => r.packId === 'para');
+		expect(para?.signalsHit).toBe(2);
+	});
+
+	test('JD-prefixed PARA folders detected (01 - Projects, 02 - Areas)', () => {
+		const folders = ['01 - Projects', '02 - Areas'];
+		const results = detectPacks(folders, [PARA_PACK]);
+		const para = results.find((r) => r.packId === 'para');
+		expect(para?.signalsHit).toBe(2);
+	});
+
+	test('emoji + JD combined (📁 01 - Projects, 📁 02 - Areas)', () => {
+		const folders = ['📁 01 - Projects', '📁 02 - Areas'];
+		const results = detectPacks(folders, [PARA_PACK]);
+		const para = results.find((r) => r.packId === 'para');
+		expect(para?.signalsHit).toBe(2);
+	});
+
+	test('clean folders still match (no normalization needed)', () => {
+		const folders = ['Projects', 'Areas'];
+		const results = detectPacks(folders, [PARA_PACK]);
+		const para = results.find((r) => r.packId === 'para');
+		expect(para?.signalsHit).toBe(2);
+	});
+
+	test('JD pack detection still works on raw JD-prefixed names', () => {
+		const folders = ['21-29 Work', '11-19 Personal'];
+		const results = detectPacks(folders, [JD_PACK]);
+		expect(results.length).toBe(1);
+		expect(results[0].packId).toBe('jd');
+		expect(results[0].signalsHit).toBe(1);
+	});
+
+	test('false-positive guard: emoji-prefixed unrelated folder does not match PARA', () => {
+		const folders = ['📁 Notes', '📁 Daily'];
+		const results = detectPacks(folders, [PARA_PACK]);
+		expect(results).toEqual([]);
+	});
+});

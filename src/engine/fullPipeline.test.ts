@@ -491,25 +491,13 @@ describe('full pipeline — root-case scenarios', () => {
 		}
 	});
 
-	test('Framework folders (CISv8 + CRI) match correctly', () => {
-		const rules = loadPack('enterprise-jd-vault.json');
-		for (const r of rules) r.enabled = true;
-		// CISv8/{control}/{deeper...} — control is segment, deeper is trailing-optional-glob
-		// CISv8 alone: no — segment slot {control} is not optional
-		expect(matchFolder('CISv8', rules)).toBeNull();
-		// CISv8/1 (bare control) matches via trailing-glob relaxation
-		expect(matchFolder('CISv8/1', rules)?.id).toBe('ent-cisv8');
-		expect(matchFolder('CISv8/10/Subitem', rules)?.id).toBe('ent-cisv8');
-		// CRI/DE matches
-		expect(matchFolder('CRI/DE', rules)?.id).toBe('ent-cri');
-	});
 
 	test('Enterprise pack detects on the ENTERPRISE_JD_DEEP_VAULT fixture', () => {
 		const manifest = loadManifest();
 		const results = detectPacks(ENTERPRISE_JD_DEEP_VAULT, manifest);
 		const ent = results.find((r) => r.packId === 'enterprise-jd-vault');
 		expect(ent).toBeDefined();
-		// minSignals=4; the fixture has 9 numbered roots + CISv8 + CRI = 11 signals
+		// minSignals=4; the fixture has 9 numbered roots
 		expect(ent!.signalsHit).toBeGreaterThanOrEqual(8);
 	});
 
@@ -632,19 +620,19 @@ describe('full pipeline — catch-all {num} - {name}/{deeper...} handles cross-a
 	});
 
 	test('catch-all does NOT match non-numbered roots (no false positives)', () => {
-		// `Templates`, `_attachments`, `CISv8` etc. don't match `{num} - {name}/...`
+		// `Templates`, `_attachments`, `Bases Templates` etc. don't match `{num} - {name}/...`
 		// because the literal " - " requires the leading numeric prefix.
 		const compiled = new RegExp(catchallRule.folderTemplate ?
 			require('./compileTemplate').compileTemplate(catchallRule.folderTemplate).regex.source : '');
 		expect(applyRuleForward('Templates', catchallRule).tags).toEqual([]);
 		expect(applyRuleForward('_attachments', catchallRule).tags).toEqual([]);
-		expect(applyRuleForward('CISv8', catchallRule).tags).toEqual([]);
+		expect(applyRuleForward('Bases Templates', catchallRule).tags).toEqual([]);
 		expect(applyRuleForward('Random folder name', catchallRule).tags).toEqual([]);
 	});
 
 	test('catch-all enterprise vault sweep: every numbered root gets a tag, non-numbered ones do not', () => {
 		// Realistic mass-test using the enterprise fixture. Numbered roots tag;
-		// special folders (CISv8, Templates, _attachments, etc.) don't.
+		// special folders (Templates, _attachments, etc.) don't.
 		const numberedHits = ENTERPRISE_JD_DEEP_VAULT.filter(p => /^\d{1,2} - /.test(p));
 		const nonNumberedHits = ENTERPRISE_JD_DEEP_VAULT.filter(p => !/^\d{1,2} - /.test(p));
 		for (const path of numberedHits) {

@@ -1,8 +1,8 @@
 {
   "version": 1,
-  "generatedAt": "2026-04-28T13:27:15.987Z",
+  "generatedAt": "2026-04-28T14:40:36.524Z",
   "packCount": 7,
-  "totalBytes": 49050,
+  "totalBytes": 47696,
   "packs": [
     {
       "id": "cyberbase-actual",
@@ -22,9 +22,9 @@
     {
       "id": "enterprise-jd-vault",
       "file": "enterprise-jd-vault.json",
-      "name": "Enterprise JD vault (single-digit JD + framework folders)",
-      "description": "Template-shaped pack matching a generic enterprise knowledge vault with single-digit JD-style numbered roots (0 - Tasks/, 1 - Workspaces/, ... 7 - Vault Config/), 99 - ARCHIVE, and control-framework folders (CISv8/, CRI/). All rules ship disabled — review and enable.",
-      "version": "1.0.0",
+      "name": "Enterprise JD vault (single-digit numbered roots)",
+      "description": "Template-shaped pack matching a generic enterprise knowledge vault with single-digit JD-style numbered roots (0 - Tasks/, 1 - Workspaces/, ... 7 - Vault Config/) plus 99 - ARCHIVE. All rules ship disabled — review and enable.",
+      "version": "1.0.1",
       "author": "Cybersader",
       "axes": [
         "work",
@@ -33,7 +33,7 @@
       ],
       "compatibleWith": [],
       "exclusiveWith": [],
-      "ruleCount": 11,
+      "ruleCount": 9,
       "detection": {
         "anyOf": [
           {
@@ -80,23 +80,13 @@
             "folderRegex": "^99 - ARCHIVE",
             "scope": "name",
             "label": "99 - ARCHIVE"
-          },
-          {
-            "folderRegex": "^CISv8$",
-            "scope": "name",
-            "label": "CISv8 framework folder"
-          },
-          {
-            "folderRegex": "^CRI$",
-            "scope": "name",
-            "label": "CRI framework folder"
           }
         ],
         "minSignals": 4,
         "scopedUnder": null
       },
       "establish": null,
-      "sizeBytes": 8224
+      "sizeBytes": 6870
     },
     {
       "id": "jd",

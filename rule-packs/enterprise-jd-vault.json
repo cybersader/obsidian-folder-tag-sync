@@ -1,8 +1,8 @@
 {
 	"id": "enterprise-jd-vault",
-	"name": "Enterprise JD vault (single-digit JD + framework folders)",
-	"description": "Template-shaped pack matching a generic enterprise knowledge vault with single-digit JD-style numbered roots (0 - Tasks/, 1 - Workspaces/, ... 7 - Vault Config/), 99 - ARCHIVE, and control-framework folders (CISv8/, CRI/). All rules ship disabled — review and enable.",
-	"version": "1.0.0",
+	"name": "Enterprise JD vault (single-digit numbered roots)",
+	"description": "Template-shaped pack matching a generic enterprise knowledge vault with single-digit JD-style numbered roots (0 - Tasks/, 1 - Workspaces/, ... 7 - Vault Config/) plus 99 - ARCHIVE. All rules ship disabled — review and enable.",
+	"version": "1.0.1",
 	"author": "Cybersader",
 
 	"axes": ["work", "system", "capture"],
@@ -19,9 +19,7 @@
 			{ "folderRegex": "^5 - Archive", "scope": "name", "label": "5 - Archive, Admin" },
 			{ "folderRegex": "^6 - Ideation", "scope": "name", "label": "6 - Ideation, Sandbox" },
 			{ "folderRegex": "^7 - Vault Config", "scope": "name", "label": "7 - Vault Config & Management" },
-			{ "folderRegex": "^99 - ARCHIVE", "scope": "name", "label": "99 - ARCHIVE" },
-			{ "folderRegex": "^CISv8$", "scope": "name", "label": "CISv8 framework folder" },
-			{ "folderRegex": "^CRI$", "scope": "name", "label": "CRI framework folder" }
+			{ "folderRegex": "^99 - ARCHIVE", "scope": "name", "label": "99 - ARCHIVE" }
 		],
 		"minSignals": 4,
 		"scopedUnder": null
@@ -198,50 +196,12 @@
 				"syncOnFileRename": true,
 				"onConflict": "prompt"
 			}
-		},
-		{
-			"id": "ent-cisv8",
-			"name": "CISv8 framework",
-			"description": "CISv8/{control}/{deeper...} ↔ #cisv8/{control}/{deeper...} — CIS controls library",
-			"enabled": false,
-			"priority": 20,
-			"direction": "bidirectional",
-			"folderTemplate": "CISv8/{control}/{deeper...}",
-			"tagTemplate": "#cisv8/{control}/{deeper...}",
-			"options": {
-				"createFolders": true,
-				"addTags": true,
-				"removeOrphanedTags": false,
-				"syncOnFileCreate": true,
-				"syncOnFileMove": true,
-				"syncOnFileRename": true,
-				"onConflict": "prompt"
-			}
-		},
-		{
-			"id": "ent-cri",
-			"name": "CRI framework",
-			"description": "CRI/{function}/{deeper...} ↔ #cri/{function}/{deeper...} — CRI Profile (DE/EX/GV/ID/PR/RC/RS)",
-			"enabled": false,
-			"priority": 21,
-			"direction": "bidirectional",
-			"folderTemplate": "CRI/{function}/{deeper...}",
-			"tagTemplate": "#cri/{function}/{deeper...}",
-			"options": {
-				"createFolders": true,
-				"addTags": true,
-				"removeOrphanedTags": false,
-				"syncOnFileCreate": true,
-				"syncOnFileMove": true,
-				"syncOnFileRename": true,
-				"onConflict": "prompt"
-			}
 		}
 	],
 
 	"notes": [
-		"All 11 rules ship DISABLED. Review them in the rule list and enable individually or via 'Enable all just-imported'.",
+		"All 9 rules ship DISABLED. Review them in the rule list and enable individually or via 'Enable all just-imported'.",
 		"Folder templates use the trailing-glob relaxation — '0 - Tasks, Planning/{deeper...}' matches the bare '0 - Tasks, Planning' folder AND any descendant.",
-		"Detection requires 4+ of the 11 numbered/framework roots to surface this pack."
+		"Detection requires 4+ of the 9 numbered roots to surface this pack."
 	]
 }

@@ -1,4 +1,5 @@
-import { App, Plugin, TFile, Notice, Modal } from 'obsidian';
+import { App, Plugin, TFile, TFolder, Notice, Modal } from 'obsidian';
+import { buildCoverageReport, type VaultCoverageReport } from './engine/ruleCoverage';
 import { DynamicTagsFoldersSettings, DEFAULT_SETTINGS, MappingRule } from './types/settings';
 import { SettingsTab } from './ui/SettingsTab';
 import { RulePackPickerModal } from './ui/RulePackPickerModal';
@@ -94,6 +95,15 @@ export default class DynamicTagsFoldersPlugin extends Plugin {
 			name: 'Sync entire vault (folder→tag)',
 			callback: () => {
 				void this.confirmAndSyncEntireVault();
+			}
+		});
+
+		// Coverage report — read-only "where do my rules apply" view
+		this.addCommand({
+			id: 'show-rule-coverage',
+			name: 'Show rule coverage report (where rules apply)',
+			callback: () => {
+				void this.showRuleCoverage();
 			}
 		});
 
@@ -394,6 +404,51 @@ export default class DynamicTagsFoldersPlugin extends Plugin {
 	}
 
 	/**
+	 * Build a vault-wide coverage report grouped by rule + open a read-only
+	 * modal showing where each enabled rule applies (folders + tags),
+	 * conflicts where multiple rules overlap, and unmatched folders.
+	 */
+	async showRuleCoverage(): Promise<void> {
+		new Notice('Computing rule coverage report...');
+		try {
+			// Walk vault folders
+			const folderPaths: string[] = [];
+			const walk = (folder: TFolder) => {
+				for (const child of folder.children) {
+					if (child instanceof TFolder) {
+						folderPaths.push(child.path);
+						walk(child);
+					}
+				}
+			};
+			walk(this.app.vault.getRoot());
+
+			// Collect all tags from metadata cache
+			const tagsSet = new Set<string>();
+			const allFiles = this.app.vault.getMarkdownFiles();
+			for (const file of allFiles) {
+				const cache = this.app.metadataCache.getFileCache(file);
+				if (cache?.frontmatter?.tags) {
+					const fmTags = cache.frontmatter.tags;
+					if (Array.isArray(fmTags)) {
+						for (const t of fmTags) tagsSet.add(String(t).startsWith('#') ? String(t) : `#${t}`);
+					} else if (typeof fmTags === 'string') {
+						tagsSet.add(fmTags.startsWith('#') ? fmTags : `#${fmTags}`);
+					}
+				}
+				if (cache?.tags) for (const t of cache.tags) tagsSet.add(t.tag);
+			}
+
+			const report = buildCoverageReport(this.settings.rules, folderPaths, [...tagsSet]);
+			new RuleCoverageModal(this.app, report).open();
+		} catch (err) {
+			const msg = err instanceof Error ? err.message : String(err);
+			await this.debugLogger.error('Coverage report failed', { error: msg });
+			new Notice(`Coverage report failed: ${msg}`);
+		}
+	}
+
+	/**
 	 * Confirm + run full vault sync. Skips the modal preview (user invoked
 	 * directly). Use the preview command first if you want to see changes first.
 	 */
@@ -535,5 +590,185 @@ class VaultSyncPreviewModal extends Modal {
 			this.close();
 			await this.onApply();
 		});
+	}
+}
+
+/**
+ * Rule coverage report — read-only modal showing where each enabled rule
+ * applies. Per-rule grouped: matching folders + sample emissions on the
+ * forward side, matching tags on the inverse side. Plus conflicts (folders
+ * matched by 2+ rules) and unmatched folders.
+ *
+ * Answers the user's question "how do I know what will get forward or back
+ * synced?" — by enumerating the matches across the vault, grouped by rule,
+ * before any sync runs.
+ */
+class RuleCoverageModal extends Modal {
+	constructor(app: App, private readonly report: VaultCoverageReport) {
+		super(app);
+	}
+
+	onOpen(): void {
+		const { contentEl, modalEl } = this;
+		contentEl.empty();
+		modalEl.style.width = 'min(900px, 95vw)';
+		contentEl.addClass('dtf-coverage-modal');
+
+		contentEl.createEl('h2', { text: 'Rule coverage report' });
+
+		// Aggregate summary
+		const summary = contentEl.createDiv();
+		summary.style.padding = '0.6em 0.8em';
+		summary.style.background = 'var(--background-modifier-form-field)';
+		summary.style.borderRadius = '4px';
+		summary.style.marginBottom = '0.8em';
+		summary.style.fontSize = '0.9em';
+		summary.style.lineHeight = '1.6';
+		summary.createEl('div', {
+			text: `${this.report.totalFolders} folders + ${this.report.totalTags} distinct tags scanned`,
+		});
+		summary.createEl('div', {
+			text: `${this.report.forwardCoverage.length} forward rule(s) · ${this.report.inverseCoverage.length} inverse rule(s) · ${this.report.conflicts.length} conflict(s)`,
+		});
+
+		// Conflicts (most important — surface first)
+		if (this.report.conflicts.length > 0) {
+			const conflictSection = contentEl.createDiv();
+			conflictSection.style.padding = '0.6em 0.8em';
+			conflictSection.style.background = 'rgba(220, 90, 90, 0.10)';
+			conflictSection.style.borderLeft = '3px solid rgb(170, 50, 50)';
+			conflictSection.style.borderRadius = '4px';
+			conflictSection.style.marginBottom = '0.8em';
+			conflictSection.createEl('div', {
+				text: `⚠ ${this.report.conflicts.length} folder(s) matched by 2+ rules`,
+			}).style.fontWeight = '600';
+			const conflictList = conflictSection.createDiv();
+			conflictList.style.fontSize = '0.85em';
+			conflictList.style.fontFamily = 'var(--font-monospace)';
+			conflictList.style.marginTop = '0.4em';
+			for (const c of this.report.conflicts.slice(0, 10)) {
+				const row = conflictList.createDiv();
+				row.setText(`${c.folderPath} → [${c.matchingRuleIds.join(', ')}]`);
+			}
+			if (this.report.conflicts.length > 10) {
+				conflictList.createEl('div', {
+					text: `… ${this.report.conflicts.length - 10} more`,
+				}).style.color = 'var(--text-muted)';
+			}
+		}
+
+		// Per-rule forward coverage (folder → tag direction)
+		if (this.report.forwardCoverage.length > 0) {
+			const fwdHeader = contentEl.createEl('h3', { text: 'Forward direction (folder → tag)' });
+			fwdHeader.style.marginTop = '0.8em';
+			for (const cov of this.report.forwardCoverage) {
+				const ruleSection = contentEl.createDiv();
+				ruleSection.style.padding = '0.5em 0.7em';
+				ruleSection.style.background = 'var(--background-secondary)';
+				ruleSection.style.borderRadius = '4px';
+				ruleSection.style.marginBottom = '0.5em';
+
+				const ruleHeader = ruleSection.createDiv();
+				ruleHeader.style.fontWeight = '600';
+				ruleHeader.style.marginBottom = '0.3em';
+				ruleHeader.setText(`${cov.ruleName} — ${cov.matchedFolderCount} folder(s)`);
+
+				if (cov.matchedFolderCount === 0) {
+					ruleSection.createDiv({ text: '(no matches)' }).style.color = 'var(--text-muted)';
+					continue;
+				}
+
+				const samples = ruleSection.createDiv();
+				samples.style.fontFamily = 'var(--font-monospace)';
+				samples.style.fontSize = '0.82em';
+				samples.style.lineHeight = '1.5';
+				const display = cov.sampleEmissions.slice(0, 5);
+				for (const s of display) {
+					const row = samples.createDiv();
+					row.createSpan({ text: s.folder });
+					row.createSpan({ text: ' → ' });
+					row.createSpan({
+						text: s.tags.map(t => (t.startsWith('#') ? t : `#${t}`)).join(', '),
+						cls: 'dtf-tag-add',
+					}).style.color = 'var(--text-success, rgb(40, 140, 70))';
+				}
+				if (cov.matchedFolderCount > display.length) {
+					samples.createEl('div', {
+						text: `… ${cov.matchedFolderCount - display.length} more`,
+					}).style.color = 'var(--text-muted)';
+				}
+			}
+		}
+
+		// Per-rule inverse coverage (tag → folder direction)
+		if (this.report.inverseCoverage.length > 0) {
+			const invHeader = contentEl.createEl('h3', { text: 'Inverse direction (tag → folder)' });
+			invHeader.style.marginTop = '0.8em';
+			for (const cov of this.report.inverseCoverage) {
+				const ruleSection = contentEl.createDiv();
+				ruleSection.style.padding = '0.5em 0.7em';
+				ruleSection.style.background = 'var(--background-secondary)';
+				ruleSection.style.borderRadius = '4px';
+				ruleSection.style.marginBottom = '0.5em';
+
+				const ruleHeader = ruleSection.createDiv();
+				ruleHeader.style.fontWeight = '600';
+				ruleHeader.style.marginBottom = '0.3em';
+				ruleHeader.setText(`${cov.ruleName} — ${cov.matchedTagCount} tag(s) match`);
+
+				if (cov.matchedTagCount === 0) {
+					ruleSection.createDiv({ text: '(no matching tags)' }).style.color = 'var(--text-muted)';
+					continue;
+				}
+
+				const tagsList = ruleSection.createDiv();
+				tagsList.style.fontFamily = 'var(--font-monospace)';
+				tagsList.style.fontSize = '0.82em';
+				tagsList.style.display = 'flex';
+				tagsList.style.flexWrap = 'wrap';
+				tagsList.style.gap = '0.3em';
+				const display = cov.matchedTags.slice(0, 12);
+				for (const t of display) {
+					const chip = tagsList.createEl('code', { text: t });
+					chip.style.padding = '0.1em 0.4em';
+					chip.style.background = 'var(--background-modifier-hover)';
+					chip.style.borderRadius = '3px';
+				}
+				if (cov.matchedTagCount > display.length) {
+					tagsList.createEl('span', {
+						text: `… ${cov.matchedTagCount - display.length} more`,
+					}).style.color = 'var(--text-muted)';
+				}
+			}
+		}
+
+		// Unmatched folders (potential gaps)
+		if (this.report.unmatchedFolders.length > 0) {
+			const unmatchedSection = contentEl.createEl('h3', {
+				text: 'Folders no rule touches (sample)',
+			});
+			unmatchedSection.style.marginTop = '0.8em';
+			const note = contentEl.createDiv();
+			note.style.fontSize = '0.85em';
+			note.style.color = 'var(--text-muted)';
+			note.style.marginBottom = '0.4em';
+			note.setText(
+				'These folders won\'t get tags from any enabled rule. May be intentional (system folders) or a gap (rule needed).',
+			);
+			const list = contentEl.createDiv();
+			list.style.fontFamily = 'var(--font-monospace)';
+			list.style.fontSize = '0.82em';
+			list.style.lineHeight = '1.5';
+			list.style.maxHeight = '20vh';
+			list.style.overflow = 'auto';
+			for (const f of this.report.unmatchedFolders.slice(0, 30)) {
+				list.createEl('div', { text: f });
+			}
+		}
+
+		// Close button
+		const closeBtn = contentEl.createEl('button', { text: 'Close' });
+		closeBtn.style.marginTop = '1em';
+		closeBtn.addEventListener('click', () => this.close());
 	}
 }

@@ -864,13 +864,19 @@ export class RuleEditorModal extends Modal {
 			} else {
 				try {
 					const compiled = compileTemplate(this.rule.folderTemplate);
-					const sample = this.vaultFolderPaths.find(p => compiled.regex.test(p));
+					// Compute total match count across the whole vault — gives the
+					// user immediate intuition for scope ('matches 47 folders' is
+					// far more useful than 'matches one sample').
+					const allMatches = this.vaultFolderPaths.filter(p => compiled.regex.test(p));
+					const sample = allMatches[0];
 					if (sample) {
 						const slots = extractSlots(compiled, sample);
 						const slotPairs = slots
 							? Object.entries(slots).map(([k, v]) => `${k}=${v}`).join(', ')
 							: '';
-						folderSampleEl.setText(`✓ would match: ${sample}${slotPairs ? `   [${slotPairs}]` : ''}`);
+						folderSampleEl.setText(
+							`✓ matches ${allMatches.length} folder(s). Sample: ${sample}${slotPairs ? `   [${slotPairs}]` : ''}`,
+						);
 						folderSampleEl.style.color = 'var(--text-success, rgb(40, 140, 70))';
 					} else {
 						folderSampleEl.setText('⚠ no vault folder matches this template yet');
@@ -889,11 +895,22 @@ export class RuleEditorModal extends Modal {
 			if (this.rule.folderTemplate && this.rule.tagTemplate) {
 				try {
 					const compiled = compileTemplate(this.rule.folderTemplate);
-					const sample = this.vaultFolderPaths.find(p => compiled.regex.test(p));
+					const allMatches = this.vaultFolderPaths.filter(p => compiled.regex.test(p));
+					const sample = allMatches[0];
 					if (sample) {
 						const fwdResult = applyTemplateRuleForward(sample, this.rule);
 						if (fwdResult.tags.length > 0) {
-							tagSampleEl.setText(`→ would emit: ${fwdResult.tags[0]}`);
+							// Compute distinct emitted tags across all matches (deduped).
+							const allEmittedTags = new Set<string>();
+							for (const folder of allMatches) {
+								try {
+									const r = applyTemplateRuleForward(folder, this.rule);
+									for (const t of r.tags) allEmittedTags.add(t);
+								} catch { /* skip */ }
+							}
+							tagSampleEl.setText(
+								`→ would emit ${allEmittedTags.size} distinct tag(s). Sample: ${fwdResult.tags[0]}`,
+							);
 							tagSampleEl.style.color = 'var(--text-success, rgb(40, 140, 70))';
 							tagSampleEl.style.display = 'block';
 						}
@@ -1786,6 +1803,33 @@ export class RuleEditorModal extends Modal {
 			if (!validation.valid) {
 				new Notice(`Invalid rule: ${validation.errors.join(', ')}`);
 				return;
+			}
+
+			// Save-time confirmation: show how many folders will be touched
+			// when this rule fires. Gives a final intuition check + makes the
+			// commitment explicit. NEW rules with > 0 matches show the dialog;
+			// edits to existing rules skip it (less surprising).
+			if (this.isNew) {
+				let folderMatchCount = 0;
+				if (this.rule.folderPattern) {
+					try {
+						const re = new RegExp(this.rule.folderPattern);
+						folderMatchCount = this.vaultFolderPaths.filter(p => re.test(p)).length;
+					} catch { /* invalid regex — caught above */ }
+				}
+				const isLossy = !!(
+					(this.rule.folderTemplate || '') + ' ' + (this.rule.tagTemplate || '')
+				).match(/\bstrip-(invalid-tag-chars|emoji|num-prefix)\b|\bjoin\(/);
+				const lossyNote = isLossy
+					? '\n\nThis rule has lossy filters. The witness (frontmatterMemory) was auto-enabled so inverse direction recovers original folder names.'
+					: '';
+				const proceed = confirm(
+					`Create rule "${this.rule.name}"?\n\n` +
+					`On save: this rule will be added to your settings (enabled). It will fire automatically on file create/move events going forward.\n\n` +
+					`Forward direction will match ${folderMatchCount} folder(s) in your current vault.${lossyNote}\n\n` +
+					`Existing files won't be touched until you run "Sync entire vault" or "Preview vault sync" from the command palette.`,
+				);
+				if (!proceed) return;
 			}
 
 			this.onSave(this.rule);

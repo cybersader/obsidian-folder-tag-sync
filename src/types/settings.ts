@@ -105,6 +105,34 @@ export interface MappingRule {
 	inverseTransfer?: TransferOp;
 	cardinality?: Cardinality;
 	bijective?: boolean;
+
+	// ─── Path Lens templates (F2) — peer abstraction to typed model ──────
+	/**
+	 * Folder-side template using Path Lens syntax. When set together with
+	 * `tagTemplate`, the rule is "template-shaped": the engine compiles
+	 * both templates and uses slot-extraction + per-slot filter pipelines
+	 * for sync, bypassing the typed-model `transfer` op runtime.
+	 *
+	 * Examples:
+	 *   `Projects/{topic}`
+	 *   `Projects/{topic}/{deeper...}`
+	 *   `📁 {area}/{topic | kebab-case}`
+	 *
+	 * Mutually exclusive with `transfer` semantically — a rule should be
+	 * authored as either a typed-model rule or a template-rule, not both.
+	 * The loader normalizes whichever shape is present into Layer 1
+	 * `folderPattern` for the matcher; runtime dispatch (template path vs
+	 * typed-op path vs raw regex) is by field-presence in the engine.
+	 */
+	folderTemplate?: string;
+
+	/**
+	 * Tag-side template. Slot names that appear on both sides are bound
+	 * to the same value at sync time; slots only on one side are flagged
+	 * by `computeBijectivity` (folder-only → lossy forward; tag-only →
+	 * config error).
+	 */
+	tagTemplate?: string;
 }
 
 export type RuleDirection = 'folder-to-tag' | 'tag-to-folder' | 'bidirectional';

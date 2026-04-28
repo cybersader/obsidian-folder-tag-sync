@@ -42,6 +42,7 @@
 import type { TransferOp } from '../types/typed';
 import type { MappingRule, TransformConfig } from '../types/settings';
 import { applyTransformPipeline } from '../transformers/pipeline';
+import { applyTemplateRuleForward, applyTemplateRuleInverse, isTemplateRule } from './applyTemplate';
 
 export interface RecoordinationResult {
 	/**
@@ -155,6 +156,12 @@ export interface InverseResult {
  * Otherwise returns one tag.
  */
 export function applyRuleForward(folderPath: string, rule: MappingRule): ForwardResult {
+	// F2: template-shaped rules (folderTemplate + tagTemplate) bypass the
+	// typed-op runtime entirely — slot-extraction + filter pipelines drive sync.
+	if (isTemplateRule(rule)) {
+		return applyTemplateRuleForward(folderPath, rule);
+	}
+
 	// The pattern is a gate — does this rule apply to this path?
 	// The entry point is the extractor — what part is the "remainder" we
 	// recoordinate? Use the FULL folder path for extraction, not just the
@@ -252,6 +259,11 @@ function buildEntryStripPattern(rule: MappingRule): RegExp {
  * in one folder.
  */
 export function applyRuleInverse(tag: string, rule: MappingRule): InverseResult {
+	// F2: template-shaped rules use the template inverse runtime.
+	if (isTemplateRule(rule)) {
+		return applyTemplateRuleInverse(tag, rule);
+	}
+
 	let tagContent = tag.startsWith('#') ? tag.slice(1) : tag;
 
 	if (rule.tagEntryPoint) {

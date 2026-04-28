@@ -80,13 +80,59 @@ export default class DynamicTagsFoldersPlugin extends Plugin {
 			}
 		});
 
-		// TODO: Register event listeners for automatic sync
-		// this.registerEvent(
-		// 	this.app.vault.on('create', this.onFileCreated.bind(this))
-		// );
-		// this.registerEvent(
-		// 	this.app.vault.on('rename', this.onFileRenamed.bind(this))
-		// );
+		// Auto-sync on file events — wired 2026-04-28 in 0.1.18.
+		// SAFETY-FIRST DESIGN: only the FORWARD direction (folder → tag) auto-fires.
+		// The inverse direction (tag → folder, which moves files) stays manual-command-
+		// only because it can be destructive (lossy filters can't recover original
+		// folder names). User must explicitly invoke "Sync tags to folder (current file)".
+		//
+		// Forward sync is purely additive — adds tags to frontmatter, never moves files,
+		// never modifies folders. Worst case: extra tags the user can manually delete.
+		this.registerEvent(
+			this.app.vault.on('create', (file) => {
+				if (file instanceof TFile && file.extension === 'md') {
+					void this.autoSyncOnEvent(file, 'create');
+				}
+			}),
+		);
+		this.registerEvent(
+			this.app.vault.on('rename', (file, oldPath) => {
+				if (file instanceof TFile && file.extension === 'md') {
+					void this.autoSyncOnEvent(file, 'rename', oldPath);
+				}
+			}),
+		);
+	}
+
+	/**
+	 * Auto-fire forward sync (folder → tag) on file create or rename. Respects
+	 * each rule's per-rule sync flags (`syncOnFileCreate`, `syncOnFileRename`,
+	 * `syncOnFileMove`). Never auto-fires inverse direction (which moves files)
+	 * — that stays manual-command-only for safety.
+	 */
+	private async autoSyncOnEvent(
+		file: TFile,
+		event: 'create' | 'rename',
+		_oldPath?: string,
+	): Promise<void> {
+		try {
+			// Filter rules whose flags allow this event type
+			const eligibleRules = this.settings.rules.filter((r) => {
+				if (!r.enabled) return false;
+				if (event === 'create' && !r.options.syncOnFileCreate) return false;
+				if (event === 'rename' && !(r.options.syncOnFileRename || r.options.syncOnFileMove)) return false;
+				// Only forward direction fires automatically
+				return r.direction === 'folder-to-tag' || r.direction === 'bidirectional';
+			});
+			if (eligibleRules.length === 0) return;
+			await this.syncFolderToTags(file);
+		} catch (err) {
+			await this.debugLogger.error('Auto-sync failed on event', {
+				event,
+				file: file.path,
+				error: err instanceof Error ? err.message : String(err),
+			});
+		}
 	}
 
 	onunload(): void {

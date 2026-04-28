@@ -77,10 +77,10 @@ const TEMPLATE_STARTERS: TemplateStarter[] = [
 	},
 	{
 		id: 'jd-strict-numbered',
-		label: 'Strict numbered area (Tier B regex) — {num:\\d{1,2}} - {name}/{deeper...} ↔ #{num}-{name | strip-invalid-tag-chars | kebab-case}/{deeper...}',
+		label: 'Strict numbered area (Tier B regex) — {num:\\d{1,2}} - {name}/{deeper...} ↔ #{num:\\d{1,2}}-{name | strip-invalid-tag-chars | kebab-case}/{deeper...}',
 		folder: '{num:\\d{1,2}} - {name}/{deeper...}',
-		tag: '#{num}-{name | strip-invalid-tag-chars | kebab-case}/{deeper...}',
-		notes: 'Like the catch-all but {num:\\d{1,2}} only matches 1-2 digit prefixes. Rejects non-numbered roots (e.g., "Templates/" doesn\'t match). Use Tier B inline regex to constrain slot content.',
+		tag: '#{num:\\d{1,2}}-{name | strip-invalid-tag-chars | kebab-case}/{deeper...}',
+		notes: 'Like the catch-all but {num:\\d{1,2}} constrains the prefix to 1-2 digits on BOTH sides. The dual-side constraint is critical: without {num:\\d{1,2}} on the tag template too, inverse direction mis-parses tags like "#0-tasks-planning/Q1" by greedy-matching {num} as "0-tasks". Tier B inline regex eliminates this ambiguity.',
 	},
 	{
 		id: 'date-prefixed',

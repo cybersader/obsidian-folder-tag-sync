@@ -646,3 +646,250 @@ describe('full pipeline — catch-all {num} - {name}/{deeper...} handles cross-a
 		}
 	});
 });
+
+// ─── Comprehensive edge-case coverage for the catch-all numbered template ────
+
+describe('catch-all numbered-area edge cases — comprehensive', () => {
+	const catchallRule: MappingRule = {
+		id: 'numbered-catchall-edge',
+		name: 'Catch-all (edge cases)',
+		enabled: true,
+		priority: 10,
+		direction: 'bidirectional',
+		folderTemplate: '{num} - {name}/{deeper...}',
+		tagTemplate: '#{num}-{name | strip-invalid-tag-chars | kebab-case}/{deeper...}',
+		options: {
+			createFolders: true,
+			addTags: true,
+			removeOrphanedTags: false,
+			syncOnFileCreate: true,
+			syncOnFileMove: true,
+			syncOnFileRename: true,
+		},
+	};
+
+	const promotionToRootRule: MappingRule = {
+		id: 'numbered-promotion-edge',
+		name: 'Promotion-to-root (edge cases)',
+		enabled: true,
+		priority: 11,
+		direction: 'bidirectional',
+		folderTemplate: '{num} - {name}/{deeper...}',
+		tagTemplate: '#{num}-{name | strip-invalid-tag-chars | kebab-case}',
+		options: {
+			createFolders: true,
+			addTags: true,
+			removeOrphanedTags: false,
+			syncOnFileCreate: true,
+			syncOnFileMove: true,
+			syncOnFileRename: true,
+		},
+	};
+
+	describe('depth coverage — bare to 5-deep', () => {
+		test('bare numbered root (depth 0) — trailing-glob relaxation kicks in', () => {
+			expect(applyRuleForward('1 - Workspaces, Projects', catchallRule).tags)
+				.toEqual(['#1-workspaces-projects']);
+		});
+		test('1-deep', () => {
+			expect(applyRuleForward('1 - Workspaces, Projects/Web', catchallRule).tags)
+				.toEqual(['#1-workspaces-projects/Web']);
+		});
+		test('3-deep', () => {
+			expect(applyRuleForward('1 - Workspaces, Projects/Web/Auth/oauth', catchallRule).tags)
+				.toEqual(['#1-workspaces-projects/Web/Auth/oauth']);
+		});
+		test('5-deep', () => {
+			expect(applyRuleForward(
+				'1 - Workspaces, Projects/Web/Auth/oauth/v2/notes',
+				catchallRule,
+			).tags).toEqual(['#1-workspaces-projects/Web/Auth/oauth/v2/notes']);
+		});
+		test('promotion-to-root collapses ALL depth into a single root tag', () => {
+			expect(applyRuleForward('5 - Archive, Admin', promotionToRootRule).tags)
+				.toEqual(['#5-archive-admin']);
+			expect(applyRuleForward('5 - Archive, Admin/X/Y/Z', promotionToRootRule).tags)
+				.toEqual(['#5-archive-admin']);
+		});
+	});
+
+	describe('numbering range — single, double, large digits', () => {
+		test('single-digit (0-9)', () => {
+			for (const n of [0, 1, 5, 9]) {
+				const result = applyRuleForward(`${n} - Foo/x`, catchallRule);
+				expect(result.tags[0]).toBe(`#${n}-foo/x`);
+			}
+		});
+		test('two-digit (10-99)', () => {
+			for (const n of [10, 50, 99]) {
+				const result = applyRuleForward(`${n} - Foo/x`, catchallRule);
+				expect(result.tags[0]).toBe(`#${n}-foo/x`);
+			}
+		});
+		test('catch-all matches 3+ digit prefixes (no upper bound enforced)', () => {
+			// Without strict {num:\\d{1,2}} regex, 100+ also match.
+			// Users wanting strict 2-digit should use the strict-numbered starter.
+			expect(applyRuleForward('100 - Foo/x', catchallRule).tags[0]).toBe('#100-foo/x');
+		});
+	});
+
+	describe('special characters in folder names', () => {
+		test('comma in name → stripped from tag (clean output)', () => {
+			expect(applyRuleForward('1 - Tasks, Planning/X', catchallRule).tags[0])
+				.toBe('#1-tasks-planning/X');
+		});
+		test('parentheses are NOT in invalid-chars list (preserved)', () => {
+			expect(applyRuleForward('0 - Tasks (current)/X', catchallRule).tags[0])
+				.toContain('(current)');
+		});
+		test('emoji in name passes through', () => {
+			expect(applyRuleForward('1 - 📋 Workflow/X', catchallRule).tags[0])
+				.toContain('📋');
+		});
+		test('catch-all accepts non-strict prefixes like 10X (no digit constraint on {num})', () => {
+			// {num} is [^/]+ in catch-all — accepts ANY non-slash content as the prefix.
+			// Note: {num} has no kebab-case filter, so 'X' stays uppercase.
+			// Use strict-numbered (Tier B) starter if you want digit-only prefixes.
+			expect(applyRuleForward('10X - Foo/x', catchallRule).tags[0]).toBe('#10X-foo/x');
+		});
+		test('lowercase name kebab-cases cleanly', () => {
+			expect(applyRuleForward('1 - already-lowercase/X', catchallRule).tags[0])
+				.toBe('#1-already-lowercase/X');
+		});
+		test('all-caps name (post 0.1.15 fix) becomes single lowercase word', () => {
+			expect(applyRuleForward('99 - ARCHIVE/X', catchallRule).tags[0])
+				.toBe('#99-archive/X');
+		});
+		test('mixed-case PascalCase name kebab-cases at word boundaries', () => {
+			expect(applyRuleForward('2 - WebAuth Resilience/X', catchallRule).tags[0])
+				.toBe('#2-web-auth-resilience/X');
+		});
+	});
+
+	describe('round-trip across catch-all semantics', () => {
+		test('clean name round-trips bijectively', () => {
+			const orig = '0 - Planning/Q1';
+			const fwd = applyRuleForward(orig, catchallRule);
+			const inv = applyRuleInverse(fwd.tags[0], catchallRule);
+			expect(inv.folder).toBe(orig);
+		});
+		test('comma name forward-strips cleanly; inverse hits greedy-match ambiguity', () => {
+			// Forward: `0 - Tasks, Planning/Q1` → strip-invalid → `Tasks Planning` → kebab → `tasks-planning`
+			// Tag: `#0-tasks-planning/Q1`.
+			const orig = '0 - Tasks, Planning/Q1';
+			const fwd = applyRuleForward(orig, catchallRule);
+			expect(fwd.tags[0]).toBe('#0-tasks-planning/Q1');
+
+			// INVERSE on tag template `#{num}-{name}/...` parses ambiguously:
+			// regex `^(?<num>[^/]+)-(?<name>[^/]+)(?:/(?<deeper>.+))?$` against
+			// `0-tasks-planning/Q1` greedy-backtracks to num=`0-tasks`, name=`planning`.
+			// Catch-all template's {num} is unconstrained → mis-parses.
+			//
+			// FIX: use strict-numbered Tier B rule {num:\\d{1,2}} which constrains num
+			// to digits, eliminating ambiguity. See the strict-numbered describe-block.
+			const inv = applyRuleInverse(fwd.tags[0], catchallRule);
+			expect(inv.lossy).toBe(true);
+			// Document actual mis-parse for catch-all:
+			expect(inv.folder).toBe('0-tasks - Planning/Q1');
+		});
+
+		test('strict-numbered Tier B AVOIDS the greedy-match ambiguity (constraint on BOTH sides)', () => {
+			// CRITICAL: Tier B regex must constrain {num} on BOTH the folder
+			// AND tag templates. If only folder side is constrained, the
+			// tag-side regex still uses [^/]+ for {num} and inverse mis-parses.
+			const strictRule: MappingRule = {
+				id: 'strict-roundtrip',
+				name: 'Strict numbered for round-trip',
+				enabled: true,
+				priority: 10,
+				direction: 'bidirectional',
+				folderTemplate: '{num:\\d{1,2}} - {name}/{deeper...}',
+				tagTemplate: '#{num:\\d{1,2}}-{name | strip-invalid-tag-chars | kebab-case}/{deeper...}',
+				options: { ...catchallRule.options },
+			};
+			// Forward identical to catch-all
+			const fwd = applyRuleForward('0 - Tasks, Planning/Q1', strictRule);
+			expect(fwd.tags[0]).toBe('#0-tasks-planning/Q1');
+			// Inverse correctly recovers num=0 (digit-bounded) and name=tasks-planning
+			const inv = applyRuleInverse(fwd.tags[0], strictRule);
+			expect(inv.folder).toBe('0 - Tasks Planning/Q1');
+			// Comma still lost (strip-invalid-tag-chars is conditional), but the
+			// num/name boundary is correct — far better than catch-all's mis-parse.
+		});
+	});
+
+	describe('cross-area moves — the core JD-PARA scenario', () => {
+		test('moving file 0 → 5 emits new tag with new area number', () => {
+			const before = applyRuleForward('0 - Tasks/file.md', catchallRule);
+			const after = applyRuleForward('5 - Archive/file.md', catchallRule);
+			expect(before.tags[0]).toBe('#0-tasks/file.md');
+			expect(after.tags[0]).toBe('#5-archive/file.md');
+			expect(before.tags[0]).not.toBe(after.tags[0]);
+		});
+		test('moving deep nested file across areas — new tag captures new num', () => {
+			const before = applyRuleForward('0 - Tasks/Q1/Drafts/file.md', catchallRule);
+			const after = applyRuleForward('99 - ARCHIVE/Q1/Drafts/file.md', catchallRule);
+			expect(before.tags[0]).toBe('#0-tasks/Q1/Drafts/file.md');
+			expect(after.tags[0]).toBe('#99-archive/Q1/Drafts/file.md');
+		});
+		test('promotion-to-root: same tag for files at any depth in the area', () => {
+			const r = promotionToRootRule;
+			expect(applyRuleForward('0 - Tasks/X.md', r).tags[0]).toBe('#0-tasks');
+			expect(applyRuleForward('0 - Tasks/A/X.md', r).tags[0]).toBe('#0-tasks');
+			expect(applyRuleForward('0 - Tasks/A/B/C/X.md', r).tags[0]).toBe('#0-tasks');
+		});
+	});
+
+	describe('non-matching paths — false-positive guards', () => {
+		test('numbers without space-dash do not match', () => {
+			expect(applyRuleForward('0Tasks/X', catchallRule).tags).toEqual([]);
+			expect(applyRuleForward('0-Tasks/X', catchallRule).tags).toEqual([]);
+			expect(applyRuleForward('0 -Tasks/X', catchallRule).tags).toEqual([]);
+			expect(applyRuleForward('0- Tasks/X', catchallRule).tags).toEqual([]);
+		});
+		test('roots without space-dash separator do not match', () => {
+			// `Templates/X` — no ' - ' separator → catch-all rejects (no slot binding possible)
+			expect(applyRuleForward('Templates/X', catchallRule).tags).toEqual([]);
+			// `_attachments/x` — no ' - '
+			expect(applyRuleForward('_attachments/x.png', catchallRule).tags).toEqual([]);
+		});
+
+		test('letter-prefixed roots WITH " - " separator DO match catch-all (use strict-numbered to reject)', () => {
+			// `A - Things/X` has the ' - ' shape, so {num}=A, {name}=Things, {deeper}=X.
+			// Catch-all matches because {num} is [^/]+ (no constraint). Strict-numbered
+			// (Tier B regex {num:\\d{1,2}}) would correctly reject this.
+			// Note: {num} has no filter applied, so 'A' stays capital. Only {name} is kebab-cased.
+			expect(applyRuleForward('A - Things/X', catchallRule).tags[0]).toBe('#A-things/X');
+		});
+		test('sub-paths inside non-matching roots do not match', () => {
+			expect(applyRuleForward('_attachments/images/x.png', catchallRule).tags).toEqual([]);
+			expect(applyRuleForward('Templates/note/X', catchallRule).tags).toEqual([]);
+		});
+	});
+
+	describe('strict-numbered (Tier B) edge cases — rejects what catch-all would accept', () => {
+		const strictRule: MappingRule = {
+			id: 'numbered-strict-edge',
+			name: 'Strict numbered (Tier B)',
+			enabled: true,
+			priority: 12,
+			direction: 'bidirectional',
+			folderTemplate: '{num:\\d{1,2}} - {name}/{deeper...}',
+			tagTemplate: '#{num}-{name | strip-invalid-tag-chars | kebab-case}/{deeper...}',
+			options: { ...catchallRule.options },
+		};
+
+		test('strict-numbered accepts 1-2 digit roots', () => {
+			expect(applyRuleForward('0 - Foo/x', strictRule).tags[0]).toBe('#0-foo/x');
+			expect(applyRuleForward('99 - Foo/x', strictRule).tags[0]).toBe('#99-foo/x');
+		});
+		test('strict-numbered REJECTS 3+ digit prefixes that catch-all accepts', () => {
+			expect(applyRuleForward('100 - Foo/x', strictRule).tags).toEqual([]);
+			expect(applyRuleForward('1234 - Foo/x', strictRule).tags).toEqual([]);
+		});
+		test('strict-numbered REJECTS non-digit prefixes (catch-all also rejects these)', () => {
+			expect(applyRuleForward('A - Foo/x', strictRule).tags).toEqual([]);
+			expect(applyRuleForward('foo - Foo/x', strictRule).tags).toEqual([]);
+		});
+	});
+});

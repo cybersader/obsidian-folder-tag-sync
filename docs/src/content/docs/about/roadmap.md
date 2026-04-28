@@ -480,6 +480,15 @@ If real-world testing surfaces friction with the Tier A slot syntax (`{name}` / 
 - **Scope**: extends rule schema with `frontmatterConditions` (or extends slot syntax with property-source markers); inverse-direction algorithm reads property values when populating slots; UX surface in rule editor for declaring property dependencies.
 - **Sequencing**: probably ships *after* F2 but *before* extensive A2 plugin API work (since the API has to commit to whether `getFolderForTag(tag, file)` reads frontmatter properties).
 
+### A6 — Implement `removeOrphanedTags` (gap; flag exists in data model but unwired)
+
+- **What the user experiences today (the gap)**: the `removeOrphanedTags` flag exists in `RuleOptions` and is settable per-rule, but the sync engine never reads it. When a file moves between folders that match the same rule with different slot captures (e.g., `0 - Tasks/X.md` → `5 - Archive/X.md`), the new tag (`#5-archive-...`) gets added but the old tag (`#0-tasks-...`) stays. Files accumulate stale tags over time.
+- **What "fixed" looks like**: when `removeOrphanedTags: true`, on file change/rename: the sync engine compares (a) the set of tags currently in frontmatter, (b) the set of tags ANY enabled rule emits for the current path, and removes tags that are in (a) but not (b) AND are tags FTS originally wrote.
+- **The hard part — knowing which tags FTS owns**: without bookkeeping, removal is a guessing game. If user has a manually-added tag like `#priority-high` and the rule's pattern happens to match it shape-wise, naive cleanup could delete user-authored tags. **The clean solution requires F3 (frontmatter witness)** — when FTS writes a tag, it records that fact in a `fts:owned` field in frontmatter. Cleanup then only removes tags listed in `fts:owned` that no rule still emits.
+- **Status**: open gap, depends on F3. Do NOT implement before F3 lands; without the witness, any heuristic risks data loss.
+- **Workaround until then**: users can manually remove stale tags after cross-area moves, OR use a separate cleanup command (post-MVP polish — could ship a "Clean orphan tags from current file" command that uses heuristics + asks confirmation).
+- **Composes with A5 (ordinal slot-value priority)**: A5 builds on top of orphan-cleanup. A5 isn't possible without first having reliable orphan-cleanup via F3 witness.
+
 ### A5 — Ordinal slot-value priority + auto-orphan-cleanup on cross-area moves
 
 - **What the user experiences**: in vaults that use numbered organizational systems (single-digit JD, two-digit JD, mixed JD-PARA), the captured slot value carries an *ordinal meaning* — lower number = higher priority / earlier in the workflow / closer to active work; higher number = archived / deeper / colder. When a file moves between numbered areas (e.g., `0 - Tasks/X` → `5 - Archive/X`, the user is implicitly *demoting* the file). The engine should recognize the cross-area move semantically and automatically clean up the now-orphaned higher-priority tag (`#0-tasks/x` removed when `#5-archive/x` is added).

@@ -90,6 +90,13 @@ const TEMPLATE_STARTERS: TemplateStarter[] = [
 		notes: 'Captures only YYYY-MM-DD prefixed folders. {date} slot rejects anything not matching the strict ISO date format.',
 	},
 	{
+		id: 'promotion-to-root',
+		label: 'Root-only tag (promotion-to-root) — {num} - {name}/{deeper...} ↔ #{num}-{name | strip-invalid-tag-chars | kebab-case}',
+		folder: '{num} - {name}/{deeper...}',
+		tag: '#{num}-{name | strip-invalid-tag-chars | kebab-case}',
+		notes: 'Tag reflects ONLY the root area, ignoring deeper folder structure. File at "0 - Tasks/Q1/X.md" → tag "#0-tasks". File moved to "5 - Archive/Q1/X.md" → tag "#5-archive". Lossy by design (deeper info discarded going to tag), but that\'s the point — promotion-to-root semantics. Note: orphan-cleanup of the OLD tag on file move is not yet implemented (gap pending F3 frontmatter witness); the new tag gets added but the old one remains until manually removed.',
+	},
+	{
 		id: 'emoji-prefix',
 		label: 'Emoji-prefixed — 📁 Projects/{deeper...} ↔ #projects/{deeper...}',
 		folder: '📁 Projects/{deeper...}',

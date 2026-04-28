@@ -49,3 +49,9 @@ docs/.astro/
 docs/playwright-report/
 docs/test-results/
 docs/visual-reports/
+
+# Plugin runtime state + Obsidian-internal artifacts (local-machine noise)
+.obsidian-cache/
+data.json
+docs/**/.obsidian/
+*.toml

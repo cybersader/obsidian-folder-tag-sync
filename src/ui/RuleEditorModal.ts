@@ -11,7 +11,8 @@ import { isTransformReversible } from '../transformers/pipeline';
 import { validateRegexPattern } from '../transformers/regexTransformers';
 import { previewRule } from '../engine/rulePreview';
 import { inferTypedModel } from '../engine/inferTyped';
-import { compileTemplate, computeBijectivity, TemplateParseError } from '../engine/compileTemplate';
+import { compileTemplate, computeBijectivity, extractSlots, TemplateParseError } from '../engine/compileTemplate';
+import { applyTemplateRuleForward } from '../engine/applyTemplate';
 import { ConfirmModal } from './ConfirmModal';
 import {
 	EntryPathSuggest,
@@ -19,7 +20,92 @@ import {
 	collectTagSources,
 } from './suggest/EntryPathSuggest';
 
-type RuleEditorMode = 'template' | 'regex';
+type RuleEditorMode = 'template' | 'lens-flavored' | 'slot-objects' | 'regex';
+
+/**
+ * Quick-start template starters — one click fills both folder + tag templates
+ * with a working example. The 5-7 most common shapes; user can adjust after.
+ */
+interface TemplateStarter {
+	id: string;
+	label: string;
+	folder: string;
+	tag: string;
+	notes?: string;
+}
+
+const TEMPLATE_STARTERS: TemplateStarter[] = [
+	{
+		id: 'top-folder-and-children',
+		label: 'Match a top-level folder + all children — Projects/{deeper...} ↔ #projects/{deeper...}',
+		folder: 'Projects/{deeper...}',
+		tag: '#projects/{deeper...}',
+		notes: 'Trailing glob with bare-entry support — matches `Projects` AND `Projects/X` AND `Projects/X/Y/Z`',
+	},
+	{
+		id: 'every-top-folder',
+		label: 'Match EVERY top-level folder + children — {root}/{deeper...} ↔ #{root | kebab-case}/{deeper...}',
+		folder: '{root}/{deeper...}',
+		tag: '#{root | kebab-case}/{deeper...}',
+		notes: 'Catch-all — every root folder gets a tag namespace',
+	},
+	{
+		id: 'identity',
+		label: 'PARA identity — Projects/{topic} ↔ #projects/{topic}',
+		folder: 'Projects/{topic}',
+		tag: '#projects/{topic}',
+	},
+	{
+		id: 'jd-2digit',
+		label: 'JD 2-digit area — 10 - Projects/{deeper...} ↔ #10-projects/{deeper...}',
+		folder: '10 - Projects/{deeper...}',
+		tag: '#10-projects/{deeper...}',
+	},
+	{
+		id: 'jd-1digit',
+		label: 'JD single-digit area — 0 - Tasks, Planning/{deeper...} ↔ #0-tasks-planning/{deeper...}',
+		folder: '0 - Tasks, Planning/{deeper...}',
+		tag: '#0-tasks-planning/{deeper...}',
+		notes: 'For enterprise vaults with single-digit numbered roots',
+	},
+	{
+		id: 'jd-catchall',
+		label: 'Catch-all numbered area — {num} - {name}/{deeper...} ↔ #{num}-{name | strip-invalid-tag-chars | kebab-case}/{deeper...}',
+		folder: '{num} - {name}/{deeper...}',
+		tag: '#{num}-{name | strip-invalid-tag-chars | kebab-case}/{deeper...}',
+		notes: 'ONE rule for ALL numbered roots. Files moving between areas (e.g., 0 - Tasks/X → 1 - Projects/X) re-tag automatically. ⚠ Bijectivity: round-trips cleanly if folder names contain no invalid-for-tags chars (.,;:?!@\\). Established-from-clean-names = total bijection. Existing names like "1 - Tasks, Planning" lose the comma on tag→folder inverse — F3 frontmatter witness (post-MVP) will close this gap by recording the original folder name per-file.',
+	},
+	{
+		id: 'emoji-prefix',
+		label: 'Emoji-prefixed — 📁 Projects/{deeper...} ↔ #projects/{deeper...}',
+		folder: '📁 Projects/{deeper...}',
+		tag: '#projects/{deeper...}',
+	},
+	{
+		id: 'emoji-jd',
+		label: 'Emoji + JD — 📁 01 - Projects/{deeper...} ↔ #projects/{deeper...}',
+		folder: '📁 01 - Projects/{deeper...}',
+		tag: '#projects/{deeper...}',
+	},
+	{
+		id: 'glob-deep-segmented',
+		label: 'Two-slot — Projects/{topic}/{deeper...} ↔ #projects/{topic}/{deeper...}',
+		folder: 'Projects/{topic}/{deeper...}',
+		tag: '#projects/{topic}/{deeper...}',
+	},
+	{
+		id: 'marker-only',
+		label: 'Marker-only (lossy) — Capture/Inbox/{discarded...} ↔ #-inbox',
+		folder: 'Capture/Inbox/{discarded...}',
+		tag: '#-inbox',
+	},
+	{
+		id: 'kebab-tag',
+		label: 'Areas + kebab on tag — Areas/{area} ↔ #areas/{area | kebab-case}',
+		folder: 'Areas/{area}',
+		tag: '#areas/{area | kebab-case}',
+	},
+];
 
 /**
  * Optional callback for the "Try guided" return-link in the advanced
@@ -323,15 +409,19 @@ export class RuleEditorModal extends Modal {
 		const section = containerEl.createDiv({ cls: 'rule-editor-section' });
 		new Setting(section).setName('Patterns').setHeading();
 
-		// F2 commit 1d — mode toggle: template vs regex.
+		// F2 — 4-way mode dropdown. Templates / Lens-flavored / Slot-objects
+		// are three peer authoring surfaces over the SAME engine. Regex is the
+		// escape hatch for patterns templates cannot express.
 		new Setting(section)
 			.setName('Authoring shape')
 			.setDesc(
-				'Template mode uses named slots ({topic}, {deeper...}) and is the canonical path. ' +
-				'Regex mode is the power-user surface — for patterns templates cannot express.',
+				'Template / Lens-flavored / Slot-objects all author Path Lens rules — same engine, ' +
+				'different ergonomics. Regex is the power-user escape hatch.',
 			)
 			.addDropdown(dd => {
-				dd.addOption('template', 'Template (Path Lens)');
+				dd.addOption('template', 'Template (Path Lens, simple)');
+				dd.addOption('lens-flavored', 'Lens-flavored (Path Lens + assertions)');
+				dd.addOption('slot-objects', 'Slot-objects (Path Lens, structured)');
 				dd.addOption('regex', 'Regex (advanced)');
 				dd.setValue(this.editMode);
 				dd.onChange(value => {
@@ -342,8 +432,20 @@ export class RuleEditorModal extends Modal {
 				});
 			});
 
+		// All 3 template-like modes share the engine; lens-flavored adds
+		// assertion fields (iso, cardinality), slot-objects renders slots
+		// as structured detail blocks. Each dispatches to its own builder.
 		if (this.editMode === 'template') {
 			this.buildTemplatePatternSection(section);
+			return;
+		}
+		if (this.editMode === 'lens-flavored') {
+			this.buildTemplatePatternSection(section);
+			this.buildLensAssertionSection(section);
+			return;
+		}
+		if (this.editMode === 'slot-objects') {
+			this.buildSlotObjectsSection(section);
 			return;
 		}
 
@@ -460,55 +562,62 @@ export class RuleEditorModal extends Modal {
 	}
 
 	/**
-	 * F2 commit 1d — render the template-mode pattern editor. Two text inputs
-	 * (folderTemplate + tagTemplate), a parse-error indicator under each, and
-	 * a status chip showing the bijectivity verdict (computed live).
+	 * F2 — interactive template editor with quick-start picker, live sample
+	 * previews, slot diff chip, and bijectivity status chip. The previous
+	 * version had two empty text boxes with no feedback; this version shows
+	 * the user where to begin AND what their template is doing in real time.
+	 *
+	 * Layout (top → bottom):
+	 *   1. Quick-start picker (one-click starter templates)
+	 *   2. Folder template input  → live "would match: <vault folder>"
+	 *   3. Tag template input     → live "would emit: <tag from sample>"
+	 *   4. Slot diff chip (which slots are folder-only / tag-only / shared)
+	 *   5. Bijectivity status chip (round-trips / conditional / lossy)
+	 *
+	 * Used by both 'template' and 'lens-flavored' modes — lens-flavored adds
+	 * an assertion section (iso, cardinality) AFTER this returns.
 	 */
 	private buildTemplatePatternSection(section: HTMLElement) {
 		const needsFolder = this.rule.direction === 'folder-to-tag' || this.rule.direction === 'bidirectional';
 		const needsTag = this.rule.direction === 'tag-to-folder' || this.rule.direction === 'bidirectional';
 
-		const statusChip = section.createDiv({ cls: 'dtf-template-chip' });
-		statusChip.style.padding = '0.4em 0.7em';
-		statusChip.style.borderRadius = '4px';
-		statusChip.style.fontSize = '0.85em';
-		statusChip.style.marginBottom = '0.6em';
-		statusChip.style.display = 'inline-block';
+		// === 1. Quick-start picker ===
+		new Setting(section)
+			.setName('Quick-start')
+			.setDesc('Pick a starter template to fill both fields. Adjust to fit your vault.')
+			.addDropdown(dd => {
+				dd.addOption('', '— pick a starter —');
+				for (const starter of TEMPLATE_STARTERS) {
+					dd.addOption(starter.id, starter.label);
+				}
+				dd.setValue('');
+				dd.onChange(value => {
+					if (!value) return;
+					const starter = TEMPLATE_STARTERS.find(s => s.id === value);
+					if (!starter) return;
+					this.rule.folderTemplate = starter.folder;
+					this.rule.tagTemplate = starter.tag;
+					this.onOpen(); // Re-render so input fields show new values
+				});
+			});
 
-		const refreshChip = () => {
-			if (!this.rule.folderTemplate || !this.rule.tagTemplate) {
-				statusChip.style.background = 'var(--background-modifier-hover)';
-				statusChip.style.color = 'var(--text-muted)';
-				statusChip.setText('Authoring — both templates required for bijectivity check');
-				return;
-			}
-			const verdict = computeBijectivity(this.rule.folderTemplate, this.rule.tagTemplate);
-			if (verdict.status === 'total') {
-				statusChip.style.background = 'rgba(80, 200, 120, 0.15)';
-				statusChip.style.color = 'rgb(40, 140, 70)';
-				const slotNames = Object.keys(verdict.perSlot);
-				statusChip.setText(
-					slotNames.length > 0
-						? `Round-trips. Shared slots: ${slotNames.map((n) => `{${n}}`).join(', ')}`
-						: 'Round-trips (literal-only).',
-				);
-			} else if (verdict.status === 'conditional') {
-				statusChip.style.background = 'rgba(240, 180, 50, 0.18)';
-				statusChip.style.color = 'rgb(180, 110, 0)';
-				statusChip.setText(`Conditional bijection — ${verdict.reason ?? 'depends on input domain'}`);
-			} else {
-				statusChip.style.background = 'rgba(220, 90, 90, 0.16)';
-				statusChip.style.color = 'rgb(170, 50, 50)';
-				statusChip.setText(`Lossy — ${verdict.reason ?? 'cannot reverse'}`);
-			}
-		};
+		// Inputs + status containers — references closed over by refresh handlers
+		let folderInput: HTMLInputElement | null = null;
+		let folderErrEl: HTMLElement | null = null;
+		let tagInput: HTMLInputElement | null = null;
+		let tagErrEl: HTMLElement | null = null;
+		let folderSampleEl: HTMLElement | null = null;
+		let tagSampleEl: HTMLElement | null = null;
 
+		// === 2. Folder template input + live "would match" preview ===
 		if (needsFolder) {
-			let folderInput: HTMLInputElement | null = null;
-			let folderErrEl: HTMLElement | null = null;
 			new Setting(section)
 				.setName('Folder template')
-				.setDesc('Path Lens template — e.g., Projects/{topic} or {area}/{topic}/{deeper...}')
+				.setDesc(
+					'Path Lens template. Empty matches NOTHING — to match every root folder use {root}/{deeper...}. ' +
+					'To match a specific root folder + descendants use Projects/{deeper...} (matches "Projects" AND "Projects/X"). ' +
+					'Use {topic} for a single segment, {deeper...} for one or more segments.',
+				)
 				.addText(text => {
 					folderInput = text.inputEl;
 					text
@@ -517,16 +626,11 @@ export class RuleEditorModal extends Modal {
 						.onChange(value => {
 							this.rule.folderTemplate = value || undefined;
 							this.updateTemplateValidationUI('folderTemplate', value, folderInput, folderErrEl);
-							refreshChip();
+							refresh();
 						});
 				});
-			folderErrEl = section.createDiv({ cls: 'dtf-template-error' });
-			folderErrEl.style.color = 'var(--text-error)';
-			folderErrEl.style.fontSize = '0.8em';
-			folderErrEl.style.marginTop = '-0.3em';
-			folderErrEl.style.marginBottom = '0.5em';
-			folderErrEl.style.paddingLeft = '0.25em';
-			folderErrEl.style.display = 'none';
+			folderErrEl = this.makeInlineErrorEl(section);
+			folderSampleEl = this.makeInlineSampleEl(section);
 			this.updateTemplateValidationUI(
 				'folderTemplate',
 				this.rule.folderTemplate ?? '',
@@ -535,12 +639,14 @@ export class RuleEditorModal extends Modal {
 			);
 		}
 
+		// === 3. Tag template input + live "would emit" preview ===
 		if (needsTag) {
-			let tagInput: HTMLInputElement | null = null;
-			let tagErrEl: HTMLElement | null = null;
 			new Setting(section)
 				.setName('Tag template')
-				.setDesc('Path Lens template — e.g., #projects/{topic | kebab-case}')
+				.setDesc(
+					'Path Lens template. Use the same slot names as the folder template for round-tripping. ' +
+					'Add filters like {topic | kebab-case} to normalize tag casing.',
+				)
 				.addText(text => {
 					tagInput = text.inputEl;
 					text
@@ -549,16 +655,11 @@ export class RuleEditorModal extends Modal {
 						.onChange(value => {
 							this.rule.tagTemplate = value || undefined;
 							this.updateTemplateValidationUI('tagTemplate', value, tagInput, tagErrEl);
-							refreshChip();
+							refresh();
 						});
 				});
-			tagErrEl = section.createDiv({ cls: 'dtf-template-error' });
-			tagErrEl.style.color = 'var(--text-error)';
-			tagErrEl.style.fontSize = '0.8em';
-			tagErrEl.style.marginTop = '-0.3em';
-			tagErrEl.style.marginBottom = '0.5em';
-			tagErrEl.style.paddingLeft = '0.25em';
-			tagErrEl.style.display = 'none';
+			tagErrEl = this.makeInlineErrorEl(section);
+			tagSampleEl = this.makeInlineSampleEl(section);
 			this.updateTemplateValidationUI(
 				'tagTemplate',
 				this.rule.tagTemplate ?? '',
@@ -567,7 +668,396 @@ export class RuleEditorModal extends Modal {
 			);
 		}
 
-		refreshChip();
+		// === 4. Slot diff chip (folder-only / tag-only / shared) ===
+		const slotDiffEl = section.createDiv({ cls: 'dtf-template-slot-diff' });
+		slotDiffEl.style.padding = '0.3em 0.7em';
+		slotDiffEl.style.borderRadius = '4px';
+		slotDiffEl.style.fontSize = '0.8em';
+		slotDiffEl.style.marginTop = '0.4em';
+		slotDiffEl.style.marginBottom = '0.4em';
+		slotDiffEl.style.display = 'none';
+
+		// === 5. Bijectivity status chip ===
+		const statusChip = section.createDiv({ cls: 'dtf-template-chip' });
+		statusChip.style.padding = '0.4em 0.7em';
+		statusChip.style.borderRadius = '4px';
+		statusChip.style.fontSize = '0.85em';
+		statusChip.style.marginBottom = '0.6em';
+		statusChip.style.display = 'inline-block';
+
+		// Refresh — runs on every input keystroke. Updates samples + slot diff + chip.
+		const refresh = () => {
+			this.refreshTemplateSamples(folderSampleEl, tagSampleEl);
+			this.refreshSlotDiff(slotDiffEl);
+			this.refreshBijectivityChip(statusChip);
+		};
+
+		refresh();
+	}
+
+	private makeInlineErrorEl(parent: HTMLElement): HTMLElement {
+		const el = parent.createDiv({ cls: 'dtf-template-error' });
+		el.style.color = 'var(--text-error)';
+		el.style.fontSize = '0.8em';
+		el.style.marginTop = '-0.3em';
+		el.style.marginBottom = '0.4em';
+		el.style.paddingLeft = '0.25em';
+		el.style.display = 'none';
+		return el;
+	}
+
+	private makeInlineSampleEl(parent: HTMLElement): HTMLElement {
+		const el = parent.createDiv({ cls: 'dtf-template-sample' });
+		el.style.color = 'var(--text-muted)';
+		el.style.fontSize = '0.8em';
+		el.style.marginTop = '-0.3em';
+		el.style.marginBottom = '0.5em';
+		el.style.paddingLeft = '0.25em';
+		el.style.fontFamily = 'var(--font-monospace)';
+		el.style.display = 'none';
+		return el;
+	}
+
+	/**
+	 * Refresh the live sample previews under each input. For folder template,
+	 * find a vault folder that the compiled template's regex matches. For
+	 * tag template, take that sample folder + run forward sync to compute the
+	 * resulting tag. Updates DOM in place.
+	 */
+	private refreshTemplateSamples(
+		folderSampleEl: HTMLElement | null,
+		tagSampleEl: HTMLElement | null,
+	): void {
+		if (folderSampleEl) {
+			folderSampleEl.style.display = 'none';
+			folderSampleEl.setText('');
+			if (!this.rule.folderTemplate) {
+				// Empty-template trap: many users assume empty matches "the root".
+				// Surface that explicitly so they aren't confused by silent nothing.
+				folderSampleEl.setText(
+					'⚠ Empty template matches no folders. Try {root}/{deeper...} for every top-level folder, or pick a Quick-start above.',
+				);
+				folderSampleEl.style.color = 'var(--text-warning, rgb(180, 110, 0))';
+				folderSampleEl.style.display = 'block';
+			} else {
+				try {
+					const compiled = compileTemplate(this.rule.folderTemplate);
+					const sample = this.vaultFolderPaths.find(p => compiled.regex.test(p));
+					if (sample) {
+						const slots = extractSlots(compiled, sample);
+						const slotPairs = slots
+							? Object.entries(slots).map(([k, v]) => `${k}=${v}`).join(', ')
+							: '';
+						folderSampleEl.setText(`✓ would match: ${sample}${slotPairs ? `   [${slotPairs}]` : ''}`);
+						folderSampleEl.style.color = 'var(--text-success, rgb(40, 140, 70))';
+					} else {
+						folderSampleEl.setText('⚠ no vault folder matches this template yet');
+						folderSampleEl.style.color = 'var(--text-warning, rgb(180, 110, 0))';
+					}
+					folderSampleEl.style.display = 'block';
+				} catch {
+					// parse error already shown by validation UI
+				}
+			}
+		}
+
+		if (tagSampleEl) {
+			tagSampleEl.style.display = 'none';
+			tagSampleEl.setText('');
+			if (this.rule.folderTemplate && this.rule.tagTemplate) {
+				try {
+					const compiled = compileTemplate(this.rule.folderTemplate);
+					const sample = this.vaultFolderPaths.find(p => compiled.regex.test(p));
+					if (sample) {
+						const fwdResult = applyTemplateRuleForward(sample, this.rule);
+						if (fwdResult.tags.length > 0) {
+							tagSampleEl.setText(`→ would emit: ${fwdResult.tags[0]}`);
+							tagSampleEl.style.color = 'var(--text-success, rgb(40, 140, 70))';
+							tagSampleEl.style.display = 'block';
+						}
+					}
+				} catch {
+					// parse error already shown
+				}
+			}
+		}
+	}
+
+	/**
+	 * Refresh the slot diff chip. Shows which slots are folder-only / tag-only
+	 * / shared. Color-codes shared slots green (round-trip), folder-only
+	 * yellow (matched-but-discarded), tag-only red (unsourced — config error).
+	 */
+	private refreshSlotDiff(slotDiffEl: HTMLElement): void {
+		slotDiffEl.empty();
+		slotDiffEl.style.display = 'none';
+		if (!this.rule.folderTemplate || !this.rule.tagTemplate) return;
+
+		let folderSlots: string[] = [];
+		let tagSlots: string[] = [];
+		try {
+			folderSlots = compileTemplate(this.rule.folderTemplate).slots.map(s => s.name);
+			tagSlots = compileTemplate(this.rule.tagTemplate).slots.map(s => s.name);
+		} catch {
+			return; // parse errors handled elsewhere
+		}
+
+		const shared = folderSlots.filter(n => tagSlots.includes(n));
+		const folderOnly = folderSlots.filter(n => !tagSlots.includes(n));
+		const tagOnly = tagSlots.filter(n => !folderSlots.includes(n));
+
+		if (shared.length === 0 && folderOnly.length === 0 && tagOnly.length === 0) return;
+
+		slotDiffEl.style.display = 'flex';
+		slotDiffEl.style.flexWrap = 'wrap';
+		slotDiffEl.style.gap = '0.4em';
+		slotDiffEl.style.background = 'var(--background-modifier-form-field)';
+
+		const addBadge = (label: string, color: string, bg: string) => {
+			const badge = slotDiffEl.createSpan();
+			badge.setText(label);
+			badge.style.padding = '0.1em 0.5em';
+			badge.style.borderRadius = '3px';
+			badge.style.color = color;
+			badge.style.background = bg;
+			badge.style.fontFamily = 'var(--font-monospace)';
+		};
+
+		for (const name of shared) {
+			addBadge(`✓ {${name}}`, 'rgb(40, 140, 70)', 'rgba(80, 200, 120, 0.18)');
+		}
+		for (const name of folderOnly) {
+			addBadge(`⚠ {${name}} folder-only`, 'rgb(180, 110, 0)', 'rgba(240, 180, 50, 0.18)');
+		}
+		for (const name of tagOnly) {
+			addBadge(`✗ {${name}} tag-only`, 'rgb(170, 50, 50)', 'rgba(220, 90, 90, 0.18)');
+		}
+	}
+
+	private refreshBijectivityChip(statusChip: HTMLElement): void {
+		if (!this.rule.folderTemplate || !this.rule.tagTemplate) {
+			statusChip.style.background = 'var(--background-modifier-hover)';
+			statusChip.style.color = 'var(--text-muted)';
+			statusChip.setText('Authoring — both templates required for bijectivity check');
+			return;
+		}
+		const verdict = computeBijectivity(this.rule.folderTemplate, this.rule.tagTemplate);
+		if (verdict.status === 'total') {
+			statusChip.style.background = 'rgba(80, 200, 120, 0.15)';
+			statusChip.style.color = 'rgb(40, 140, 70)';
+			const slotNames = Object.keys(verdict.perSlot);
+			statusChip.setText(
+				slotNames.length > 0
+					? `✓ Round-trips. Shared slots: ${slotNames.map((n) => `{${n}}`).join(', ')}`
+					: '✓ Round-trips (literal-only).',
+			);
+		} else if (verdict.status === 'conditional') {
+			statusChip.style.background = 'rgba(240, 180, 50, 0.18)';
+			statusChip.style.color = 'rgb(180, 110, 0)';
+			statusChip.setText(`⚠ Conditional bijection — ${verdict.reason ?? 'depends on input domain'}`);
+		} else {
+			statusChip.style.background = 'rgba(220, 90, 90, 0.16)';
+			statusChip.style.color = 'rgb(170, 50, 50)';
+			statusChip.setText(`✗ Lossy — ${verdict.reason ?? 'cannot reverse'}`);
+		}
+	}
+
+	/**
+	 * F2 commit 2 — Lens-flavored authoring shape.
+	 *
+	 * Same templates as the simple Template mode (rendered above this section
+	 * via buildTemplatePatternSection), PLUS explicit lens-calculus assertion
+	 * fields:
+	 *
+	 *   - cardinality: '1:1' / '1:many' / 'many:1' / 'many:many'
+	 *   - iso (bijective assertion): user can assert total bijection even
+	 *     when the engine's automatic verdict says 'conditional'. The engine
+	 *     computes its own verdict at load time; this is the user's override
+	 *     for cases where they know their inputs respect the reversibility
+	 *     domain (e.g., they always use lowercase folder names so kebab-case
+	 *     round-trips cleanly).
+	 *
+	 * Both fields persist to MappingRule.cardinality + MappingRule.bijective
+	 * (existing fields — no type change needed).
+	 */
+	private buildLensAssertionSection(section: HTMLElement): void {
+		const lensSection = section.createDiv({ cls: 'dtf-lens-assertions' });
+		lensSection.style.padding = '0.6em 0.8em';
+		lensSection.style.background = 'var(--background-modifier-form-field)';
+		lensSection.style.borderLeft = '3px solid var(--interactive-accent)';
+		lensSection.style.borderRadius = '4px';
+		lensSection.style.marginTop = '0.6em';
+		lensSection.style.marginBottom = '0.6em';
+
+		const heading = lensSection.createDiv();
+		heading.style.fontWeight = '600';
+		heading.style.fontSize = '0.95em';
+		heading.style.marginBottom = '0.4em';
+		heading.setText('Lens-calculus assertions');
+
+		const explainer = lensSection.createDiv();
+		explainer.style.fontSize = '0.8em';
+		explainer.style.color = 'var(--text-muted)';
+		explainer.style.marginBottom = '0.6em';
+		explainer.setText(
+			"Assert lens-calculus properties of this rule. The engine still computes its own verdict — these are your overrides for cases where you know your data respects the reversibility domain.",
+		);
+
+		new Setting(lensSection)
+			.setName('Cardinality')
+			.setDesc('Folder→tag relationship. 1:1 means each folder produces one unique tag, vice versa.')
+			.addDropdown(dd => {
+				dd.addOption('', 'Auto (engine decides)');
+				dd.addOption('1:1', '1:1 — bijective');
+				dd.addOption('1:many', '1:many — one folder, many tags (post-coordination)');
+				dd.addOption('many:1', 'many:1 — many folders, one tag (collapse / aggregate)');
+				dd.addOption('many:many', 'many:many — fully cross-cutting (rare)');
+				dd.setValue(this.rule.cardinality ?? '');
+				dd.onChange(value => {
+					this.rule.cardinality = (value || undefined) as MappingRule['cardinality'];
+				});
+			});
+
+		new Setting(lensSection)
+			.setName('Iso (assert total bijection)')
+			.setDesc('Override the engine if you know your inputs round-trip cleanly. Off = trust the engine verdict.')
+			.addToggle(toggle => {
+				toggle
+					.setValue(this.rule.bijective === true)
+					.onChange(value => {
+						this.rule.bijective = value;
+					});
+			});
+	}
+
+	/**
+	 * F2 commit 3 — Slot-objects authoring shape.
+	 *
+	 * Renders a structured view of the slots parsed from the current
+	 * folderTemplate + tagTemplate. Read-only inspector for v1 — user
+	 * authors via the template inputs above; this section visualizes
+	 * the structure. Editing slots from the inspector is post-MVP polish.
+	 *
+	 * Per-slot row shows: name, kind (segment / glob), filter pipeline,
+	 * presence on folder side / tag side / both.
+	 */
+	private buildSlotObjectsSection(section: HTMLElement): void {
+		// Re-render the standard template input area first so the user can
+		// still author. The slot-objects view is a structured inspector layered
+		// on top — not a replacement.
+		this.buildTemplatePatternSection(section);
+
+		const inspectorSection = section.createDiv({ cls: 'dtf-slot-objects-inspector' });
+		inspectorSection.style.marginTop = '0.6em';
+		inspectorSection.style.padding = '0.6em 0.8em';
+		inspectorSection.style.background = 'var(--background-modifier-form-field)';
+		inspectorSection.style.borderLeft = '3px solid var(--interactive-accent)';
+		inspectorSection.style.borderRadius = '4px';
+
+		const heading = inspectorSection.createDiv();
+		heading.style.fontWeight = '600';
+		heading.style.fontSize = '0.95em';
+		heading.style.marginBottom = '0.4em';
+		heading.setText('Slot inspector');
+
+		const explainer = inspectorSection.createDiv();
+		explainer.style.fontSize = '0.8em';
+		explainer.style.color = 'var(--text-muted)';
+		explainer.style.marginBottom = '0.6em';
+		explainer.setText(
+			"Structured view of the slots parsed from your templates above. v1 read-only; edit via the template inputs.",
+		);
+
+		const tableEl = inspectorSection.createEl('table');
+		tableEl.style.width = '100%';
+		tableEl.style.borderCollapse = 'collapse';
+		tableEl.style.fontSize = '0.85em';
+
+		this.renderSlotObjectsTable(tableEl);
+
+		// Hook into onOpen's input listener so the table refreshes as templates change.
+		// The contentEl-level 'input' listener already triggers renderVaultTestPreview
+		// — but slot-objects table is in a different DOM region. Add a separate
+		// listener on this section's parent.
+		section.addEventListener('input', () => {
+			this.renderSlotObjectsTable(tableEl);
+		});
+	}
+
+	private renderSlotObjectsTable(tableEl: HTMLElement): void {
+		tableEl.empty();
+
+		const headerRow = tableEl.createEl('tr');
+		for (const colHeader of ['Slot', 'Kind', 'Filters', 'On folder?', 'On tag?']) {
+			const th = headerRow.createEl('th');
+			th.setText(colHeader);
+			th.style.textAlign = 'left';
+			th.style.padding = '0.3em 0.5em';
+			th.style.borderBottom = '1px solid var(--background-modifier-border)';
+			th.style.fontWeight = '600';
+		}
+
+		let folderSlots: Array<{ name: string; kind: string; filters: string[] }> = [];
+		let tagSlots: Array<{ name: string; kind: string; filters: string[] }> = [];
+
+		try {
+			if (this.rule.folderTemplate) {
+				folderSlots = compileTemplate(this.rule.folderTemplate).slots;
+			}
+		} catch {
+			// shown in template error UI
+		}
+		try {
+			if (this.rule.tagTemplate) {
+				tagSlots = compileTemplate(this.rule.tagTemplate).slots;
+			}
+		} catch {
+			// shown in template error UI
+		}
+
+		const allSlotNames = new Set([
+			...folderSlots.map(s => s.name),
+			...tagSlots.map(s => s.name),
+		]);
+
+		if (allSlotNames.size === 0) {
+			const emptyRow = tableEl.createEl('tr');
+			const td = emptyRow.createEl('td');
+			td.colSpan = 5;
+			td.style.padding = '0.4em 0.5em';
+			td.style.color = 'var(--text-muted)';
+			td.style.fontStyle = 'italic';
+			td.setText('No slots yet — add {name} or {name...} to your templates above');
+			return;
+		}
+
+		for (const name of allSlotNames) {
+			const folderSlot = folderSlots.find(s => s.name === name);
+			const tagSlot = tagSlots.find(s => s.name === name);
+
+			const row = tableEl.createEl('tr');
+
+			const cells: Array<{ text: string; mono?: boolean; muted?: boolean }> = [
+				{ text: `{${name}}`, mono: true },
+				{ text: (folderSlot ?? tagSlot)?.kind ?? '', mono: true },
+				{
+					text: [...new Set([...(folderSlot?.filters ?? []), ...(tagSlot?.filters ?? [])])].join(' | ') || '—',
+					mono: true,
+					muted: !folderSlot?.filters?.length && !tagSlot?.filters?.length,
+				},
+				{ text: folderSlot ? '✓' : '—', muted: !folderSlot },
+				{ text: tagSlot ? '✓' : '—', muted: !tagSlot },
+			];
+
+			for (const cell of cells) {
+				const td = row.createEl('td');
+				td.setText(cell.text);
+				td.style.padding = '0.25em 0.5em';
+				td.style.borderBottom = '1px solid var(--background-modifier-border)';
+				if (cell.mono) td.style.fontFamily = 'var(--font-monospace)';
+				if (cell.muted) td.style.color = 'var(--text-muted)';
+			}
+		}
 	}
 
 	private updateTemplateValidationUI(
@@ -984,11 +1474,12 @@ export class RuleEditorModal extends Modal {
 		});
 
 		saveButton.addEventListener('click', () => {
-			// F2 commit 1d — template-mode save: validate templates parse,
-			// auto-derive folderPattern + tagPattern from compiled regex, and
-			// clear the legacy regex fields if present (rule shape mutual
-			// exclusivity).
-			if (this.editMode === 'template') {
+			// F2 — template-like save (template / lens-flavored / slot-objects):
+			// validate templates parse, auto-derive folderPattern + tagPattern
+			// from compiled regex, and clear the legacy regex fields if present
+			// (rule shape mutual exclusivity). Lens-flavored adds iso + cardinality
+			// fields; slot-objects round-trips to a template string.
+			if (this.editMode === 'template' || this.editMode === 'lens-flavored' || this.editMode === 'slot-objects') {
 				const templateProblems: string[] = [];
 				if (this.templateErrors.folderTemplate) {
 					templateProblems.push(`Folder template: ${this.templateErrors.folderTemplate}`);

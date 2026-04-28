@@ -13,6 +13,13 @@ import { previewRule, RulePreview } from '../engine/rulePreview';
 export class SettingsTab extends PluginSettingTab {
 	plugin: DynamicTagsFoldersPlugin;
 
+	/**
+	 * IDs of rules just imported via the DetectVault modal. Used to render
+	 * the "review and enable" banner above the rule list. Cleared when the
+	 * user dismisses the banner or enables/disables a rule directly.
+	 */
+	private lastImportedRuleIds: string[] = [];
+
 	constructor(app: App, plugin: DynamicTagsFoldersPlugin) {
 		super(app, plugin);
 		this.plugin = plugin;
@@ -181,12 +188,20 @@ export class SettingsTab extends PluginSettingTab {
 
 		// Idiomatic Obsidian pattern: section heading above, then a Setting
 		// row with description on the left and the primary action on the
-		// right. The advanced editor is reachable from inside the guided
-		// modal via the "Open in advanced (regex)" link in the title row,
-		// so this section only needs one CTA.
+		// right. F2 — second CTA "+ Template rule" opens the advanced editor
+		// directly in template mode for users who want the Path Lens
+		// authoring path without the guided detour.
 		new Setting(section)
 			.setName('Create new rule')
 			.setDesc('Define rules for mapping between folders and tags. Lower priority numbers are evaluated first.')
+			.addButton(btn => {
+				btn
+					.setButtonText('+ Template rule')
+					.setTooltip('Open the advanced editor in template mode — author with named slots like Projects/{topic} (Path Lens, F2)')
+					.onClick(() => this.openRuleEditor(null));
+				// Stable e2e hook (matches dtf-add-rule-button pattern).
+				btn.buttonEl.addClass('dtf-add-template-rule-button');
+			})
 			.addButton(btn => {
 				btn
 					.setButtonText('Add rule')
@@ -336,6 +351,126 @@ export class SettingsTab extends PluginSettingTab {
 			return;
 		}
 
+		// "Just imported, review and enable" banner — appears after a scan-apply
+		// and persists until dismissed. Imported rules ship disabled per the
+		// safety mode (see openDetectVault). Banner gives the user one click to
+		// "Enable all just-imported", or per-rule via the inline toggle below.
+		if (this.lastImportedRuleIds.length > 0) {
+			const banner = containerEl.createDiv({ cls: 'dtf-import-banner' });
+			banner.style.padding = '0.7em 0.9em';
+			banner.style.background = 'var(--background-modifier-form-field)';
+			banner.style.borderLeft = '3px solid var(--interactive-accent)';
+			banner.style.borderRadius = '4px';
+			banner.style.marginBottom = '0.8em';
+			banner.style.display = 'flex';
+			banner.style.flexWrap = 'wrap';
+			banner.style.gap = '0.6em';
+			banner.style.alignItems = 'center';
+			banner.style.justifyContent = 'space-between';
+
+			const text = banner.createDiv();
+			text.style.flex = '1 1 60%';
+			const heading = text.createDiv();
+			heading.style.fontWeight = '600';
+			heading.setText(`${this.lastImportedRuleIds.length} rule(s) just imported — disabled by default`);
+			const sub = text.createDiv();
+			sub.style.fontSize = '0.85em';
+			sub.style.color = 'var(--text-muted)';
+			sub.setText('Review them below, then enable. Imports stay paused until you flip the toggle.');
+
+			const actions = banner.createDiv();
+			actions.style.display = 'flex';
+			actions.style.gap = '0.4em';
+
+			const enableAllBtn = actions.createEl('button', { text: 'Enable all just-imported' });
+			enableAllBtn.addClass('mod-cta');
+			enableAllBtn.addEventListener('click', () => {
+				const ids = new Set(this.lastImportedRuleIds);
+				for (const r of this.plugin.settings.rules) {
+					if (ids.has(r.id)) r.enabled = true;
+				}
+				this.lastImportedRuleIds = [];
+				void this.plugin.saveSettings().then(() => this.display());
+			});
+
+			const dismissBtn = actions.createEl('button', { text: 'Dismiss' });
+			dismissBtn.addEventListener('click', () => {
+				this.lastImportedRuleIds = [];
+				this.display();
+			});
+		}
+
+		// Bulk + group enable/disable controls — surfaces above the rule list.
+		// Bulk: enable/disable ALL rules in one click. Group: per-group buttons
+		// that scope to the rules sharing a `group` field (set by the loader
+		// per F1 Step 3 — usually the source pack's id).
+		const bulkBar = containerEl.createDiv({ cls: 'dtf-bulk-controls' });
+		bulkBar.style.display = 'flex';
+		bulkBar.style.flexWrap = 'wrap';
+		bulkBar.style.gap = '0.4em';
+		bulkBar.style.marginBottom = '0.6em';
+		bulkBar.style.padding = '0.4em 0.6em';
+		bulkBar.style.background = 'var(--background-secondary)';
+		bulkBar.style.borderRadius = '4px';
+		bulkBar.style.alignItems = 'center';
+
+		const bulkLabel = bulkBar.createSpan();
+		bulkLabel.setText('Bulk:');
+		bulkLabel.style.fontSize = '0.85em';
+		bulkLabel.style.color = 'var(--text-muted)';
+		bulkLabel.style.marginRight = '0.2em';
+
+		const enableAllBulkBtn = bulkBar.createEl('button', { text: 'Enable all' });
+		enableAllBulkBtn.addEventListener('click', () => {
+			for (const r of this.plugin.settings.rules) r.enabled = true;
+			void this.plugin.saveSettings().then(() => this.display());
+		});
+
+		const disableAllBulkBtn = bulkBar.createEl('button', { text: 'Disable all' });
+		disableAllBulkBtn.addEventListener('click', () => {
+			for (const r of this.plugin.settings.rules) r.enabled = false;
+			void this.plugin.saveSettings().then(() => this.display());
+		});
+
+		// Per-group buttons. Group rules by their `group` field; ungrouped
+		// rules go under '__default__' (matches loader behavior).
+		const groupCounts = new Map<string, { total: number; enabled: number }>();
+		for (const r of this.plugin.settings.rules) {
+			const g = r.group ?? '__default__';
+			const cur = groupCounts.get(g) ?? { total: 0, enabled: 0 };
+			cur.total++;
+			if (r.enabled) cur.enabled++;
+			groupCounts.set(g, cur);
+		}
+
+		if (groupCounts.size > 1) {
+			const groupSep = bulkBar.createSpan();
+			groupSep.setText(' | Groups:');
+			groupSep.style.fontSize = '0.85em';
+			groupSep.style.color = 'var(--text-muted)';
+			groupSep.style.marginLeft = '0.5em';
+			groupSep.style.marginRight = '0.2em';
+
+			for (const [groupName, counts] of [...groupCounts.entries()].sort((a, b) =>
+				a[0].localeCompare(b[0]),
+			)) {
+				const allEnabled = counts.enabled === counts.total;
+				const groupBtn = bulkBar.createEl('button', {
+					text: `${allEnabled ? '✗' : '✓'} ${groupName === '__default__' ? '(ungrouped)' : groupName} (${counts.enabled}/${counts.total})`,
+				});
+				groupBtn.title = allEnabled
+					? `Disable all rules in group "${groupName}"`
+					: `Enable all rules in group "${groupName}"`;
+				groupBtn.addEventListener('click', () => {
+					for (const r of this.plugin.settings.rules) {
+						const g = r.group ?? '__default__';
+						if (g === groupName) r.enabled = !allEnabled;
+					}
+					void this.plugin.saveSettings().then(() => this.display());
+				});
+			}
+		}
+
 		// Sort rules by priority
 		const sortedRules = [...this.plugin.settings.rules].sort((a, b) => a.priority - b.priority);
 
@@ -348,6 +483,26 @@ export class SettingsTab extends PluginSettingTab {
 			const ruleHeader = ruleItem.createDiv({ cls: 'dtf-rule-header' });
 
 			const nameContainer = ruleHeader.createDiv();
+			nameContainer.style.display = 'flex';
+			nameContainer.style.alignItems = 'center';
+			nameContainer.style.gap = '0.5em';
+
+			// Inline enable/disable toggle — no need to open the editor.
+			// Stable e2e selector: dtf-rule-enable-toggle.
+			const enableToggle = nameContainer.createEl('input', {
+				type: 'checkbox',
+				cls: 'dtf-rule-enable-toggle',
+			}) as HTMLInputElement;
+			enableToggle.checked = rule.enabled !== false;
+			enableToggle.title = enableToggle.checked
+				? 'Disable this rule (sync events stop firing)'
+				: 'Enable this rule (sync events fire again)';
+			enableToggle.addEventListener('click', (e) => {
+				e.stopPropagation(); // don't open the rule editor
+				rule.enabled = enableToggle.checked;
+				void this.plugin.saveSettings().then(() => this.display());
+			});
+
 			nameContainer.createSpan({
 				text: rule.name,
 				cls: 'dtf-rule-name'
@@ -496,10 +651,15 @@ export class SettingsTab extends PluginSettingTab {
 	 */
 	private openDetectVault() {
 		const modal = new DetectVaultModal(this.app, async (newRules) => {
-			// Append, skipping any rule whose id already exists in settings
+			// Append, skipping any rule whose id already exists in settings.
+			// Force enabled=false on imported rules so scan-apply doesn't
+			// auto-arm them for future file events. User reviews + enables.
 			const existingIds = new Set(this.plugin.settings.rules.map((r) => r.id));
-			const toAdd = newRules.filter((r) => !existingIds.has(r.id));
+			const toAdd = newRules.filter((r) => !existingIds.has(r.id))
+				.map(r => ({ ...r, enabled: false }));
 			this.plugin.settings.rules = [...this.plugin.settings.rules, ...toAdd];
+			// Track for the review-and-enable banner.
+			this.lastImportedRuleIds = toAdd.map(r => r.id);
 			await this.plugin.saveSettings();
 			this.display();
 		});
@@ -529,6 +689,15 @@ export class SettingsTab extends PluginSettingTab {
 	 * to the better UX."
 	 */
 	private routeRuleEdit(rule: MappingRule): void {
+		// Path C (F2) — Path Lens template-shaped rule. Round-trip via the
+		// advanced editor in template mode; the guided modal's typed-spec
+		// inference doesn't apply to templates and would surface a
+		// misleading "Imported from regex" banner.
+		if (rule.folderTemplate || rule.tagTemplate) {
+			this.openRuleEditor(rule);
+			return;
+		}
+
 		// Path A — explicit typed fields already present (rule was authored
 		// via guided modal, or imported through the typed-spec path).
 		if (rule.folder && rule.tag && rule.transfer) {

@@ -1,7 +1,7 @@
 {
 	"id": "templates-demo",
 	"name": "Path Lens templates — demo",
-	"description": "Minimal demonstration pack showing each Path Lens shape (single-segment slot, glob slot, per-slot filters). Useful as a copy-paste reference when authoring template-shaped rules.",
+	"description": "Demonstration pack showing each Path Lens shape — identity, glob, filters, and convention-tolerant variants for emoji-prefixed and Johnny-Decimal-prefixed folder names. Use as a copy-paste reference when authoring template-shaped rules.",
 	"version": "1.0.0",
 	"author": "Cybersader",
 
@@ -90,14 +90,54 @@
 				"syncOnFileRename": true,
 				"onConflict": "skip"
 			}
+		},
+		{
+			"id": "templates-emoji-projects",
+			"name": "Emoji-prefixed PARA: 📁 Projects",
+			"description": "📁 Projects/{topic} ↔ #projects/{topic} — total bijection, literal emoji prefix in the template means the rule fires only on emoji-prefixed folders. Author the template to match your folder convention; no normalization magic needed.",
+			"enabled": false,
+			"priority": 13,
+			"direction": "bidirectional",
+			"folderTemplate": "📁 Projects/{topic}",
+			"tagTemplate": "#projects/{topic}",
+			"options": {
+				"createFolders": true,
+				"addTags": true,
+				"removeOrphanedTags": false,
+				"syncOnFileCreate": true,
+				"syncOnFileMove": true,
+				"syncOnFileRename": true,
+				"onConflict": "prompt"
+			}
+		},
+		{
+			"id": "templates-jd-emoji",
+			"name": "Johnny Decimal + emoji: 📁 01 - Projects",
+			"description": "📁 01 - Projects/{topic} ↔ #projects/{topic} — emoji + JD prefix in the literal; slot only captures the topic. The JD number itself is part of the literal match (not captured as a slot), so it must be authored verbatim. For users with stable JD numbering this is the simplest move.",
+			"enabled": false,
+			"priority": 14,
+			"direction": "bidirectional",
+			"folderTemplate": "📁 01 - Projects/{topic}",
+			"tagTemplate": "#projects/{topic}",
+			"options": {
+				"createFolders": true,
+				"addTags": true,
+				"removeOrphanedTags": false,
+				"syncOnFileCreate": true,
+				"syncOnFileMove": true,
+				"syncOnFileRename": true,
+				"onConflict": "prompt"
+			}
 		}
 	],
 
 	"notes": [
-		"This pack ships 4 template rules — only the first 2 are enabled by default. Enable rules 3 and 4 manually to experiment.",
+		"This pack ships 6 template rules — only the first 2 are enabled by default. Enable rules 3-6 manually to experiment.",
 		"Rule 1 (identity): green chip — round-trips perfectly. Use as a starting template.",
 		"Rule 2 (kebab-case filter): yellow chip — conditional. Round-trips for inputs that are already lowercase-with-hyphens.",
 		"Rule 3 (glob slot): green chip — round-trips when both sides use glob.",
-		"Rule 4 (marker-only): orange chip — lossy by design. Multiple inbox files collapse to one tag. Per-file recovery requires F3 (frontmatter witness, future)."
+		"Rule 4 (marker-only): orange chip — lossy by design. Multiple inbox files collapse to one tag. Per-file recovery requires F3 (frontmatter witness, future).",
+		"Rule 5 (emoji-prefixed PARA): green chip. Matches '📁 Projects/Web Auth' style folders directly via literal emoji in the template. Copy + adjust the emoji + folder name for your own convention.",
+		"Rule 6 (JD + emoji): green chip. Matches '📁 01 - Projects/Web Auth'. The JD number is part of the literal — for stable numbering only. Dynamic JD numbers would need a future {jd-number}-style slot."
 	]
 }

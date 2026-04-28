@@ -1,8 +1,8 @@
 {
   "version": 1,
-  "generatedAt": "2026-04-28T01:40:37.783Z",
-  "packCount": 6,
-  "totalBytes": 38823,
+  "generatedAt": "2026-04-28T13:27:15.987Z",
+  "packCount": 7,
+  "totalBytes": 49050,
   "packs": [
     {
       "id": "cyberbase-actual",
@@ -20,11 +20,90 @@
       "sizeBytes": 15202
     },
     {
+      "id": "enterprise-jd-vault",
+      "file": "enterprise-jd-vault.json",
+      "name": "Enterprise JD vault (single-digit JD + framework folders)",
+      "description": "Template-shaped pack matching a generic enterprise knowledge vault with single-digit JD-style numbered roots (0 - Tasks/, 1 - Workspaces/, ... 7 - Vault Config/), 99 - ARCHIVE, and control-framework folders (CISv8/, CRI/). All rules ship disabled — review and enable.",
+      "version": "1.0.0",
+      "author": "Cybersader",
+      "axes": [
+        "work",
+        "system",
+        "capture"
+      ],
+      "compatibleWith": [],
+      "exclusiveWith": [],
+      "ruleCount": 11,
+      "detection": {
+        "anyOf": [
+          {
+            "folderRegex": "^0 - Tasks",
+            "scope": "name",
+            "label": "0 - Tasks, Planning"
+          },
+          {
+            "folderRegex": "^1 - Workspaces",
+            "scope": "name",
+            "label": "1 - Workspaces, Projects"
+          },
+          {
+            "folderRegex": "^2 - Areas",
+            "scope": "name",
+            "label": "2 - Areas, Initiatives"
+          },
+          {
+            "folderRegex": "^3 - Docs",
+            "scope": "name",
+            "label": "3 - Docs, Intel, SOPs"
+          },
+          {
+            "folderRegex": "^4 - Topics",
+            "scope": "name",
+            "label": "4 - Topics, Knowledge"
+          },
+          {
+            "folderRegex": "^5 - Archive",
+            "scope": "name",
+            "label": "5 - Archive, Admin"
+          },
+          {
+            "folderRegex": "^6 - Ideation",
+            "scope": "name",
+            "label": "6 - Ideation, Sandbox"
+          },
+          {
+            "folderRegex": "^7 - Vault Config",
+            "scope": "name",
+            "label": "7 - Vault Config & Management"
+          },
+          {
+            "folderRegex": "^99 - ARCHIVE",
+            "scope": "name",
+            "label": "99 - ARCHIVE"
+          },
+          {
+            "folderRegex": "^CISv8$",
+            "scope": "name",
+            "label": "CISv8 framework folder"
+          },
+          {
+            "folderRegex": "^CRI$",
+            "scope": "name",
+            "label": "CRI framework folder"
+          }
+        ],
+        "minSignals": 4,
+        "scopedUnder": null
+      },
+      "establish": null,
+      "sizeBytes": 8224
+    },
+    {
       "id": "jd",
       "file": "jd.json",
       "name": "Johnny Decimal",
-      "description": "Numeric two-digit prefixes per sibling at each depth. Each numbered area maps identity-style to tags, preserving the prefix.",
-      "version": "1.0.0",
+      "description": "Numeric prefixes per sibling at each depth (one or two digits). Each numbered area maps identity-style to tags, preserving the prefix.",
+      "version": "1.1.0",
       "author": "Cybersader",
       "axes": [
         "work"
@@ -37,14 +116,14 @@
       "detection": {
         "anyOf": [
           {
-            "folderRegex": "^\\d{2} - [A-Za-z]",
+            "folderRegex": "^\\d{1,2} - [A-Za-z]",
             "scope": "name",
-            "label": "Numbered area (e.g. '10 - Projects')"
+            "label": "Numbered area (e.g. '10 - Projects' or '0 - Tasks')"
           },
           {
-            "folderRegex": "^\\d{2}-[a-z]",
+            "folderRegex": "^\\d{1,2}-[a-z]",
             "scope": "name",
-            "label": "Numbered area (compact, e.g. '10-projects')"
+            "label": "Numbered area (compact, e.g. '10-projects' or '0-tasks')"
           }
         ],
         "minSignals": 2,
@@ -57,9 +136,9 @@
           "30 - Resources/",
           "90 - Archive/"
         ],
-        "summary": "Numbered top-level areas (10-, 20-, …, 90-). Each area can subdivide further with two-digit numeric prefixes."
+        "summary": "Numbered top-level areas. Strict 2-digit and enterprise-style 1-digit both supported."
       },
-      "sizeBytes": 1694
+      "sizeBytes": 1716
     },
     {
       "id": "para",
@@ -204,7 +283,7 @@
       "id": "templates-demo",
       "file": "templates-demo.json",
       "name": "Path Lens templates — demo",
-      "description": "Minimal demonstration pack showing each Path Lens shape (single-segment slot, glob slot, per-slot filters). Useful as a copy-paste reference when authoring template-shaped rules.",
+      "description": "Demonstration pack showing each Path Lens shape — identity, glob, filters, and convention-tolerant variants for emoji-prefixed and Johnny-Decimal-prefixed folder names. Use as a copy-paste reference when authoring template-shaped rules.",
       "version": "1.0.0",
       "author": "Cybersader",
       "axes": [
@@ -212,7 +291,7 @@
       ],
       "compatibleWith": [],
       "exclusiveWith": [],
-      "ruleCount": 4,
+      "ruleCount": 6,
       "detection": null,
       "establish": {
         "createFolders": [
@@ -222,7 +301,7 @@
         ],
         "summary": "Three folders demonstrating identity (Projects), filter chain (Areas with kebab-case), and marker-only-via-glob (Capture/Inbox)."
       },
-      "sizeBytes": 3602
+      "sizeBytes": 5583
     }
   ]
 }

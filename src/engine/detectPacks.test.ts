@@ -365,17 +365,25 @@ describe('detectPacks — fixture vaults × real pack metadata', () => {
 		expect(conflicts).toEqual([]);
 	});
 
-	test('Cyberbase vault (emoji-prefix folders) → no detectable packs', () => {
-		// cyberbase-actual.json deliberately ships without detection metadata
-		// (it's a user-specific pack, not a generic org system worth
-		// auto-detecting). seacow-cyberbase.json is the same. Pinning this
-		// keeps emoji-prefix vaults out of the auto-detect path; if a future
-		// change adds detection metadata to either pack, this test fails
-		// loudly as a "did you mean to do that?" guard.
+	test('Cyberbase vault (emoji-prefix folders) → user-specific packs stay invisible; JD detects via emoji-only-strip', () => {
+		// cyberbase-actual.json + seacow-cyberbase.json deliberately ship
+		// without detection metadata (user-specific packs, not generic org
+		// systems worth auto-detecting). Pinned: those packs stay invisible.
+		//
+		// JD pack DOES correctly detect emoji+JD folders (📁 01 - Foo) via
+		// the layered normalization in matchesNormalized — emoji-only-strip
+		// preserves the JD prefix so `^\d{2} - ...` matches. This is the
+		// right behavior: a user with `📁 01 - Foo`-style folders IS using
+		// JD-shaped naming whether decorated or not. PARA + SEACOW outer
+		// stay invisible because the fixture has no `Projects`/`Capture`-
+		// shaped names even after decoration is stripped.
 		const results = detectPacks(CYBERBASE_VAULT, ALL_REAL_PACKS);
+		expect(results.find((r) => r.packId === 'cyberbase-actual')).toBeUndefined();
+		expect(results.find((r) => r.packId === 'seacow-cyberbase')).toBeUndefined();
 		expect(results.find((r) => r.packId === 'para')).toBeUndefined();
-		expect(results.find((r) => r.packId === 'jd')).toBeUndefined();
 		expect(results.find((r) => r.packId === 'seacow-outer')).toBeUndefined();
+		// JD now detects (correctly) via emoji-only-strip path
+		expect(results.find((r) => r.packId === 'jd')).toBeDefined();
 	});
 
 	test('Empty vault → no surfaces, no errors', () => {

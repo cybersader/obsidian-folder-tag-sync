@@ -226,6 +226,51 @@ These are real and unresolved:
 - **Per-transform metadata: who maintains the table?** Small (~12 filters today) but extends as new filters land. Source of truth is `src/transformers/transformMetadata.ts`; new filter PRs must include their reversibility profile.
 - **Domain-restricted bijectivity** — a rule may be bijective on the user's vault but not on arbitrary inputs. Does the engine specialize the verdict to the user's domain, or stay general? Layer 3 implicitly does the former; explicit specialization is a future feature.
 
+## Per-rule vs per-instance bijectivity — the F3 plug-in seam
+
+The detection algorithm above produces a **per-rule** verdict — a static property of the rule definition. A rule with `kebab-case` on a slot is `conditional` regardless of which file the rule fires on, because *some* inputs round-trip cleanly and some don't.
+
+But for any individual file the rule has actually fired on, we have more information. If `oauth.md` was forward-synced from `Projects/Web Auth` and the slot value `Web Auth` was `kebab-case`-d to `web-auth` for the tag, the round-trip *for this file* was successful. The conditional verdict applies in general; the specific instance round-tripped.
+
+This is the **per-instance precision gap** — the engine's verdict is conservative across all rules but pessimistic for any individual file. F3 (frontmatter as bijection memory, [roadmap Increment 3](/obsidian-folder-tag-sync/about/roadmap/#3-increment-3--hybrid-frontmatter-witness-foundation-per-file-state-opt-in)) closes the gap by recording the original slot values in the file's frontmatter when the forward sync runs. The inverse direction reads them back and uses them *instead of* recovering through the (lossy or conditional) filter inverse.
+
+### The plug-in seam in code
+
+The F2 template runtime ([`src/engine/applyTemplate.ts`](https://github.com/cybersader/obsidian-folder-tag-sync/blob/main/src/engine/applyTemplate.ts)) is structured to accommodate this. Slot values flow through the runtime in two stages:
+
+1. **Extract** — slot values come from the path/tag via `extractSlots(compiled, input)`
+2. **Transform** — values flow through `applyFilterChain` (forward) or `applyFilterChainInverse` (inverse)
+3. **Instantiate** — the destination template fills in transformed values via `instantiateTemplate`
+
+The seam is **between steps 1 and 2**. F3 will inject a context parameter:
+
+```typescript
+// Future signature — F3 plug-in
+applyTemplateRuleInverse(
+  tag: string,
+  rule: MappingRule,
+  ctx?: { storedSlots?: Record<string, string> }  // ← from frontmatter
+): InverseResult
+```
+
+When `ctx.storedSlots` contains a value for a slot, the runtime uses it directly and skips the (lossy/conditional) filter inverse. When it doesn't, the runtime falls back to the current behavior (filter inverse, possibly approximating). This means:
+
+- **Lossy rules become bijective per-file** for files that have been forward-synced through them
+- **Files synced before F3 shipped** still work — the runtime falls back to the conservative inverse
+- **The runtime stays pure** — no Obsidian I/O inside `applyTemplate.ts`; the caller (sync engine) reads frontmatter and supplies `ctx`
+
+### What the user cares about
+
+This means a `marker-only` rule (e.g., `Capture/Inbox/{discarded...}` → `#-inbox`) — provably lossy by structure — can become bijective for any specific file once F3 records the original folder. The user installs the plugin, enables the witness on the marker rule, and gets exact-recovery behavior on inverse sync without changing the rule's structure or its `lossy: true` flag.
+
+The flag stays honest. The runtime stays correct. The user gets per-file precision without authoring per-file rules.
+
+### Research dependencies before F3 lands
+
+The seam exists architecturally; the *content* of the witness (what fields, what schema, what namespace) is still open. See [Frontmatter as bijection memory research](/obsidian-folder-tag-sync/agent-context/zz-log/2026-04-27-frontmatter-as-bijection-memory-research/) and [Challenge 07 — Frontmatter as bijection memory validation](/obsidian-folder-tag-sync/agent-context/zz-challenges/07-frontmatter-as-bijection-memory-validation/) for the open design questions: namespace shape (`fts:` vs `folder-tag-sync:` vs `_fts:`), what to store (raw path vs slot values), backfill behavior on retroactive enable, and strip-on-export tooling. The [development plan](/obsidian-folder-tag-sync/about/development-plan/#decision-gate-before-increment-3--frontmatter-property-approach-for-stateful) lists six decision-gate questions for the user before F3 implementation begins.
+
+The F2 runtime does not block on F3 research. The seam is documented; F3 plugs in when its design questions resolve.
+
 ## Why this design (vs alternatives)
 
 The three-agent research dispatch surveyed the alternatives:

@@ -349,18 +349,26 @@ describe('computeBijectivity', () => {
 			expect(result).toEqual({ front: 'a/middle/b', back: 'c' });
 		});
 
-		test('two glob slots in sequence: first eats everything → second starves', () => {
+		test('two glob slots in sequence: trailing optional eats nothing, first slot greedy', () => {
+			// Post trailing-optional-glob relaxation: `{b...}` at the end is the
+			// trailing glob and becomes optional. So compiled regex is
+			// `^(?<a>.+)(?:/(?<b>.+))?$`. With input `x/y/z`, greedy `a` captures
+			// the whole thing and `b` is undefined. Documenting the actual
+			// behavior; two-globs-in-a-row remains a footgun template authors
+			// should avoid (warn in UI later).
 			const compiled = compileTemplate('{a...}/{b...}');
 			const result = extractSlots(compiled, 'x/y/z');
-			// `.+` is greedy — `a` matches `x/y`, `b` matches `z`. Predictable
-			// but rarely what the author wants. We should warn in the UI later.
-			expect(result).toEqual({ a: 'x/y', b: 'z' });
+			expect(result).toEqual({ a: 'x/y/z' });
 		});
 
-		test('glob requires at least one segment', () => {
+		test('trailing glob with nothing-after still rejects path with empty trailing segment', () => {
+			// `Projects/` ends with `/` followed by nothing — neither the bare
+			// entry (Projects) nor a deeper path (Projects/X). Should not match.
 			const compiled = compileTemplate('Projects/{deeper...}');
 			expect(extractSlots(compiled, 'Projects/')).toBeNull();
-			expect(extractSlots(compiled, 'Projects')).toBeNull();
+			// Bare entry DOES match post-relaxation (this is the whole point —
+			// `Projects/{deeper...}` now expresses "Projects or Projects/anything")
+			expect(extractSlots(compiled, 'Projects')).toEqual({});
 		});
 	});
 
@@ -472,5 +480,94 @@ describe('computeBijectivity', () => {
 				expect(reconstructed).toBe(path);
 			});
 		}
+	});
+
+	describe('trailing-optional-glob — bare-entry-or-deeper matching', () => {
+		test('Projects/{deeper...} matches bare Projects (no children)', () => {
+			const compiled = compileTemplate('Projects/{deeper...}');
+			expect(compiled.slots[0].trailingOptionalGlob).toBe(true);
+			expect(compiled.regex.test('Projects')).toBe(true);
+			const slots = extractSlots(compiled, 'Projects');
+			expect(slots).toEqual({}); // deeper undefined for bare match
+		});
+
+		test('Projects/{deeper...} matches Projects/X (single child)', () => {
+			const compiled = compileTemplate('Projects/{deeper...}');
+			const slots = extractSlots(compiled, 'Projects/Web');
+			expect(slots).toEqual({ deeper: 'Web' });
+		});
+
+		test('Projects/{deeper...} matches Projects/X/Y/Z (deep child)', () => {
+			const compiled = compileTemplate('Projects/{deeper...}');
+			const slots = extractSlots(compiled, 'Projects/Web/Auth/oauth');
+			expect(slots).toEqual({ deeper: 'Web/Auth/oauth' });
+		});
+
+		test('Projects/{deeper...} does NOT match unrelated folders', () => {
+			const compiled = compileTemplate('Projects/{deeper...}');
+			expect(compiled.regex.test('Areas')).toBe(false);
+			expect(compiled.regex.test('Areas/Health')).toBe(false);
+			expect(compiled.regex.test('ProjectsBackup')).toBe(false);
+		});
+
+		test('instantiateTemplate with empty slots yields the bare entry', () => {
+			const compiled = compileTemplate('Projects/{deeper...}');
+			const result = instantiateTemplate(compiled, {});
+			expect(result).toBe('Projects');
+		});
+
+		test('instantiateTemplate with deeper slot yields full path', () => {
+			const compiled = compileTemplate('Projects/{deeper...}');
+			const result = instantiateTemplate(compiled, { deeper: 'Web/Auth' });
+			expect(result).toBe('Projects/Web/Auth');
+		});
+
+		test('round-trip: bare entry → extract → instantiate → bare entry', () => {
+			const compiled = compileTemplate('Projects/{deeper...}');
+			const slots = extractSlots(compiled, 'Projects');
+			expect(slots).toEqual({});
+			const reconstructed = instantiateTemplate(compiled, slots!);
+			expect(reconstructed).toBe('Projects');
+		});
+
+		test('round-trip: deep entry → extract → instantiate → deep entry', () => {
+			const compiled = compileTemplate('Projects/{deeper...}');
+			const slots = extractSlots(compiled, 'Projects/Web/Auth/oauth');
+			const reconstructed = instantiateTemplate(compiled, slots!);
+			expect(reconstructed).toBe('Projects/Web/Auth/oauth');
+		});
+
+		test('NON-trailing glob (slot followed by literal) keeps strict matching', () => {
+			// `{front...}/middle` — glob is NOT last; relaxation should NOT apply.
+			const compiled = compileTemplate('{front...}/middle');
+			expect(compiled.slots[0].trailingOptionalGlob).toBeFalsy();
+			expect(compiled.regex.test('middle')).toBe(false); // bare middle doesn't match
+		});
+
+		test('{root}/{deeper...} matches single root + deeper, AND bare root', () => {
+			// Common starter: catch every top-level folder, optionally with descendants.
+			const compiled = compileTemplate('{root}/{deeper...}');
+			expect(compiled.slots[1].trailingOptionalGlob).toBe(true);
+			// Bare root
+			expect(extractSlots(compiled, 'Projects')).toEqual({ root: 'Projects' });
+			// Root + descendants
+			expect(extractSlots(compiled, 'Projects/Web/Auth')).toEqual({
+				root: 'Projects',
+				deeper: 'Web/Auth',
+			});
+		});
+
+		test('emoji + JD prefix with trailing glob: `📁 01 - Projects/{deeper...}` matches bare', () => {
+			const compiled = compileTemplate('📁 01 - Projects/{deeper...}');
+			expect(compiled.regex.test('📁 01 - Projects')).toBe(true);
+			expect(compiled.regex.test('📁 01 - Projects/Web Auth')).toBe(true);
+			expect(extractSlots(compiled, '📁 01 - Projects')).toEqual({});
+		});
+
+		test('enterprise-style single-digit JD root with trailing glob matches bare + deep', () => {
+			const compiled = compileTemplate('0 - Tasks, Planning/{deeper...}');
+			expect(compiled.regex.test('0 - Tasks, Planning')).toBe(true);
+			expect(compiled.regex.test('0 - Tasks, Planning/Annual Planning')).toBe(true);
+		});
 	});
 });

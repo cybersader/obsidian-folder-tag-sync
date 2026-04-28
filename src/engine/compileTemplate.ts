@@ -68,6 +68,22 @@ export interface SlotDef {
 
 	/** Position in the template string (for error messages) */
 	templatePosition: number;
+
+	/**
+	 * True when this slot is a trailing glob whose preceding `/` is also
+	 * optional — i.e., `Projects/{deeper...}` matches BOTH bare `Projects`
+	 * AND `Projects/X/Y/Z`. The compiler sets this for the LAST slot in a
+	 * template when it's a glob AND immediately preceded by `/`. Lets a
+	 * single template express the typed-model "entry-or-anywhere-below" shape
+	 * that older typed rules emitted via `^Projects(?:/|$)`.
+	 *
+	 * Affects:
+	 *   - The compiled regex emits `(?:/<glob>)?` instead of `/<glob>`
+	 *   - `extractSlots` returns slot value `undefined` for bare-prefix matches
+	 *   - `instantiateTemplate` allows the slot value to be undefined; when
+	 *     so, it omits both the slot and the preceding `/`
+	 */
+	trailingOptionalGlob?: boolean;
 }
 
 export interface CompiledTemplate {
@@ -187,11 +203,36 @@ export function compileTemplate(template: PathTemplate): CompiledTemplate {
 			// JS regex named groups disallow hyphens. Sanitize for the regex
 			// layer; preserve original name for the public slot API.
 			slot.captureGroupName = sanitizeForRegex(slot.name, slots.length);
-			slots.push(slot);
 
-			// Append the slot's regex pattern with a named capture group
-			const captureBody = slot.kind === 'glob' ? '.+' : '[^/]+';
-			regexParts.push(`(?<${slot.captureGroupName}>${captureBody})`);
+			// Detect the trailing-optional-glob case: this slot is the LAST
+			// thing in the template AND it's a glob AND the most recently-
+			// flushed literal ends with `/`. If so, make BOTH the leading `/`
+			// AND the slot capture optional in the compiled regex, so a single
+			// template like `Projects/{deeper...}` matches the bare `Projects`
+			// folder too — restoring the typed-model entry-or-anywhere shape.
+			//
+			// Note: `/` is NOT in escapeRegex's character class (JS regex
+			// doesn't require it escaped), so the literal `/` in the
+			// preceding regex part appears as a plain `/`, not `\/`.
+			const isLastToken = slotEnd === template.length - 1;
+			const lastPart = regexParts[regexParts.length - 1] ?? '';
+			const lastPartEndsWithSlash = lastPart.endsWith('/');
+			const trailingOptionalGlob =
+				isLastToken && slot.kind === 'glob' && lastPartEndsWithSlash;
+
+			if (trailingOptionalGlob) {
+				slot.trailingOptionalGlob = true;
+				// Strip the trailing `/` from the preceding literal.
+				regexParts[regexParts.length - 1] = lastPart.slice(0, -1);
+				// Emit optional non-capturing group containing the leading `/`
+				// and the named capture.
+				regexParts.push(`(?:/(?<${slot.captureGroupName}>.+))?`);
+			} else {
+				const captureBody = slot.kind === 'glob' ? '.+' : '[^/]+';
+				regexParts.push(`(?<${slot.captureGroupName}>${captureBody})`);
+			}
+
+			slots.push(slot);
 
 			i = slotEnd + 1;
 		} else {
@@ -321,17 +362,27 @@ export function instantiateTemplate(
 	for (const slot of compiled.slots) {
 		// Append the literal between the previous slot end and this slot's start
 		const slotStartInTemplate = template.indexOf('{', lastIndex);
-		result += template.slice(lastIndex, slotStartInTemplate);
+		const literalBefore = template.slice(lastIndex, slotStartInTemplate);
 
 		// Append the slot's value
 		const value = slotValues[slot.name];
 		if (value === undefined) {
+			// Trailing-optional-glob: when the slot value is undefined, drop
+			// both the slot AND the preceding `/` literal. This lets a
+			// template like `Projects/{deeper...}` instantiate to `Projects`
+			// (bare entry) when no deeper path is provided.
+			if (slot.trailingOptionalGlob && literalBefore.endsWith('/')) {
+				result += literalBefore.slice(0, -1);
+				lastIndex = template.indexOf('}', slotStartInTemplate) + 1;
+				continue;
+			}
 			throw new TemplateParseError(
 				`missing value for slot "${slot.name}"`,
 				template,
 				slot.templatePosition,
 			);
 		}
+		result += literalBefore;
 		result += value;
 
 		// Advance past the slot's `}` in the template

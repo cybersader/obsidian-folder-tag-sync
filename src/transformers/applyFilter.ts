@@ -17,7 +17,7 @@
  */
 
 import { applyCaseTransform } from './caseTransformers';
-import { stripEmoji } from './emojiTransformers';
+import { stripEmoji, stripInvalidTagChars } from './emojiTransformers';
 import { extractNumberPrefix, stripNumberPrefix } from './numberTransformers';
 import { TRANSFORM_METADATA } from './transformMetadata';
 
@@ -48,6 +48,9 @@ export function applyFilter(value: string, filterName: string): string {
 
 		case 'strip-emoji':
 			return stripEmoji(value);
+
+		case 'strip-invalid-tag-chars':
+			return stripInvalidTagChars(value);
 
 		case 'strip-num-prefix':
 			return stripNumberPrefix(value);

@@ -249,10 +249,14 @@ describe('applyTemplateRuleInverse', () => {
 	});
 
 	describe('config errors', () => {
-		test('folder-only slot → null with lossy flag', () => {
+		test('folder-only trailing-glob slot → partial recovery with lossy flag', () => {
+			// Post trailing-optional-glob relaxation: when the folder-only slot
+			// is a trailing glob, the inverse partially recovers — produces the
+			// bare prefix without the discarded segments. Lossy flag stays true
+			// because the original deeper path is unrecoverable.
 			const rule = ruleWithTemplates('Projects/{topic}/{discarded...}', '#projects/{topic}');
 			const result = applyTemplateRuleInverse('#projects/Web', rule);
-			expect(result.folder).toBeNull();
+			expect(result.folder).toBe('Projects/Web');
 			expect(result.lossy).toBe(true);
 		});
 	});

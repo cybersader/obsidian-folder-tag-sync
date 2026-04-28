@@ -224,6 +224,22 @@ F2 commit 1 settles slot semantics (what fields the slot capture produces, pre-t
 - F3's `fts.slots` (or equivalent) field structure depends on F2's slot capture API
 - Practically: F2 commit 1 lands → F3 commit 1 (passive witness) starts immediately, consuming F2's slot capture
 
+**The architectural seam (decided 2026-04-28).** The F2 template runtime in `src/engine/applyTemplate.ts` is structured to plug F3 in cleanly *without changing the runtime's signature today*. Slot values flow through the runtime in three stages — extract, transform, instantiate — and F3 will inject between extract and transform via an optional `ctx?: { storedSlots?: Record<string, string> }` parameter. When the context provides a stored value for a slot, the runtime uses it directly and skips the (lossy or conditional) filter inverse; when it doesn't, the runtime falls back to the conservative inverse.
+
+What this gets us:
+
+- **Lossy rules become bijective per-file** for files that have been forward-synced through them once
+- **The per-rule `lossy: true` flag stays honest** — it remains a static property of the rule definition; the per-instance precision comes from frontmatter, not from re-classifying the rule
+- **F2 ships independently** — the runtime is pure, no Obsidian I/O, no F3 dependency
+- **F3 ships independently** — when its design questions resolve (namespace shape, schema, backfill behavior), it adds a context param to the existing runtime; no restructuring needed
+
+The seam is documented in two places:
+
+1. The runtime file itself (`src/engine/applyTemplate.ts` header docstring, "F3 plug-in seam" section) — code-level architectural intent
+2. The [bijectivity-detection concept page](/obsidian-folder-tag-sync/concepts/bijectivity-detection/#per-rule-vs-per-instance-bijectivity--the-f3-plug-in-seam) — user-facing explanation of per-rule vs per-instance verdicts
+
+This means F2 commit 1b ships now (template runtime, no context param) and F3 plugs in later when the research-required design questions (namespace, schema, migration UX) resolve. No premature scaffolding; clear plug-in point preserved.
+
 
 
 **What users see**: the rule editor gets a new top-of-pane mode toggle: **"Template" / "Regex"**. Template mode shows a single-line input with named slots (`Projects/{slug}` ↔ `#projects/{slug}`). Regex mode is the existing power-user surface, unchanged. New rules default to Template mode; existing regex rules stay regex.

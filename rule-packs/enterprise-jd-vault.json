@@ -1,0 +1,247 @@
+{
+	"id": "enterprise-jd-vault",
+	"name": "Enterprise JD vault (single-digit JD + framework folders)",
+	"description": "Template-shaped pack matching a generic enterprise knowledge vault with single-digit JD-style numbered roots (0 - Tasks/, 1 - Workspaces/, ... 7 - Vault Config/), 99 - ARCHIVE, and control-framework folders (CISv8/, CRI/). All rules ship disabled — review and enable.",
+	"version": "1.0.0",
+	"author": "Cybersader",
+
+	"axes": ["work", "system", "capture"],
+	"compatibleWith": [],
+	"exclusiveWith": [],
+
+	"detection": {
+		"anyOf": [
+			{ "folderRegex": "^0 - Tasks", "scope": "name", "label": "0 - Tasks, Planning" },
+			{ "folderRegex": "^1 - Workspaces", "scope": "name", "label": "1 - Workspaces, Projects" },
+			{ "folderRegex": "^2 - Areas", "scope": "name", "label": "2 - Areas, Initiatives" },
+			{ "folderRegex": "^3 - Docs", "scope": "name", "label": "3 - Docs, Intel, SOPs" },
+			{ "folderRegex": "^4 - Topics", "scope": "name", "label": "4 - Topics, Knowledge" },
+			{ "folderRegex": "^5 - Archive", "scope": "name", "label": "5 - Archive, Admin" },
+			{ "folderRegex": "^6 - Ideation", "scope": "name", "label": "6 - Ideation, Sandbox" },
+			{ "folderRegex": "^7 - Vault Config", "scope": "name", "label": "7 - Vault Config & Management" },
+			{ "folderRegex": "^99 - ARCHIVE", "scope": "name", "label": "99 - ARCHIVE" },
+			{ "folderRegex": "^CISv8$", "scope": "name", "label": "CISv8 framework folder" },
+			{ "folderRegex": "^CRI$", "scope": "name", "label": "CRI framework folder" }
+		],
+		"minSignals": 4,
+		"scopedUnder": null
+	},
+
+	"rules": [
+		{
+			"id": "ent-tasks-planning",
+			"name": "0 - Tasks, Planning",
+			"description": "0 - Tasks, Planning/{deeper...} ↔ #0-tasks-planning/{deeper...}",
+			"enabled": false,
+			"priority": 10,
+			"direction": "bidirectional",
+			"folderTemplate": "0 - Tasks, Planning/{deeper...}",
+			"tagTemplate": "#0-tasks-planning/{deeper...}",
+			"options": {
+				"createFolders": true,
+				"addTags": true,
+				"removeOrphanedTags": false,
+				"syncOnFileCreate": true,
+				"syncOnFileMove": true,
+				"syncOnFileRename": true,
+				"onConflict": "prompt"
+			}
+		},
+		{
+			"id": "ent-workspaces-projects",
+			"name": "1 - Workspaces, Projects",
+			"description": "1 - Workspaces, Projects/{deeper...} ↔ #1-workspaces-projects/{deeper...}",
+			"enabled": false,
+			"priority": 11,
+			"direction": "bidirectional",
+			"folderTemplate": "1 - Workspaces, Projects/{deeper...}",
+			"tagTemplate": "#1-workspaces-projects/{deeper...}",
+			"options": {
+				"createFolders": true,
+				"addTags": true,
+				"removeOrphanedTags": false,
+				"syncOnFileCreate": true,
+				"syncOnFileMove": true,
+				"syncOnFileRename": true,
+				"onConflict": "prompt"
+			}
+		},
+		{
+			"id": "ent-areas-initiatives",
+			"name": "2 - Areas, Initiatives",
+			"description": "2 - Areas, Initiatives/{deeper...} ↔ #2-areas-initiatives/{deeper...}",
+			"enabled": false,
+			"priority": 12,
+			"direction": "bidirectional",
+			"folderTemplate": "2 - Areas, Initiatives/{deeper...}",
+			"tagTemplate": "#2-areas-initiatives/{deeper...}",
+			"options": {
+				"createFolders": true,
+				"addTags": true,
+				"removeOrphanedTags": false,
+				"syncOnFileCreate": true,
+				"syncOnFileMove": true,
+				"syncOnFileRename": true,
+				"onConflict": "prompt"
+			}
+		},
+		{
+			"id": "ent-docs-intel-sops",
+			"name": "3 - Docs, Intel, SOPs",
+			"description": "3 - Docs, Intel, SOPs/{deeper...} ↔ #3-docs-intel-sops/{deeper...}",
+			"enabled": false,
+			"priority": 13,
+			"direction": "bidirectional",
+			"folderTemplate": "3 - Docs, Intel, SOPs/{deeper...}",
+			"tagTemplate": "#3-docs-intel-sops/{deeper...}",
+			"options": {
+				"createFolders": true,
+				"addTags": true,
+				"removeOrphanedTags": false,
+				"syncOnFileCreate": true,
+				"syncOnFileMove": true,
+				"syncOnFileRename": true,
+				"onConflict": "prompt"
+			}
+		},
+		{
+			"id": "ent-topics-knowledge",
+			"name": "4 - Topics, Knowledge, External, Misc",
+			"description": "4 - Topics, Knowledge, External, Misc/{deeper...} ↔ #4-topics-knowledge/{deeper...}",
+			"enabled": false,
+			"priority": 14,
+			"direction": "bidirectional",
+			"folderTemplate": "4 - Topics, Knowledge, External, Misc/{deeper...}",
+			"tagTemplate": "#4-topics-knowledge/{deeper...}",
+			"options": {
+				"createFolders": true,
+				"addTags": true,
+				"removeOrphanedTags": false,
+				"syncOnFileCreate": true,
+				"syncOnFileMove": true,
+				"syncOnFileRename": true,
+				"onConflict": "prompt"
+			}
+		},
+		{
+			"id": "ent-archive-admin",
+			"name": "5 - Archive, Admin",
+			"description": "5 - Archive, Admin/{deeper...} ↔ #5-archive-admin/{deeper...}",
+			"enabled": false,
+			"priority": 15,
+			"direction": "bidirectional",
+			"folderTemplate": "5 - Archive, Admin/{deeper...}",
+			"tagTemplate": "#5-archive-admin/{deeper...}",
+			"options": {
+				"createFolders": true,
+				"addTags": true,
+				"removeOrphanedTags": false,
+				"syncOnFileCreate": true,
+				"syncOnFileMove": true,
+				"syncOnFileRename": true,
+				"onConflict": "prompt"
+			}
+		},
+		{
+			"id": "ent-ideation-sandbox",
+			"name": "6 - Ideation, Sandbox",
+			"description": "6 - Ideation, Sandbox/{deeper...} ↔ #6-ideation-sandbox/{deeper...}",
+			"enabled": false,
+			"priority": 16,
+			"direction": "bidirectional",
+			"folderTemplate": "6 - Ideation, Sandbox/{deeper...}",
+			"tagTemplate": "#6-ideation-sandbox/{deeper...}",
+			"options": {
+				"createFolders": true,
+				"addTags": true,
+				"removeOrphanedTags": false,
+				"syncOnFileCreate": true,
+				"syncOnFileMove": true,
+				"syncOnFileRename": true,
+				"onConflict": "prompt"
+			}
+		},
+		{
+			"id": "ent-vault-config",
+			"name": "7 - Vault Config & Management",
+			"description": "7 - Vault Config & Management/{deeper...} ↔ #7-vault-config/{deeper...}",
+			"enabled": false,
+			"priority": 17,
+			"direction": "bidirectional",
+			"folderTemplate": "7 - Vault Config & Management/{deeper...}",
+			"tagTemplate": "#7-vault-config/{deeper...}",
+			"options": {
+				"createFolders": true,
+				"addTags": true,
+				"removeOrphanedTags": false,
+				"syncOnFileCreate": true,
+				"syncOnFileMove": true,
+				"syncOnFileRename": true,
+				"onConflict": "prompt"
+			}
+		},
+		{
+			"id": "ent-archive-99",
+			"name": "99 - ARCHIVE",
+			"description": "99 - ARCHIVE/{deeper...} ↔ #99-archive/{deeper...}",
+			"enabled": false,
+			"priority": 18,
+			"direction": "bidirectional",
+			"folderTemplate": "99 - ARCHIVE/{deeper...}",
+			"tagTemplate": "#99-archive/{deeper...}",
+			"options": {
+				"createFolders": true,
+				"addTags": true,
+				"removeOrphanedTags": false,
+				"syncOnFileCreate": true,
+				"syncOnFileMove": true,
+				"syncOnFileRename": true,
+				"onConflict": "prompt"
+			}
+		},
+		{
+			"id": "ent-cisv8",
+			"name": "CISv8 framework",
+			"description": "CISv8/{control}/{deeper...} ↔ #cisv8/{control}/{deeper...} — CIS controls library",
+			"enabled": false,
+			"priority": 20,
+			"direction": "bidirectional",
+			"folderTemplate": "CISv8/{control}/{deeper...}",
+			"tagTemplate": "#cisv8/{control}/{deeper...}",
+			"options": {
+				"createFolders": true,
+				"addTags": true,
+				"removeOrphanedTags": false,
+				"syncOnFileCreate": true,
+				"syncOnFileMove": true,
+				"syncOnFileRename": true,
+				"onConflict": "prompt"
+			}
+		},
+		{
+			"id": "ent-cri",
+			"name": "CRI framework",
+			"description": "CRI/{function}/{deeper...} ↔ #cri/{function}/{deeper...} — CRI Profile (DE/EX/GV/ID/PR/RC/RS)",
+			"enabled": false,
+			"priority": 21,
+			"direction": "bidirectional",
+			"folderTemplate": "CRI/{function}/{deeper...}",
+			"tagTemplate": "#cri/{function}/{deeper...}",
+			"options": {
+				"createFolders": true,
+				"addTags": true,
+				"removeOrphanedTags": false,
+				"syncOnFileCreate": true,
+				"syncOnFileMove": true,
+				"syncOnFileRename": true,
+				"onConflict": "prompt"
+			}
+		}
+	],
+
+	"notes": [
+		"All 11 rules ship DISABLED. Review them in the rule list and enable individually or via 'Enable all just-imported'.",
+		"Folder templates use the trailing-glob relaxation — '0 - Tasks, Planning/{deeper...}' matches the bare '0 - Tasks, Planning' folder AND any descendant.",
+		"Detection requires 4+ of the 11 numbered/framework roots to surface this pack."
+	]
+}

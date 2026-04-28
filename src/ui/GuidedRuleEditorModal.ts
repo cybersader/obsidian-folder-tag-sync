@@ -286,7 +286,7 @@ export class GuidedRuleEditorModal extends Modal {
 		// forwards `null` to the advanced editor (signaling "open for a new
 		// rule"); the SettingsTab.openRuleEditor(null) flow handles that.
 		if (this.onSwitchToAdvanced) {
-			const switchLink = titleRow.createEl('a', { text: 'Open in advanced (regex)' });
+			const switchLink = titleRow.createEl('a', { text: 'Open in advanced (template / regex)' });
 			switchLink.style.fontSize = '0.85em';
 			switchLink.style.cursor = 'pointer';
 			switchLink.style.color = 'var(--text-muted)';
@@ -298,6 +298,34 @@ export class GuidedRuleEditorModal extends Modal {
 					this.close();
 				}
 			});
+		}
+
+		// F2 — "Try templates" intro callout for new-rule authoring. Points
+		// users at the advanced editor's Path Lens template mode; this avoids
+		// having to surface native template inputs in the guided form (deferred
+		// to post-MVP). Shown only in create mode.
+		if (this.mode.kind === 'create' && this.onSwitchToAdvanced) {
+			const callout = bodyEl.createDiv({ cls: 'dtf-templates-intro-callout' });
+			callout.style.padding = '0.6em 0.8em';
+			callout.style.background = 'var(--background-modifier-form-field)';
+			callout.style.borderLeft = '3px solid var(--interactive-accent)';
+			callout.style.borderRadius = '4px';
+			callout.style.marginBottom = '0.6em';
+			callout.style.display = 'flex';
+			callout.style.flexDirection = 'column';
+			callout.style.gap = '0.2em';
+
+			const heading = callout.createDiv();
+			heading.style.fontWeight = '600';
+			heading.style.fontSize = '0.95em';
+			heading.setText('Tip: try templates instead');
+
+			const body = callout.createDiv();
+			body.style.fontSize = '0.85em';
+			body.style.color = 'var(--text-muted)';
+			body.setText(
+				"Templates author bidirectional rules with named slots like Projects/{topic} ↔ #projects/{topic} — no regex literacy needed. Use the 'Open in advanced (template / regex)' link above.",
+			);
 		}
 
 		// Inferred-mode banner — tinted info-card with left accent so the

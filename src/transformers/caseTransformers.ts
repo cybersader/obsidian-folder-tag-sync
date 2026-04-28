@@ -38,15 +38,30 @@ export function toTitleCase(input: string): string {
 }
 
 /**
- * Convert string to kebab-case
- * Example: "My Project Name" -> "my-project-name"
+ * Convert string to kebab-case.
+ *
+ * Examples:
+ *   "My Project Name" → "my-project-name"
+ *   "WebAuth"         → "web-auth"
+ *   "XMLParser"       → "xml-parser"
+ *   "ARCHIVE"         → "archive"             (all-caps stays one word)
+ *   "Tasks Planning"  → "tasks-planning"
+ *
+ * Only inserts dashes at word boundaries (camelCase / PascalCase / acronym
+ * transitions), NOT before every uppercase letter. The previous implementation
+ * (`replace(/([A-Z])/g, '-$1')`) wrongly produced "a-r-c-h-i-v-e" for "ARCHIVE".
  */
 export function toKebabCase(input: string): string {
 	return input
-		.replace(/([A-Z])/g, '-$1')
+		// camelCase / PascalCase: boundary between lowercase/digit and uppercase
+		.replace(/([a-z\d])([A-Z])/g, '$1-$2')
+		// Acronym boundary: e.g., "XMLParser" → "XML-Parser"
+		.replace(/([A-Z]+)([A-Z][a-z])/g, '$1-$2')
+		// Spaces and underscores → dash
 		.replace(/[\s_]+/g, '-')
 		.toLowerCase()
-		.replace(/^-/, '')
+		.replace(/^-+/, '')
+		.replace(/-+$/, '')
 		.replace(/-+/g, '-');
 }
 

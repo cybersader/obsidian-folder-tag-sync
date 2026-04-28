@@ -420,7 +420,8 @@ Three tracks, **not** a strict pipeline. The Foundation track is sequential by d
 - **Phase 1** — Core Functionality: transformation engine, rule matching, basic UI, folder→tag and tag→folder sync, manual sync commands ✅
 - **Phase 2** — Typed model + rule packs: `FolderClassifier` + `TagVocabulary` + `TransferOp`, eight transfer-op primitives, vault-scan organizational-system detection, four shipped rule packs (PARA, JD, SEACOW-cyberbase, Zettelkasten) ✅
 - **Phase G** — Layer-aware folder anchors (`'root'` / `'any-segment'` / `{ under: 'X' }`) ✅
-- **F1 Steps 1+2** — Specificity-aware matching: refined `calculateMatchConfidence` (Formula 3 with anchor-aware bonuses), swapped sort order in `findBestMatch` (confidence primary, priority tiebreak override) ✅
+- **F1 (Specificity-aware matching + rule groups) — all 3 steps** ✅: Step 1 refined `calculateMatchConfidence` (Formula 3 with anchor-aware bonuses); Step 2 swapped sort order in `findBestMatch` (confidence primary, priority tiebreak override); Step 3 added optional `group?: string` field on `MappingRule` + cross-pack `groupPrecedence` partition + drag-to-reorder UI + "Priority (override)" relabel.
+- **F2 (Path Lens templates) — commit 1 (compiler + runtime + loader + UI mode toggle)** ✅: pure compiler in `src/engine/compileTemplate.ts` with Tier A operators (`{name}`, `{name...}`, `{name | filter}`); per-transform reversibility metadata in `src/transformers/transformMetadata.ts`; runtime in `src/engine/applyTemplate.ts` with forward + inverse using `applyFilterChain` / `applyFilterChainInverse`; engine dispatch via `isTemplateRule` in `applyTransfer.ts`; loader Path C in `rulePackLoader.ts`; rule-editor mode toggle (Template/Regex) with bijectivity status chip; demo pack `rule-packs/templates-demo.json`. F3 (Frontmatter witness) plug-in seam documented in [bijectivity detection · Per-rule vs per-instance bijectivity](/obsidian-folder-tag-sync/concepts/bijectivity-detection/#per-rule-vs-per-instance-bijectivity--the-f3-plug-in-seam).
 
 The shipped foundation is what FTSync is *today*. The Foundation track below continues that lineage; these are the architectural primitives the user is researching and authoring rules against.
 
@@ -435,7 +436,7 @@ Sequence is mostly determined by dependencies (each item's "depends on" line). S
 ### F1 — Specificity-aware matching + rule groups
 
 - **What the user experiences**: rules just work better. A user with overlapping rules (`^Projects/(.+)$` and `^Projects/Web/(.+)$`) finds that the more-specific one fires without manually swapping priority numbers. Imported rule packs (PARA + JD + SEACOW) coexist without silent collision. The "Priority" field gets relabeled "Priority (override)" with a tooltip explaining when it actually matters.
-- **Status**: Steps 1+2 shipped (resolves Challenge 01 stress case). Step 3 (group field) ahead.
+- **Status**: ✅ All 3 steps shipped (resolves Challenge 01 stress case + cross-pack precedence).
 - **Depends on**: nothing.
 - **Unlocks**: ergonomic ordering for cross-pack composability; provides the natural specificity score for F2 (slot count = specificity once templates land).
 - **Step 3 — `group` field + cross-pack precedence**: optional `group?: string` on `MappingRule`; default group derived from pack ID; vault-level group-precedence config (drag-to-reorder); rename "Priority" → "Priority (override)" in rule editors.
@@ -444,16 +445,26 @@ Sequence is mostly determined by dependencies (each item's "depends on" line). S
 ### F2 — Bidirectional path templates
 
 - **What the user experiences**: the rule editor gets a top-of-pane mode toggle: **"Template" / "Regex"**. Template mode shows a single-line input with named slots (`Projects/{slug}` ↔ `#projects/{slug}`); the user authors without regex literacy. Regex mode is the existing surface, unchanged. New rules default to Template mode; existing regex rules keep working as-is. Each rule shows a per-rule status chip — *"This rule round-trips"* (green) or *"Lossy forward — `{owner}` is matched but discarded"* (orange) — explaining what's reversible. The README + docs reposition at this milestone: "regex" stops being the headline; templates become the default authoring surface.
-- **Status**: researched, decision-gated (see [development plan](/obsidian-folder-tag-sync/about/development-plan/) "Decision gate before Increment 2").
+- **Status**: ✅ **Commit 1 shipped — this IS the F2 MVP.** Compiler + runtime (forward + inverse) + loader Path C + UI mode toggle + demo pack `templates-demo.json` (6 rules covering identity / kebab-filter / glob / marker-only / emoji-prefixed / JD+emoji). Commits 2 + 3 demoted to **post-MVP polish** — see "MVP boundary" subsection below.
 - **Depends on**: F1 ideally (so slot count can be the natural specificity score when templates land), but not strictly — templates can ship before F1 Step 3 if needed.
 - **Unlocks**: per-slot transforms; bijection visibility from slot overlap; the natural carrier for F4 property-driven destination; deeper specificity heuristic that replaces regex-shape scoring.
-- **Scope**: new `PathTemplate` type, slot syntax (`{slug}` / `{rest...}` decided at decision gate), pure compiler in `src/engine/compileTemplate.ts`, derive.ts extension for template-aware compilation, applyTransfer.ts slot-based extraction, loader validation, rule-editor template-mode toggle, per-rule status indicator (round-trips / lossy / asserted).
+- **Scope (commit 1, shipped)**: new `PathTemplate` type, Tier A slot syntax (`{name}` / `{name...}` / `{name | filter}`), pure compiler in `src/engine/compileTemplate.ts`, runtime in `src/engine/applyTemplate.ts`, loader Path C in `rulePackLoader.ts`, rule-editor template-mode toggle, per-rule status chip.
 - **Can run in parallel with**: F3 (frontmatter witness — different layer, no shared code paths).
+
+#### MVP boundary (decided 2026-04-28)
+
+The F2 commit 1 ship IS the MVP. The user is going to test this with real vaults; backtrack-and-rework remains an option if the slot syntax / filter set turns out wrong. To preserve flexibility, the following are explicitly **deferred to post-MVP** and not blocking:
+
+- **F2 commit 2 (lens-flavored shape — `iso` / `cardinality` annotations)** — variant authoring shape on top of the same compiler. Adds explicit user assertions about bijection. Decision-gated on Q2–Q4 (slot syntax detail, slot vocabulary, hybrid coexistence depth). Demoted to **Polish** track.
+- **F2 commit 3 (slot-objects shape — JSON-flavored editor)** — third variant authoring shape; same engine, different editor surface. Demoted to **Polish** track.
+- **Per-slot transformation expansion** — current filter set covers the common cases (identity, kebab-case, snake_case, Title Case, strip-emoji, strip-num-prefix, join). Adding more filters is incremental; not MVP-blocking.
+
+If real-world testing surfaces friction with the Tier A slot syntax (`{name}` / `{name...}`) or with the filter semantics, the MVP can be backtracked: it's a single commit-set (commits 1a–1d) and the rule shape is opt-in (existing regex rules continue to work). Backtracking would mean either tightening Tier A or adding a Tier B slot operator (see development plan).
 
 ### F3 — Hybrid frontmatter witness
 
 - **What the user experiences**: a new toggle in the rule editor — *"Remember origin in frontmatter for bidirectional recovery"*. Off by default; opt-in per rule. When enabled on a lossy rule (`marker-only`, `truncation/aggregate`, etc.), files synced via that rule gain a small `fts:` block in their YAML. The inverse direction then reads it and moves files back to their *exact* origin instead of falling back to the rule's entry folder. A migration command surfaces: *"Backfill origin metadata for existing tagged files? [Yes / Skip]"*. Users who don't enable it see no YAML change; users who do get exact-recovery on lossy ops.
-- **Status**: researched and validated (Challenge 07 findings). Decision-gated (development plan "Decision gate before Increment 3").
+- **Status**: **Post-MVP** (decided 2026-04-28). The plug-in seam is in place in F2 commit 1 (`src/engine/applyTemplate.ts` documents the future `ctx?: { storedSlots? }` parameter). Research + validation complete (Challenge 07). Implementation gated on the 6 decision-gate questions in [development plan](/obsidian-folder-tag-sync/about/development-plan/) — these are user-input questions (namespace shape, schema, backfill behavior, etc.) not blocked on additional research. **MVP without F3**: bijective + conditional template rules round-trip cleanly (sufficient for identity-style rule packs like PARA-templated). Lossy template rules (marker-only) work forward, but inverse falls back to entry folder rather than recovering exact origin.
 - **Depends on**: nothing strictly. Can ship before, alongside, or after F2.
 - **Unlocks**: per-file bijection recovery for lossy ops; resolves the inverse-direction underspecification problem (Challenge 04); orphan-vs-relation-tag distinction (Challenge 08).
 - **Three sub-phases**: 3a passive witness (write-only, behind feature flag); 3b active disambiguator (read on inverse direction); 3c safety nets (drift detection, vault-rename safeguard, stale-rule cleanup).
@@ -468,6 +479,15 @@ Sequence is mostly determined by dependencies (each item's "depends on" line). S
 - **Unlocks**: SEACOW context-as-disambiguator becomes a first-class part of the rule format; per-file destination influenced by arbitrary frontmatter properties beyond the rule pattern.
 - **Scope**: extends rule schema with `frontmatterConditions` (or extends slot syntax with property-source markers); inverse-direction algorithm reads property values when populating slots; UX surface in rule editor for declaring property dependencies.
 - **Sequencing**: probably ships *after* F2 but *before* extensive A2 plugin API work (since the API has to commit to whether `getFolderForTag(tag, file)` reads frontmatter properties).
+
+### A4 — Information-flow asymmetry UX (which side preserves more info?)
+
+- **What the user experiences**: per-rule, the editor shows a directional indicator: *"Creating from the folder side preserves more information than the tag side"* (or vice versa, or "symmetric"). Surfaces the per-instance bijectivity reality that lossy filters create. Concrete example: with `{name | strip-invalid-tag-chars | kebab-case}`, authoring `1 - Tasks, Planning/note.md` produces tag `#1-tasks-planning/note.md`. If a future user creates JUST the tag `#1-tasks-planning` (no folder yet), the inverse-created folder is `1 - tasks-planning` (no comma, no Title Case). The tag→folder direction can't recover what the original folder had.
+- **Status**: open feature request (raised 2026-04-28 during 0.1.13 cross-area-move discussion). No research yet.
+- **Depends on**: F2 (templates with per-slot filter chains). Composes with F3 (frontmatter witness fills the gap with per-file stored origin).
+- **Unlocks**: clear authoring guidance for users — *"if you want full preservation, create folders first; tags can always recover the bijective subset."*
+- **Scope**: per-rule analysis at compile time — for each slot, compute "info-flow direction" by examining filter chain reversibility. UI surface: directional arrow icon (folder→tag dominant, tag→folder dominant, or balanced) next to the bijectivity status chip. Hover tooltip: concrete example of what's preserved on which side.
+- **Implementation Priority**: post-MVP polish, but small. Could ship alongside F3 since both surface per-instance reversibility.
 
 ### F5 (future research) — Slot composition operators
 

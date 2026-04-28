@@ -132,6 +132,14 @@ export const TRANSFORM_METADATA: Record<string, TransformBijectivityProfile> = {
 		reversibilityDomain: 'never reversible — numeric prefix is discarded',
 	},
 
+	// === Tag-safety ===
+
+	'strip-invalid-tag-chars': {
+		reversibility: 'lossy',
+		reversibilityDomain:
+			'never reversible — invalid-for-tags chars (.,;:?!@\\) discarded. Use on tag side to keep emitted tags Obsidian-valid (e.g., {name | strip-invalid-tag-chars | kebab-case} on `Tasks, Planning` → `tasks-planning`).',
+	},
+
 	'keep-num-prefix': {
 		reversibility: 'total',
 	},

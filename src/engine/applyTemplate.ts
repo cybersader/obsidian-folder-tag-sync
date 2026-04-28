@@ -115,8 +115,14 @@ export function applyTemplateRuleForward(folderPath: string, rule: MappingRule):
 	// Tag template may reference slots that don't appear on the folder side.
 	// `computeBijectivity` flags these as `tagOnlySlots` (config error). At
 	// runtime, we can't satisfy them — bail with no emission.
+	//
+	// Exception: trailing-optional-glob slots are allowed to be undefined.
+	// When a folder template like `Projects/{deeper...}` matches the bare
+	// `Projects` entry, `deeper` is undefined. The tag template's matching
+	// `{deeper...}` slot — also trailing-optional — instantiates to nothing.
+	// This is the bare-entry round-trip case (post compiler relaxation).
 	for (const tagSlot of tagCompiled.slots) {
-		if (transformedSlots[tagSlot.name] === undefined) {
+		if (transformedSlots[tagSlot.name] === undefined && !tagSlot.trailingOptionalGlob) {
 			return { tags: [], lossy: true };
 		}
 	}
@@ -192,9 +198,10 @@ export function applyTemplateRuleInverse(tag: string, rule: MappingRule): Invers
 
 	// Folder template may have slots not in the tag template (folder-only
 	// slots — discarded in forward direction). The inverse can't recover
-	// them; bail.
+	// them; bail. Trailing-optional-glob slots are allowed undefined for
+	// the bare-entry round-trip case.
 	for (const folderSlot of folderCompiled.slots) {
-		if (transformedSlots[folderSlot.name] === undefined) {
+		if (transformedSlots[folderSlot.name] === undefined && !folderSlot.trailingOptionalGlob) {
 			return { folder: null, lossy: true };
 		}
 	}

@@ -112,8 +112,11 @@ function leafOf(path: string): string {
  * a map from folder path to the list of signals that matched it. The summary
  * `DetectionResult.matchedSignals[].exampleMatches` is capped at 3, so we
  * can't reuse it directly — we need full match coverage for the tree.
+ *
+ * Exported so `extractInstances` (and any future consumer that wants the raw
+ * hit map) can call it without re-implementing the normalization logic.
  */
-function collectAllHits(
+export function collectAllHits(
 	folderPaths: string[],
 	signals: DetectionSignalResult[],
 ): Map<string, DetectionHit[]> {
@@ -245,4 +248,148 @@ export function buildDetectionTree(
 export function colorForSignalIndex(index: number): string {
 	const hue = (index * 137.508) % 360; // golden angle
 	return `hsl(${hue.toFixed(0)}, 65%, 55%)`;
+}
+
+// ─── Anchored instance extraction ─────────────────────────────────────
+//
+// A user's vault can have the SAME organizational pattern applied at
+// multiple levels — e.g. JD numbering at the root AND nested inside an
+// entity-scoped subfolder (`📁 01 - Projects/Cybersader/01 - Active`).
+// Without anchored-instance grouping the UI shows "JD detected" with a
+// single tree of scattered hits, and the user can't tell whether that's
+// "one big match" or "N independent applications of the same pattern."
+//
+// An instance is a cluster of hit folders that share a common parent.
+// The parent is the instance's anchor. Multiple instances of the same
+// pack reveal the recurrence: "JD at root, JD again under
+// 01-Projects/Cybersader/" — exactly the case nested SEACOW + JD users
+// hit.
+//
+// When one instance's anchor is a descendant of another's, the second
+// is "nested" inside the first — the renderer uses this to draw a
+// nested list, making the recurrence visually obvious without a wall
+// of explanatory text.
+
+export interface InstanceHit {
+	folderPath: string;
+	signals: DetectionHit[];
+}
+
+export interface DetectionInstance {
+	/** Common parent of this instance's hit folders. Empty string for vault root. */
+	anchorPath: string;
+	/** Hit folders sitting directly under this anchor. */
+	hits: InstanceHit[];
+	/** Distinct signal indices represented in this instance. Used for stats. */
+	signalIndices: number[];
+}
+
+export interface DetectionInstanceTreeNode {
+	instance: DetectionInstance;
+	/** Other instances whose anchor is a descendant of this instance's anchor. */
+	children: DetectionInstanceTreeNode[];
+}
+
+/**
+ * Group a pack's detection hits into anchored instances. Each instance is
+ * one cluster of sibling hits — i.e. hits that share a parent folder. A
+ * pack that fires at two depths (JD at root + JD nested inside a subfolder)
+ * yields two instances; the UI renders both with their anchors so the user
+ * sees "2 instances of JD: at root, at Projects/Cybersader/".
+ *
+ * Instances are returned sorted by anchor depth ascending (root first), then
+ * lexicographically. The renderer walks the list and infers nesting from
+ * anchor-prefix relationships.
+ */
+export function extractInstances(
+	folderPaths: string[],
+	result: DetectionResult,
+): DetectionInstance[] {
+	const hitsByPath = collectAllHits(folderPaths, result.matchedSignals);
+	const instancesByAnchor = new Map<string, DetectionInstance>();
+
+	for (const [path, signals] of hitsByPath) {
+		const idx = path.lastIndexOf('/');
+		const anchor = idx === -1 ? '' : path.slice(0, idx);
+		if (!instancesByAnchor.has(anchor)) {
+			instancesByAnchor.set(anchor, {
+				anchorPath: anchor,
+				hits: [],
+				signalIndices: [],
+			});
+		}
+		const inst = instancesByAnchor.get(anchor)!;
+		inst.hits.push({ folderPath: path, signals });
+		for (const s of signals) {
+			if (!inst.signalIndices.includes(s.signalIndex)) inst.signalIndices.push(s.signalIndex);
+		}
+	}
+
+	// Sort hits within each instance by name for stable display
+	for (const inst of instancesByAnchor.values()) {
+		inst.hits.sort((a, b) => a.folderPath.localeCompare(b.folderPath));
+	}
+
+	const instances = [...instancesByAnchor.values()];
+	instances.sort((a, b) => {
+		const da = a.anchorPath ? a.anchorPath.split('/').length : 0;
+		const db = b.anchorPath ? b.anchorPath.split('/').length : 0;
+		if (da !== db) return da - db;
+		return a.anchorPath.localeCompare(b.anchorPath);
+	});
+	return instances;
+}
+
+/**
+ * Convert a flat instance list into a nested tree structure where each
+ * instance's children are other instances whose anchor lives under its
+ * anchor. The root of the returned forest is the list of "outermost"
+ * instances — those with no parent instance. The UI renders this forest
+ * as an indented list so the recurrence ("JD at root, with another JD
+ * nested inside") shows up structurally, not via text.
+ *
+ * Anchoring rule: instance B is nested inside instance A iff A's
+ * anchorPath is a proper prefix of B's anchorPath (with a `/` separator,
+ * or A's anchor is empty meaning vault root). Each B picks its closest
+ * ancestor instance as parent.
+ */
+export function buildInstanceTree(instances: DetectionInstance[]): DetectionInstanceTreeNode[] {
+	// Build nodes preserving input order (already root-first).
+	const nodes: DetectionInstanceTreeNode[] = instances.map((i) => ({
+		instance: i,
+		children: [],
+	}));
+	const roots: DetectionInstanceTreeNode[] = [];
+	for (let i = 0; i < nodes.length; i++) {
+		const me = nodes[i];
+		// Find the closest (deepest-anchor) other instance whose anchor is a
+		// proper prefix of mine. That's my parent in the instance tree.
+		let parent: DetectionInstanceTreeNode | null = null;
+		let parentDepth = -1;
+		for (let j = 0; j < nodes.length; j++) {
+			if (i === j) continue;
+			const candidate = nodes[j];
+			if (!isAnchorPrefix(candidate.instance.anchorPath, me.instance.anchorPath)) continue;
+			const cd = candidate.instance.anchorPath ? candidate.instance.anchorPath.split('/').length : 0;
+			if (cd > parentDepth) {
+				parent = candidate;
+				parentDepth = cd;
+			}
+		}
+		if (parent) parent.children.push(me);
+		else roots.push(me);
+	}
+	return roots;
+}
+
+/**
+ * True if `prefix` is a proper anchor-prefix of `target`. Root anchor (empty
+ * string) is a prefix of every non-empty anchor. Otherwise prefix must end
+ * exactly at a path-segment boundary (so `Project` is not a prefix of
+ * `Projects/Web` — we want strict segment alignment).
+ */
+function isAnchorPrefix(prefix: string, target: string): boolean {
+	if (prefix === target) return false;
+	if (prefix === '') return target !== '';
+	return target.startsWith(prefix + '/');
 }

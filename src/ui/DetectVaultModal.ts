@@ -25,7 +25,10 @@ import {
 } from '../engine/detectPacks';
 import {
 	buildDetectionTree,
+	buildInstanceTree,
 	colorForSignalIndex,
+	extractInstances,
+	type DetectionInstanceTreeNode,
 	type DetectionTreeNode,
 } from '../engine/detectionTree';
 import { loadRulePackFromJSON } from '../engine/rulePackLoader';
@@ -234,6 +237,38 @@ export class DetectVaultModal extends Modal {
 			signalChips.push(chip);
 		}
 
+		// Anchored-instance summary. A pack can detect at multiple "anchors"
+		// in a vault — e.g. JD numbering at root AND JD nested inside an
+		// entity-scoped subfolder. Without this summary, the user can't tell
+		// whether "JD detected" means one big match or N independent
+		// applications of the same pattern at different levels.
+		const instances = extractInstances(folderPaths, result);
+		const instanceTree = buildInstanceTree(instances);
+		if (instances.length > 0) {
+			const summary = card.createDiv();
+			summary.style.fontSize = '0.85em';
+			summary.style.padding = '0.45em 0.6em';
+			summary.style.background = 'var(--background-primary-alt)';
+			summary.style.borderRadius = '4px';
+			summary.style.borderLeft = '3px solid var(--interactive-accent)';
+			summary.style.marginBottom = '0.4em';
+
+			const header = summary.createDiv();
+			header.style.fontWeight = '500';
+			header.style.marginBottom = instances.length > 1 ? '0.3em' : '0';
+			if (instances.length === 1) {
+				const inst = instances[0];
+				const anchorLabel = inst.anchorPath || '(vault root)';
+				header.setText(
+					`Detected as 1 instance — anchored at ${anchorLabel} (${inst.hits.length} hit${inst.hits.length === 1 ? '' : 's'})`,
+				);
+			} else {
+				header.setText(`Detected as ${instances.length} nested instance(s) of this pattern:`);
+				const list = summary.createDiv();
+				renderInstanceTree(list, instanceTree, 0);
+			}
+		}
+
 		// "Show vault tree" expand-toggle — building the tree is fast (single
 		// pass over folders) but rendering 5000 nodes is wasteful when the
 		// user just wants to glance at scores. Hidden behind a click.
@@ -375,6 +410,79 @@ export class DetectVaultModal extends Modal {
 
 	onClose(): void {
 		this.contentEl.empty();
+	}
+}
+
+// ─── Anchored-instance summary renderer ───────────────────────────────
+
+/**
+ * Render the nested-instance forest as a compact indented list. Each row
+ * states one instance's anchor + hit count + a short preview of the first
+ * few hit folder names. Nested instances appear indented with a tree-line
+ * connector so the recurrence ("JD inside JD") shows up structurally.
+ *
+ * Why this matters: a vault with JD at root + JD inside `Projects/Bob/`
+ * gets rendered as:
+ *
+ *   • At (vault root) — 5 hits: 01 - Projects, 02 - Areas, …
+ *     └─ At 01 - Projects/Bob/ — 3 hits: 01 - Active, 02 - Archive, …
+ *
+ * The user immediately sees "this is the same pattern detected twice, in
+ * a nested arrangement." No paragraph of explanation needed.
+ */
+function renderInstanceTree(
+	parent: HTMLElement,
+	nodes: DetectionInstanceTreeNode[],
+	depth: number,
+): void {
+	for (const node of nodes) {
+		const row = parent.createDiv();
+		row.style.paddingLeft = `${depth * 1.0}em`;
+		row.style.fontSize = '0.85em';
+		row.style.lineHeight = '1.5';
+
+		// Tree-line connector for nested instances
+		const connector = depth > 0 ? '└─ ' : '• ';
+		const conSpan = row.createSpan({ text: connector });
+		conSpan.style.color = 'var(--text-muted)';
+
+		const anchor = row.createSpan({
+			text: 'At ',
+		});
+		anchor.style.color = 'var(--text-muted)';
+		const anchorPath = row.createEl('code', {
+			text: node.instance.anchorPath || '(vault root)',
+		});
+		anchorPath.style.background = 'var(--background-modifier-form-field)';
+		anchorPath.style.padding = '0 0.3em';
+		anchorPath.style.borderRadius = '3px';
+		anchorPath.style.fontSize = '0.92em';
+
+		const stats = row.createSpan({
+			text: ` — ${node.instance.hits.length} hit${node.instance.hits.length === 1 ? '' : 's'}`,
+		});
+		stats.style.color = 'var(--text-muted)';
+
+		// Preview of the first few hit folder names (relative to anchor)
+		const previewCount = Math.min(node.instance.hits.length, 3);
+		if (previewCount > 0) {
+			const previews: string[] = [];
+			for (let i = 0; i < previewCount; i++) {
+				const path = node.instance.hits[i].folderPath;
+				const idx = path.lastIndexOf('/');
+				previews.push(idx === -1 ? path : path.slice(idx + 1));
+			}
+			const previewSpan = row.createSpan({
+				text: `: ${previews.join(', ')}${node.instance.hits.length > previewCount ? ', …' : ''}`,
+			});
+			previewSpan.style.color = 'var(--text-faint)';
+			previewSpan.style.fontStyle = 'italic';
+		}
+
+		// Recurse for nested instances
+		if (node.children.length > 0) {
+			renderInstanceTree(parent, node.children, depth + 1);
+		}
 	}
 }
 

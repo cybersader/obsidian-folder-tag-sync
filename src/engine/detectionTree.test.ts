@@ -12,7 +12,12 @@
  */
 
 import { describe, expect, test } from 'bun:test';
-import { buildDetectionTree, colorForSignalIndex } from './detectionTree';
+import {
+	buildDetectionTree,
+	buildInstanceTree,
+	colorForSignalIndex,
+	extractInstances,
+} from './detectionTree';
 import type { DetectionResult } from './detectPacks';
 
 function makeResult(signals: Array<{
@@ -241,6 +246,151 @@ describe('buildDetectionTree — empty / no-hit cases', () => {
 		expect(tree.totalHitFolders).toBe(0);
 		expect(tree.totalVaultFolders).toBe(0);
 		expect(tree.root.children.size).toBe(0);
+	});
+});
+
+describe('extractInstances — anchored cluster grouping', () => {
+	test('hits at root group into a single instance', () => {
+		const folders = [
+			'01 - Projects',
+			'02 - Areas',
+			'03 - Resources',
+			'Templates',
+		];
+		const result = makeResult([{ folderRegex: '^\\d+\\s*-', label: 'jd-prefix' }]);
+		const instances = extractInstances(folders, result);
+		expect(instances.length).toBe(1);
+		expect(instances[0].anchorPath).toBe('');
+		expect(instances[0].hits.length).toBe(3);
+	});
+
+	test('JD at root + JD nested under entity → two instances', () => {
+		// Realistic cyberbase vault: top-level JD numbering, plus another
+		// JD numbering nested inside an entity-scoped subfolder.
+		const folders = [
+			'01 - Projects',
+			'01 - Projects/Cybersader',
+			'01 - Projects/Cybersader/01 - Active',
+			'01 - Projects/Cybersader/02 - Archive',
+			'01 - Projects/Cybersader/03 - Reference',
+			'02 - Areas',
+			'03 - Resources',
+		];
+		const result = makeResult([{ folderRegex: '^\\d+\\s*-', label: 'jd' }]);
+		const instances = extractInstances(folders, result);
+		// Two anchors: root (3 hits) and 01-Projects/Cybersader (3 hits)
+		expect(instances.length).toBe(2);
+		// Root instance first (depth ascending)
+		expect(instances[0].anchorPath).toBe('');
+		expect(instances[0].hits.length).toBe(3);
+		expect(instances[1].anchorPath).toBe('01 - Projects/Cybersader');
+		expect(instances[1].hits.length).toBe(3);
+	});
+
+	test('siblings under different parents → multiple instances', () => {
+		const folders = [
+			'A',
+			'A/Projects',
+			'B',
+			'B/Projects',
+		];
+		const result = makeResult([{ folderRegex: '^Projects$', label: 'p' }]);
+		const instances = extractInstances(folders, result);
+		expect(instances.length).toBe(2);
+		expect(instances.map((i) => i.anchorPath).sort()).toEqual(['A', 'B']);
+	});
+
+	test('signalIndices on instance reflects which signals fired there', () => {
+		const folders = ['01 - Projects', '02 - Areas'];
+		const result = makeResult([
+			{ folderRegex: '^\\d', label: 'starts-with-digit' },
+			{ folderRegex: 'Projects', label: 'projects' },
+		]);
+		const instances = extractInstances(folders, result);
+		expect(instances.length).toBe(1);
+		// Both signals fired (sig 0 on both folders, sig 1 only on Projects)
+		expect(instances[0].signalIndices.sort()).toEqual([0, 1]);
+	});
+
+	test('zero hits → empty instance list', () => {
+		const folders = ['Projects', 'Areas'];
+		const result = makeResult([{ folderRegex: '^Nope$', label: 'nope' }]);
+		const instances = extractInstances(folders, result);
+		expect(instances).toEqual([]);
+	});
+});
+
+describe('buildInstanceTree — nested-instance forest', () => {
+	test('flat instances at same level → all at root of forest', () => {
+		const folders = ['A', 'A/Projects', 'B', 'B/Projects'];
+		const result = makeResult([{ folderRegex: '^Projects$', label: 'p' }]);
+		const instances = extractInstances(folders, result);
+		const tree = buildInstanceTree(instances);
+		expect(tree.length).toBe(2); // both at top of forest
+		expect(tree.every((n) => n.children.length === 0)).toBe(true);
+	});
+
+	test('JD-at-root + JD-nested → nested tree', () => {
+		const folders = [
+			'01 - Projects',
+			'01 - Projects/Cybersader',
+			'01 - Projects/Cybersader/01 - Active',
+			'01 - Projects/Cybersader/02 - Archive',
+			'02 - Areas',
+		];
+		const result = makeResult([{ folderRegex: '^\\d+\\s*-', label: 'jd' }]);
+		const instances = extractInstances(folders, result);
+		const tree = buildInstanceTree(instances);
+		// Forest root has 1 outermost instance (root anchor) with 1 nested
+		// instance underneath (under 01-Projects/Cybersader).
+		expect(tree.length).toBe(1);
+		expect(tree[0].instance.anchorPath).toBe('');
+		expect(tree[0].children.length).toBe(1);
+		expect(tree[0].children[0].instance.anchorPath).toBe('01 - Projects/Cybersader');
+	});
+
+	test('three-level nesting picks closest ancestor as parent', () => {
+		// JD at root, JD at A, JD at A/B/C (where B/C don't have JD themselves)
+		const folders = [
+			'01 - One',
+			'A',
+			'A/01 - Sub',
+			'A/02 - Sub',
+			'A/B',
+			'A/B/C',
+			'A/B/C/01 - Deep',
+			'A/B/C/02 - Deep',
+		];
+		const result = makeResult([{ folderRegex: '^\\d+\\s*-', label: 'jd' }]);
+		const instances = extractInstances(folders, result);
+		// 3 instances: root (01-One), A (01-Sub, 02-Sub), A/B/C (01-Deep, 02-Deep)
+		expect(instances.length).toBe(3);
+		const tree = buildInstanceTree(instances);
+		// Forest root: just the root anchor instance
+		expect(tree.length).toBe(1);
+		// Under root: instance at A
+		expect(tree[0].children.length).toBe(1);
+		expect(tree[0].children[0].instance.anchorPath).toBe('A');
+		// Under A: instance at A/B/C — should attach to A, NOT to root
+		expect(tree[0].children[0].children.length).toBe(1);
+		expect(tree[0].children[0].children[0].instance.anchorPath).toBe('A/B/C');
+	});
+
+	test('partial-prefix names do not nest by accident', () => {
+		// `Project` is a prefix of `Projects` lexically but they are different
+		// folders. isAnchorPrefix must respect path-segment boundaries.
+		const folders = [
+			'Project',
+			'Project/Sub',
+			'Projects',
+			'Projects/Sub',
+		];
+		const result = makeResult([{ folderRegex: '^Sub$', label: 'sub' }]);
+		const instances = extractInstances(folders, result);
+		expect(instances.length).toBe(2);
+		const tree = buildInstanceTree(instances);
+		// Both instances should be at the forest root (neither nests inside the other)
+		expect(tree.length).toBe(2);
 	});
 });
 

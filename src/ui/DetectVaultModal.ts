@@ -1,45 +1,39 @@
 /**
- * Detect-mode modal — scans the vault, runs the pack detection engine,
- * displays ranked detected packs with Apply buttons.
+ * Detect-mode modal — hierarchy-first view.
  *
- * Each detected pack shows:
- *   - score badge (signals hit / min signals required)
- *   - matched signals as a bullet list (label + example folders)
- *   - "Apply" button → loads the pack JSON from rule-packs/, merges rules
- *     into settings (existing append logic from browseRulePacks)
+ * The pack-centric layout (a card per detected pack, signals listed
+ * inside) doesn't match how users actually think when they look at
+ * detection results. They see a folder tree and want to know "what
+ * patterns fired here?" — they don't care which plugin pack contributed
+ * the signal.
  *
- * Suppressed packs (scopedUnder a parent that didn't match) render in a
- * subdued section at the bottom, with the parent's name shown — so the
- * user understands "PARA detected but expected inside SEACOW outer; SEACOW
- * outer not present" rather than the pack just silently disappearing.
+ * This modal presents one unified vault tree (sparse — only branches
+ * with detection hits + their ancestors). Each folder row is annotated
+ * with chips showing which signals fired there, drawn from any detected
+ * pack. Selection happens per-folder; clicking Apply loads whichever
+ * underlying packs were responsible for the selected folders' hits.
  *
- * Exclusivity conflicts surface as a yellow banner above the list.
+ * Pack identity is invisible at the primary level — it surfaces as
+ * tooltip text on chips, in the apply-summary, and in the suppressed-
+ * pack notice. The user navigates their hierarchy; the plugin handles
+ * the pack plumbing.
  */
 
 import { App, Modal, Notice, TFolder } from 'obsidian';
 import {
 	detectPacks,
 	findExclusivityConflicts,
-	type DetectionResult,
 	type ManifestPackEntry,
 } from '../engine/detectPacks';
 import {
-	buildDetectionTree,
-	buildInstanceTree,
+	buildAnnotatedTree,
+	collectCrossPackHits,
 	colorForSignalIndex,
-	extractInstances,
-	type DetectionInstanceTreeNode,
-	type DetectionTreeNode,
+	type AnnotatedSignal,
+	type AnnotatedTreeNode,
 } from '../engine/detectionTree';
 import { loadRulePackFromJSON } from '../engine/rulePackLoader';
 import type { MappingRule } from '../types/settings';
-// Bundle the manifest at build time so the modal works even when the
-// plugin's rule-packs/ folder isn't shipped alongside main.js (e.g. some
-// wdio install paths copy only main.js + manifest.json + styles.css).
-// Pack files themselves stay on-disk and load on-demand when the user
-// applies a pack — that path goes through the vault adapter, which is
-// fine because users installing via BRAT/community-plugins always get
-// the full plugin directory.
 import bundledManifest from '../../rule-packs/manifest.json';
 
 interface ManifestFile {
@@ -49,6 +43,12 @@ interface ManifestFile {
 
 export class DetectVaultModal extends Modal {
 	private readonly onApply: (rules: MappingRule[]) => void | Promise<void>;
+	private selectedFolders = new Set<string>();
+	private signalFilter: number | null = null; // globalIndex when set
+	private treeContainer!: HTMLElement;
+	private applyBtn!: HTMLButtonElement;
+	private signalChips = new Map<number, HTMLElement>();
+	private detectedPackIds = new Set<string>();
 
 	constructor(app: App, onApply: (rules: MappingRule[]) => void | Promise<void>) {
 		super(app);
@@ -59,334 +59,459 @@ export class DetectVaultModal extends Modal {
 		const { contentEl, modalEl } = this;
 		contentEl.empty();
 		modalEl.addClass('dtf-detect-modal');
-		modalEl.style.width = 'min(720px, 95vw)';
+		modalEl.style.width = 'min(900px, 95vw)';
+		modalEl.style.maxHeight = '90vh';
 
 		contentEl.createEl('h2', { text: 'Detect organizational systems' });
-		const intro = contentEl.createEl('p');
-		intro.style.color = 'var(--text-muted)';
-		intro.style.fontSize = '0.9em';
-		intro.setText(
-			'Scanning your vault for known organizational patterns. Each detected pack lists the signals that matched and offers to install its rules.',
-		);
 
 		const status = contentEl.createDiv();
 		status.style.padding = '0.6em';
 		status.style.fontStyle = 'italic';
-		status.setText('Loading packs and scanning vault…');
+		status.style.color = 'var(--text-muted)';
+		status.setText('Scanning vault…');
 
-		// Use bundled manifest. Falls back to filesystem read only if a future
-		// version of the manifest schema needs runtime fetching.
 		const manifest = bundledManifest as ManifestFile;
-
 		const folderPaths = this.collectVaultFolders();
 		const results = detectPacks(folderPaths, manifest.packs);
 		const conflicts = findExclusivityConflicts(results, manifest.packs);
 
+		// Build cross-pack hit map (suppressed packs excluded by the engine)
+		const packNamesById = new Map(manifest.packs.map((p) => [p.id, p.name]));
+		const hitMap = collectCrossPackHits(folderPaths, results, packNamesById);
+		const tree = buildAnnotatedTree(folderPaths, hitMap);
+
+		// Track detected pack ids — used at apply-time to load only the
+		// packs whose signals fired on the selected folders.
+		for (const sig of hitMap.allSignals) this.detectedPackIds.add(sig.packId);
+
 		status.remove();
 
-		if (results.length === 0) {
+		// Empty state
+		if (tree.totalHitFolders === 0) {
 			const empty = contentEl.createDiv();
 			empty.style.padding = '1em';
 			empty.style.textAlign = 'center';
 			empty.style.color = 'var(--text-muted)';
 			empty.createEl('p', {
-				text: "No organizational patterns detected in this vault. You can browse the catalog or author a rule manually.",
+				text: 'No organizational patterns detected in this vault.',
 			});
 			return;
 		}
 
-		// Exclusivity warnings
+		// ─── Stat bar ─────────────────────────────────────────────────
+		const statBar = contentEl.createDiv();
+		statBar.style.display = 'grid';
+		statBar.style.gridTemplateColumns = 'repeat(auto-fit, minmax(120px, 1fr))';
+		statBar.style.gap = '0.5em';
+		statBar.style.marginBottom = '0.7em';
+		this.makeStat(statBar, 'Folders matched', tree.totalHitFolders);
+		this.makeStat(statBar, 'Patterns detected', hitMap.allSignals.length);
+		this.makeStat(statBar, 'Vault folders', tree.totalVaultFolders);
+		this.makeStat(statBar, 'Systems', this.detectedPackIds.size);
+
+		// ─── Exclusivity warnings ─────────────────────────────────────
 		if (conflicts.length > 0) {
-			const warn = contentEl.createDiv({ cls: 'dtf-detect-warn' });
-			warn.style.padding = '0.6em 0.8em';
+			const warn = contentEl.createDiv();
+			warn.style.padding = '0.55em 0.7em';
 			warn.style.background = 'var(--background-modifier-error-hover)';
 			warn.style.borderLeft = '3px solid var(--text-error)';
 			warn.style.borderRadius = '4px';
-			warn.style.marginBottom = '0.8em';
-			warn.style.fontSize = '0.9em';
-			const conflictText = conflicts
-				.map((c) => `${this.packName(manifest, c.packA)} ↔ ${this.packName(manifest, c.packB)}`)
+			warn.style.marginBottom = '0.6em';
+			warn.style.fontSize = '0.88em';
+			const text = conflicts
+				.map((c) => `${packNamesById.get(c.packA) ?? c.packA} ↔ ${packNamesById.get(c.packB) ?? c.packB}`)
 				.join(', ');
-			warn.createSpan({ text: `⚠ Conflicts detected: ${conflictText}` }).style.fontWeight = '500';
-			warn.createEl('div', {
-				text: 'These packs target the same niche. Install only one of each conflicting pair.',
-			});
+			warn.createSpan({ text: `⚠ Conflicting systems detected: ${text}. ` })
+				.style.fontWeight = '500';
+			warn.createSpan({ text: 'Selecting folders affected by both will apply rules from both packs.' });
 		}
 
-		// Render results — surfacing first, then suppressed
-		const surfacing = results.filter((r) => r.score >= 1 && !r.suppressedByMissingParent);
+		// ─── Suppressed-pack notice ───────────────────────────────────
 		const suppressed = results.filter((r) => r.suppressedByMissingParent);
-		const lowConfidence = results.filter(
-			(r) => r.score < 1 && !r.suppressedByMissingParent,
-		);
-
-		if (surfacing.length > 0) {
-			const heading = contentEl.createEl('h3', { text: 'Detected (high confidence)' });
-			heading.style.marginTop = '0.5em';
-			heading.style.fontSize = '0.95em';
-			for (const result of surfacing) {
-				this.renderResult(contentEl, result, manifest, false, folderPaths);
-			}
-		}
-
-		if (lowConfidence.length > 0) {
-			const heading = contentEl.createEl('h3', { text: 'Partial match' });
-			heading.style.marginTop = '0.8em';
-			heading.style.fontSize = '0.95em';
-			heading.style.color = 'var(--text-muted)';
-			for (const result of lowConfidence) {
-				this.renderResult(contentEl, result, manifest, false, folderPaths);
-			}
-		}
-
 		if (suppressed.length > 0) {
-			const heading = contentEl.createEl('h3', { text: 'Suppressed (parent missing)' });
-			heading.style.marginTop = '0.8em';
-			heading.style.fontSize = '0.95em';
-			heading.style.color = 'var(--text-muted)';
-			for (const result of suppressed) {
-				this.renderResult(contentEl, result, manifest, true, folderPaths);
-			}
-		}
-	}
-
-	private renderResult(
-		parent: HTMLElement,
-		result: DetectionResult,
-		manifest: ManifestFile,
-		suppressed: boolean,
-		folderPaths: string[],
-	): void {
-		const pack = manifest.packs.find((p) => p.id === result.packId);
-		if (!pack) return;
-
-		const card = parent.createDiv({ cls: 'dtf-detect-result' });
-		card.style.padding = '0.8em';
-		card.style.background = 'var(--background-secondary)';
-		card.style.borderRadius = '6px';
-		card.style.marginBottom = '0.5em';
-		card.style.opacity = suppressed ? '0.7' : '1';
-
-		const headerRow = card.createDiv();
-		headerRow.style.display = 'flex';
-		headerRow.style.alignItems = 'baseline';
-		headerRow.style.gap = '0.6em';
-		headerRow.style.marginBottom = '0.3em';
-
-		const name = headerRow.createEl('strong', { text: pack.name });
-		name.style.flex = '1';
-
-		const scoreBadge = headerRow.createSpan();
-		scoreBadge.setText(`${result.signalsHit}/${result.minSignals} signals`);
-		scoreBadge.style.padding = '0.15em 0.5em';
-		scoreBadge.style.borderRadius = '10px';
-		scoreBadge.style.fontSize = '0.78em';
-		scoreBadge.style.background =
-			result.score >= 1 ? 'var(--color-green)' : 'var(--color-base-50)';
-		scoreBadge.style.color = 'var(--text-on-accent)';
-
-		const desc = card.createDiv();
-		desc.style.fontSize = '0.85em';
-		desc.style.color = 'var(--text-muted)';
-		desc.style.marginBottom = '0.4em';
-		desc.setText(pack.description);
-
-		// Suppressed → show why
-		if (suppressed && result.scopedUnder) {
-			const why = card.createDiv();
-			why.style.fontSize = '0.85em';
-			why.style.fontStyle = 'italic';
-			why.style.marginBottom = '0.4em';
-			why.setText(
-				`Expects to be nested under "${this.packName(manifest, result.scopedUnder)}", which was not detected. Install with adjusted entry point if your structure differs.`,
+			const sup = contentEl.createDiv();
+			sup.style.padding = '0.4em 0.6em';
+			sup.style.fontSize = '0.83em';
+			sup.style.color = 'var(--text-muted)';
+			sup.style.fontStyle = 'italic';
+			sup.style.marginBottom = '0.4em';
+			const names = suppressed
+				.map((s) => packNamesById.get(s.packId) ?? s.packId)
+				.join(', ');
+			sup.setText(
+				`Note: ${suppressed.length} pack(s) suppressed (parent pattern not detected): ${names}. They are not included in the tree below.`,
 			);
 		}
 
-		// Matched-signals legend — one chip per signal, colour-coded so the
-		// vault tree below can show which signal lit up each folder. Click a
-		// chip to highlight just that signal in the tree.
-		let activeSignalFilter: number | null = null;
-		const legend = card.createDiv();
+		// ─── Pattern legend (signal chips) ────────────────────────────
+		const legendLabel = contentEl.createDiv({ text: 'Patterns detected (click to filter):' });
+		legendLabel.style.fontSize = '0.85em';
+		legendLabel.style.color = 'var(--text-muted)';
+		legendLabel.style.marginBottom = '0.3em';
+
+		const legend = contentEl.createDiv();
 		legend.style.display = 'flex';
 		legend.style.flexWrap = 'wrap';
 		legend.style.gap = '0.3em';
-		legend.style.marginBottom = '0.4em';
+		legend.style.marginBottom = '0.7em';
+		legend.style.padding = '0.4em 0.5em';
+		legend.style.background = 'var(--background-modifier-form-field)';
+		legend.style.borderRadius = '6px';
 
-		const signalChips: HTMLElement[] = [];
-		for (let i = 0; i < result.matchedSignals.length; i++) {
-			const sig = result.matchedSignals[i];
-			const color = colorForSignalIndex(i);
-			const chip = legend.createSpan();
-			chip.style.display = 'inline-flex';
-			chip.style.alignItems = 'center';
-			chip.style.gap = '0.3em';
-			chip.style.padding = '0.15em 0.55em';
-			chip.style.background = 'var(--background-secondary-alt)';
-			chip.style.border = '1px solid var(--background-modifier-border)';
-			chip.style.borderRadius = '999px';
-			chip.style.fontSize = '0.78em';
-			chip.style.cursor = 'pointer';
-			chip.style.userSelect = 'none';
-			const swatch = chip.createSpan();
-			swatch.style.display = 'inline-block';
-			swatch.style.width = '8px';
-			swatch.style.height = '8px';
-			swatch.style.borderRadius = '50%';
-			swatch.style.background = color;
-			chip.createSpan({ text: sig.label ?? sig.folderRegex });
-			signalChips.push(chip);
+		// "All patterns" reset chip
+		const allChip = this.makeSignalChip(legend, null, 'All patterns', null, hitMap.allSignals.length);
+		allChip.addEventListener('click', () => this.setSignalFilter(null));
+
+		// Per-signal chips
+		for (const sig of hitMap.allSignals) {
+			const count = this.countHitsForSignal(hitMap.hitsByPath, sig.globalIndex);
+			const chip = this.makeSignalChip(legend, sig, sig.label, sig.packName, count);
+			this.signalChips.set(sig.globalIndex, chip);
+			chip.addEventListener('click', () => this.setSignalFilter(sig.globalIndex));
 		}
 
-		// Anchored-instance summary. A pack can detect at multiple "anchors"
-		// in a vault — e.g. JD numbering at root AND JD nested inside an
-		// entity-scoped subfolder. Without this summary, the user can't tell
-		// whether "JD detected" means one big match or N independent
-		// applications of the same pattern at different levels.
-		const instances = extractInstances(folderPaths, result);
-		const instanceTree = buildInstanceTree(instances);
-		if (instances.length > 0) {
-			const summary = card.createDiv();
-			summary.style.fontSize = '0.85em';
-			summary.style.padding = '0.45em 0.6em';
-			summary.style.background = 'var(--background-primary-alt)';
-			summary.style.borderRadius = '4px';
-			summary.style.borderLeft = '3px solid var(--interactive-accent)';
-			summary.style.marginBottom = '0.4em';
+		// ─── Toolbar ──────────────────────────────────────────────────
+		const toolbar = contentEl.createDiv();
+		toolbar.style.display = 'flex';
+		toolbar.style.gap = '0.4em';
+		toolbar.style.marginBottom = '0.5em';
+		toolbar.style.flexWrap = 'wrap';
 
-			const header = summary.createDiv();
-			header.style.fontWeight = '500';
-			header.style.marginBottom = instances.length > 1 ? '0.3em' : '0';
-			if (instances.length === 1) {
-				const inst = instances[0];
-				const anchorLabel = inst.anchorPath || '(vault root)';
-				header.setText(
-					`Detected as 1 instance — anchored at ${anchorLabel} (${inst.hits.length} hit${inst.hits.length === 1 ? '' : 's'})`,
-				);
-			} else {
-				header.setText(`Detected as ${instances.length} nested instance(s) of this pattern:`);
-				const list = summary.createDiv();
-				renderInstanceTree(list, instanceTree, 0);
-			}
-		}
-
-		// "Show vault tree" expand-toggle — building the tree is fast (single
-		// pass over folders) but rendering 5000 nodes is wasteful when the
-		// user just wants to glance at scores. Hidden behind a click.
-		const treeToggle = card.createDiv();
-		treeToggle.style.display = 'flex';
-		treeToggle.style.alignItems = 'center';
-		treeToggle.style.gap = '0.4em';
-		treeToggle.style.cursor = 'pointer';
-		treeToggle.style.userSelect = 'none';
-		treeToggle.style.fontSize = '0.85em';
-		treeToggle.style.color = 'var(--text-muted)';
-		treeToggle.style.marginTop = '0.3em';
-		treeToggle.style.marginBottom = '0.3em';
-		const toggleArrow = treeToggle.createSpan({ text: '▸' });
-		toggleArrow.style.fontSize = '0.8em';
-		const toggleLabel = treeToggle.createSpan({ text: 'Show where this detected (vault tree)' });
-
-		const treeContainer = card.createDiv();
-		treeContainer.style.display = 'none';
-		treeContainer.style.background = 'var(--background-primary)';
-		treeContainer.style.padding = '0.5em 0.6em';
-		treeContainer.style.borderRadius = '4px';
-		treeContainer.style.border = '1px solid var(--background-modifier-border)';
-		treeContainer.style.marginBottom = '0.4em';
-		treeContainer.style.maxHeight = '40vh';
-		treeContainer.style.overflow = 'auto';
-
-		let treeBuilt = false;
-		const renderTree = () => {
-			treeContainer.empty();
-			const tree = buildDetectionTree(folderPaths, result);
-			if (tree.totalHitFolders === 0) {
-				const empty = treeContainer.createDiv();
-				empty.style.color = 'var(--text-muted)';
-				empty.style.fontStyle = 'italic';
-				empty.style.padding = '0.4em';
-				empty.setText('No folders matched any signal in this vault.');
-				return;
-			}
-			// Header line with hit count + (if filtering) which signal
-			const header = treeContainer.createDiv();
-			header.style.fontSize = '0.82em';
-			header.style.color = 'var(--text-muted)';
-			header.style.marginBottom = '0.3em';
-			const baseText =
-				`${tree.totalHitFolders} folder(s) matched · ${tree.totalVaultFolders} folders scanned`;
-			header.setText(activeSignalFilter !== null
-				? `${baseText} · filtering: ${result.matchedSignals[activeSignalFilter].label ?? result.matchedSignals[activeSignalFilter].folderRegex}`
-				: baseText);
-
-			renderDetectionTreeNode(treeContainer, tree.root, 0, activeSignalFilter, true);
-		};
-
-		treeToggle.addEventListener('click', () => {
-			const isOpen = treeContainer.style.display !== 'none';
-			if (isOpen) {
-				treeContainer.style.display = 'none';
-				toggleArrow.setText('▸');
-				return;
-			}
-			if (!treeBuilt) {
-				renderTree();
-				treeBuilt = true;
-			}
-			treeContainer.style.display = '';
-			toggleArrow.setText('▾');
+		const selectAllBtn = toolbar.createEl('button', { text: 'Select all hits' });
+		selectAllBtn.addEventListener('click', () => {
+			for (const path of hitMap.hitsByPath.keys()) this.selectedFolders.add(path);
+			this.refreshTree();
+			this.refreshApplyBtn();
 		});
-
-		// Wire signal-chip clicks → toggle filter, re-render tree if open
-		signalChips.forEach((chip, idx) => {
-			chip.addEventListener('click', () => {
-				activeSignalFilter = activeSignalFilter === idx ? null : idx;
-				signalChips.forEach((c, i) => {
-					c.style.outline =
-						activeSignalFilter === i ? '2px solid var(--interactive-accent)' : '';
-					c.style.opacity =
-						activeSignalFilter !== null && i !== activeSignalFilter ? '0.4' : '1';
-				});
-				if (treeBuilt) renderTree();
-			});
+		const selectNoneBtn = toolbar.createEl('button', { text: 'Select none' });
+		selectNoneBtn.addEventListener('click', () => {
+			this.selectedFolders.clear();
+			this.refreshTree();
+			this.refreshApplyBtn();
 		});
+		const expandAllBtn = toolbar.createEl('button', { text: 'Expand all' });
+		expandAllBtn.addEventListener('click', () => this.toggleAllFolders(true));
+		const collapseAllBtn = toolbar.createEl('button', { text: 'Collapse all' });
+		collapseAllBtn.addEventListener('click', () => this.toggleAllFolders(false));
 
-		// Apply button (disabled for suppressed)
-		const actions = card.createDiv();
+		// ─── Tree ─────────────────────────────────────────────────────
+		this.treeContainer = contentEl.createDiv();
+		this.treeContainer.style.maxHeight = '50vh';
+		this.treeContainer.style.overflow = 'auto';
+		this.treeContainer.style.background = 'var(--background-secondary)';
+		this.treeContainer.style.padding = '0.5em 0.6em';
+		this.treeContainer.style.borderRadius = '6px';
+		this.treeContainer.style.fontSize = '0.88em';
+		this.treeContainer.style.marginBottom = '0.7em';
+		(this.treeContainer as HTMLElement & { _annotatedTree?: typeof tree })._annotatedTree = tree;
+
+		this.renderTree(tree);
+
+		// ─── Apply actions ────────────────────────────────────────────
+		const actions = contentEl.createDiv();
 		actions.style.display = 'flex';
+		actions.style.gap = '0.5em';
 		actions.style.justifyContent = 'flex-end';
-		const applyBtn = actions.createEl('button', { text: 'Apply rules', cls: 'mod-cta' });
-		if (suppressed) {
-			applyBtn.disabled = true;
-			applyBtn.style.opacity = '0.5';
-			applyBtn.title = 'Parent pack is missing — install parent first or adjust entry point.';
-		}
-		applyBtn.addEventListener('click', () => this.applyPack(pack));
+		actions.style.alignItems = 'center';
+		actions.style.marginTop = '0.5em';
+
+		const cancelBtn = actions.createEl('button', { text: 'Cancel' });
+		cancelBtn.addEventListener('click', () => this.close());
+
+		this.applyBtn = actions.createEl('button', { text: '' });
+		this.applyBtn.addClass('mod-cta');
+		this.refreshApplyBtn();
+		this.applyBtn.addEventListener('click', async () => {
+			await this.applySelected(manifest, hitMap);
+		});
 	}
 
-	private async applyPack(packEntry: ManifestFile['packs'][number]): Promise<void> {
-		const adapter = this.app.vault.adapter;
-		const path = `${this.app.vault.configDir}/plugins/${this.pluginId()}/rule-packs/${packEntry.file}`;
-		try {
-			const json = await adapter.read(path);
-			const result = loadRulePackFromJSON(json);
-			if (!result.ok) {
-				new Notice(`✗ Failed to load ${packEntry.name}: ${result.errors[0]}`);
-				return;
+	// ─── Stat-card helper ─────────────────────────────────────────────
+	private makeStat(parent: HTMLElement, label: string, value: number): void {
+		const card = parent.createDiv();
+		card.style.padding = '0.4em 0.6em';
+		card.style.background = 'var(--background-secondary)';
+		card.style.borderRadius = '6px';
+		const v = card.createEl('div', { text: String(value) });
+		v.style.fontSize = '1.2em';
+		v.style.fontWeight = '600';
+		v.style.lineHeight = '1.1';
+		const l = card.createEl('div', { text: label });
+		l.style.fontSize = '0.75em';
+		l.style.color = 'var(--text-muted)';
+	}
+
+	// ─── Signal-chip builder ──────────────────────────────────────────
+	private makeSignalChip(
+		parent: HTMLElement,
+		signal: AnnotatedSignal | null,
+		label: string,
+		packName: string | null,
+		count: number,
+	): HTMLElement {
+		const chip = parent.createSpan();
+		chip.style.display = 'inline-flex';
+		chip.style.alignItems = 'center';
+		chip.style.gap = '0.3em';
+		chip.style.padding = '0.18em 0.55em';
+		chip.style.background = 'var(--background-secondary-alt)';
+		chip.style.border = '1px solid var(--background-modifier-border)';
+		chip.style.borderRadius = '999px';
+		chip.style.fontSize = '0.78em';
+		chip.style.cursor = 'pointer';
+		chip.style.userSelect = 'none';
+
+		const swatch = chip.createSpan();
+		swatch.style.display = 'inline-block';
+		swatch.style.width = '8px';
+		swatch.style.height = '8px';
+		swatch.style.borderRadius = '50%';
+		swatch.style.background = signal ? colorForSignalIndex(signal.globalIndex) : 'var(--text-muted)';
+
+		chip.createSpan({ text: label });
+
+		const countSpan = chip.createSpan({ text: String(count) });
+		countSpan.style.fontSize = '0.75em';
+		countSpan.style.color = 'var(--text-muted)';
+		countSpan.style.marginLeft = '0.15em';
+
+		// Pack name as tooltip — invisible at primary level but available
+		// for users who care to know the source.
+		if (packName) chip.title = `From ${packName}`;
+		return chip;
+	}
+
+	private countHitsForSignal(hitsByPath: Map<string, import('../engine/detectionTree').AnnotatedHit[]>, globalIndex: number): number {
+		let n = 0;
+		for (const hits of hitsByPath.values()) {
+			if (hits.some((h) => h.signal.globalIndex === globalIndex)) n++;
+		}
+		return n;
+	}
+
+	private setSignalFilter(globalIndex: number | null): void {
+		this.signalFilter = globalIndex;
+		// Update chip outlines
+		for (const [idx, el] of this.signalChips) {
+			el.style.outline = idx === globalIndex ? '2px solid var(--interactive-accent)' : '';
+			el.style.opacity = globalIndex !== null && idx !== globalIndex ? '0.45' : '1';
+		}
+		// Re-render tree with filter applied
+		this.refreshTree();
+	}
+
+	private refreshTree(): void {
+		const tree = (this.treeContainer as HTMLElement & { _annotatedTree?: import('../engine/detectionTree').AnnotatedTree })._annotatedTree;
+		if (tree) this.renderTree(tree);
+	}
+
+	private renderTree(tree: import('../engine/detectionTree').AnnotatedTree): void {
+		this.treeContainer.empty();
+		const childKeys = [...tree.root.children.keys()].sort();
+		for (const key of childKeys) {
+			this.renderTreeNode(this.treeContainer, tree.root.children.get(key)!, 0);
+		}
+		if (tree.root.elidedChildCount > 0) {
+			const elision = this.treeContainer.createDiv();
+			elision.style.fontSize = '0.78em';
+			elision.style.color = 'var(--text-faint)';
+			elision.style.fontStyle = 'italic';
+			elision.style.paddingTop = '0.3em';
+			elision.setText(`… ${tree.root.elidedChildCount} top-level folder(s) with no matches`);
+		}
+	}
+
+	private renderTreeNode(parent: HTMLElement, node: AnnotatedTreeNode, depth: number): void {
+		const isHit = node.hits.length > 0;
+		const filterMatch =
+			this.signalFilter === null ||
+			node.hits.some((h) => h.signal.globalIndex === this.signalFilter);
+
+		const row = parent.createDiv();
+		row.style.display = 'flex';
+		row.style.alignItems = 'center';
+		row.style.gap = '0.35em';
+		row.style.padding = '0.18em 0.3em';
+		row.style.paddingLeft = `${depth * 1.0}em`;
+		row.style.borderRadius = '3px';
+		row.style.cursor = node.children.size > 0 ? 'pointer' : 'default';
+		row.style.userSelect = 'none';
+		if (!filterMatch) row.style.opacity = '0.4';
+		row.addEventListener('mouseenter', () => row.style.background = 'var(--background-modifier-hover)');
+		row.addEventListener('mouseleave', () => row.style.background = '');
+
+		// Per-row checkbox: only meaningful for hit folders. Ancestor-only
+		// folders don't get a checkbox; they're just structure.
+		if (isHit) {
+			const cb = row.createEl('input', { type: 'checkbox' });
+			cb.checked = this.selectedFolders.has(node.fullPath);
+			cb.addEventListener('click', (e) => e.stopPropagation());
+			cb.addEventListener('change', () => {
+				if (cb.checked) this.selectedFolders.add(node.fullPath);
+				else this.selectedFolders.delete(node.fullPath);
+				this.refreshApplyBtn();
+			});
+		} else {
+			// Spacer to keep tree alignment
+			const spacer = row.createSpan();
+			spacer.style.display = 'inline-block';
+			spacer.style.width = '13px';
+		}
+
+		// Expansion arrow
+		const startsExpanded = depth < 1;
+		const arrow = row.createSpan({ text: node.children.size > 0 ? (startsExpanded ? '▾' : '▸') : ' ' });
+		arrow.style.minWidth = '0.8em';
+		arrow.style.fontSize = '0.8em';
+		arrow.style.color = 'var(--text-muted)';
+
+		// Folder icon
+		row.createSpan({ text: '📁' }).style.fontSize = '0.92em';
+
+		// Name
+		const nameSpan = row.createSpan({ text: node.name });
+		nameSpan.style.fontWeight = isHit ? '600' : '400';
+		if (!isHit) nameSpan.style.color = 'var(--text-muted)';
+
+		// Per-folder signal chips. Show every annotation; if a folder is
+		// claimed by 4+ signals, collapse to "+N" so the row stays compact.
+		if (isHit) {
+			const chipWrap = row.createSpan();
+			chipWrap.style.display = 'inline-flex';
+			chipWrap.style.flexWrap = 'wrap';
+			chipWrap.style.gap = '0.2em';
+			chipWrap.style.marginLeft = '0.4em';
+			const visible = node.hits.slice(0, 3);
+			for (const hit of visible) {
+				const chip = chipWrap.createSpan();
+				chip.style.display = 'inline-flex';
+				chip.style.alignItems = 'center';
+				chip.style.gap = '0.2em';
+				chip.style.padding = '0.05em 0.4em';
+				chip.style.background = 'var(--background-primary-alt)';
+				chip.style.border = `1px solid ${colorForSignalIndex(hit.signal.globalIndex)}`;
+				chip.style.borderRadius = '999px';
+				chip.style.fontSize = '0.72em';
+				chip.title = `${hit.signal.label} (from ${hit.signal.packName})`;
+				const dot = chip.createSpan();
+				dot.style.display = 'inline-block';
+				dot.style.width = '6px';
+				dot.style.height = '6px';
+				dot.style.borderRadius = '50%';
+				dot.style.background = colorForSignalIndex(hit.signal.globalIndex);
+				chip.createSpan({ text: hit.signal.label });
 			}
-			await this.onApply(result.pack.rules);
-			new Notice(`✓ Applied ${packEntry.name} — ${result.pack.rules.length} rule(s)`);
-			this.close();
-		} catch (err) {
-			new Notice(`✗ Error reading ${packEntry.file}: ${(err as Error).message}`);
+			if (node.hits.length > visible.length) {
+				const more = chipWrap.createSpan({ text: `+${node.hits.length - visible.length}` });
+				more.style.fontSize = '0.72em';
+				more.style.color = 'var(--text-muted)';
+				more.title = node.hits
+					.slice(visible.length)
+					.map((h) => `${h.signal.label} (${h.signal.packName})`)
+					.join('\n');
+			}
+		}
+
+		// Children
+		const childWrap = parent.createDiv();
+		if (!startsExpanded) childWrap.style.display = 'none';
+		childWrap.dataset.dtfTreeContainer = '1';
+		const childKeys = [...node.children.keys()].sort();
+		for (const key of childKeys) {
+			this.renderTreeNode(childWrap, node.children.get(key)!, depth + 1);
+		}
+		if (node.elidedChildCount > 0) {
+			const elision = childWrap.createDiv();
+			elision.style.paddingLeft = `${(depth + 1) * 1.0}em`;
+			elision.style.fontSize = '0.76em';
+			elision.style.color = 'var(--text-faint)';
+			elision.style.fontStyle = 'italic';
+			elision.setText(`… ${node.elidedChildCount} other folder(s), no matches`);
+		}
+
+		if (node.children.size > 0) {
+			row.addEventListener('click', () => {
+				const open = childWrap.style.display === 'none';
+				childWrap.style.display = open ? '' : 'none';
+				arrow.setText(open ? '▾' : '▸');
+			});
 		}
 	}
 
-	private pluginId(): string {
-		// The detect modal is constructed by the main plugin which knows its own
-		// id. We grab from the same place browseRulePacks does. Hardcoded as a
-		// fallback — matches manifest.json id.
-		return 'folder-tag-sync';
+	private toggleAllFolders(open: boolean): void {
+		const containers = this.treeContainer.querySelectorAll<HTMLElement>('[data-dtf-tree-container]');
+		containers.forEach((c) => { c.style.display = open ? '' : 'none'; });
+	}
+
+	private refreshApplyBtn(): void {
+		const folderCount = this.selectedFolders.size;
+		const packsToApply = this.computeRequiredPacks();
+		this.applyBtn.disabled = folderCount === 0;
+		this.applyBtn.setText(
+			folderCount === 0
+				? 'Apply (no folders selected)'
+				: `Apply (${folderCount} folder${folderCount === 1 ? '' : 's'} · ${packsToApply.size} system${packsToApply.size === 1 ? '' : 's'})`,
+		);
+	}
+
+	/**
+	 * Look at the selected folders and figure out which packs need to load
+	 * — i.e. the pack IDs of every signal that hit any selected folder.
+	 *
+	 * Stored on the modal so the same map computation is reused by both
+	 * the Apply-button label refresh and the actual apply path.
+	 */
+	private computeRequiredPacks(): Set<string> {
+		const tree = (this.treeContainer as HTMLElement & { _annotatedTree?: import('../engine/detectionTree').AnnotatedTree })._annotatedTree;
+		if (!tree) return new Set();
+		const required = new Set<string>();
+		const walk = (node: AnnotatedTreeNode): void => {
+			if (this.selectedFolders.has(node.fullPath)) {
+				for (const h of node.hits) required.add(h.signal.packId);
+			}
+			for (const c of node.children.values()) walk(c);
+		};
+		walk(tree.root);
+		return required;
+	}
+
+	private async applySelected(manifest: ManifestFile, _hitMap: import('../engine/detectionTree').CrossPackHitMap): Promise<void> {
+		const requiredPackIds = this.computeRequiredPacks();
+		if (requiredPackIds.size === 0) {
+			new Notice('No folders selected.');
+			return;
+		}
+		const adapter = this.app.vault.adapter;
+		const allRules: MappingRule[] = [];
+		const failed: string[] = [];
+
+		for (const packId of requiredPackIds) {
+			const packEntry = manifest.packs.find((p) => p.id === packId);
+			if (!packEntry) continue;
+			const path = `${this.app.vault.configDir}/plugins/folder-tag-sync/rule-packs/${packEntry.file}`;
+			try {
+				const json = await adapter.read(path);
+				const result = loadRulePackFromJSON(json);
+				if (!result.ok) {
+					failed.push(`${packEntry.name}: ${result.errors[0]}`);
+					continue;
+				}
+				allRules.push(...result.pack.rules);
+			} catch (err) {
+				failed.push(`${packEntry.name}: ${(err as Error).message}`);
+			}
+		}
+
+		if (failed.length > 0) {
+			new Notice(`✗ Failed to load: ${failed.join('; ')}`);
+			return;
+		}
+
+		await this.onApply(allRules);
+		new Notice(
+			`✓ Applied rules from ${requiredPackIds.size} system(s) — ${allRules.length} rule(s) for ${this.selectedFolders.size} folder(s)`,
+		);
+		this.close();
 	}
 
 	private collectVaultFolders(): string[] {
@@ -403,243 +528,7 @@ export class DetectVaultModal extends Modal {
 		return out;
 	}
 
-	private packName(manifest: ManifestFile, id: string): string {
-		const found = manifest.packs.find((p) => p.id === id);
-		return found?.name ?? id;
-	}
-
 	onClose(): void {
 		this.contentEl.empty();
-	}
-}
-
-// ─── Anchored-instance summary renderer ───────────────────────────────
-
-/**
- * Render the nested-instance forest as a compact indented list. Each row
- * states one instance's anchor + hit count + a short preview of the first
- * few hit folder names. Nested instances appear indented with a tree-line
- * connector so the recurrence ("JD inside JD") shows up structurally.
- *
- * Why this matters: a vault with JD at root + JD inside `Projects/Bob/`
- * gets rendered as:
- *
- *   • At (vault root) — 5 hits: 01 - Projects, 02 - Areas, …
- *     └─ At 01 - Projects/Bob/ — 3 hits: 01 - Active, 02 - Archive, …
- *
- * The user immediately sees "this is the same pattern detected twice, in
- * a nested arrangement." No paragraph of explanation needed.
- */
-function renderInstanceTree(
-	parent: HTMLElement,
-	nodes: DetectionInstanceTreeNode[],
-	depth: number,
-): void {
-	for (const node of nodes) {
-		const row = parent.createDiv();
-		row.style.paddingLeft = `${depth * 1.0}em`;
-		row.style.fontSize = '0.85em';
-		row.style.lineHeight = '1.5';
-
-		// Tree-line connector for nested instances
-		const connector = depth > 0 ? '└─ ' : '• ';
-		const conSpan = row.createSpan({ text: connector });
-		conSpan.style.color = 'var(--text-muted)';
-
-		const anchor = row.createSpan({
-			text: 'At ',
-		});
-		anchor.style.color = 'var(--text-muted)';
-		const anchorPath = row.createEl('code', {
-			text: node.instance.anchorPath || '(vault root)',
-		});
-		anchorPath.style.background = 'var(--background-modifier-form-field)';
-		anchorPath.style.padding = '0 0.3em';
-		anchorPath.style.borderRadius = '3px';
-		anchorPath.style.fontSize = '0.92em';
-
-		const stats = row.createSpan({
-			text: ` — ${node.instance.hits.length} hit${node.instance.hits.length === 1 ? '' : 's'}`,
-		});
-		stats.style.color = 'var(--text-muted)';
-
-		// Preview of the first few hit folder names (relative to anchor)
-		const previewCount = Math.min(node.instance.hits.length, 3);
-		if (previewCount > 0) {
-			const previews: string[] = [];
-			for (let i = 0; i < previewCount; i++) {
-				const path = node.instance.hits[i].folderPath;
-				const idx = path.lastIndexOf('/');
-				previews.push(idx === -1 ? path : path.slice(idx + 1));
-			}
-			const previewSpan = row.createSpan({
-				text: `: ${previews.join(', ')}${node.instance.hits.length > previewCount ? ', …' : ''}`,
-			});
-			previewSpan.style.color = 'var(--text-faint)';
-			previewSpan.style.fontStyle = 'italic';
-		}
-
-		// Recurse for nested instances
-		if (node.children.length > 0) {
-			renderInstanceTree(parent, node.children, depth + 1);
-		}
-	}
-}
-
-// ─── Detection tree renderer ──────────────────────────────────────────
-
-/**
- * Recursively render a `DetectionTreeNode` into the DOM.
- *
- * Visual scheme:
- *   - Hit folders: bold name + signal-coloured swatches + accent left border
- *     (so you can scan the tree and see lit-up folders at a glance).
- *   - Ancestor-only folders: dimmed/muted text — they exist purely to give
- *     the hit folders a location.
- *   - Elision badge: "(N more folders, no matches)" rendered subdued at the
- *     bottom of each node's children list. Non-interactive — the user is
- *     told what was hidden, but doesn't need to drill into non-hit branches
- *     (that's what would defeat the elision).
- *   - Filter mode: when `activeSignalFilter` is non-null, only show hits
- *     that include that signal. Other hits are dimmed-but-visible.
- *
- * Default expansion: depth 0 (root children) and depth 1 are open by
- * default; deeper levels are collapsed so the initial view is compact.
- * Click a folder row to toggle its subtree.
- */
-function renderDetectionTreeNode(
-	parent: HTMLElement,
-	node: DetectionTreeNode,
-	depth: number,
-	activeSignalFilter: number | null,
-	isRoot: boolean,
-): void {
-	if (!isRoot) {
-		const row = parent.createDiv();
-		row.style.display = 'flex';
-		row.style.alignItems = 'center';
-		row.style.gap = '0.35em';
-		row.style.padding = '0.18em 0.3em';
-		row.style.paddingLeft = `${depth * 1.0}em`;
-		row.style.borderRadius = '3px';
-		row.style.cursor = node.children.size > 0 ? 'pointer' : 'default';
-		row.style.userSelect = 'none';
-
-		const isHit = node.hits.length > 0;
-		const filterMatch =
-			activeSignalFilter === null ||
-			node.hits.some((h) => h.signalIndex === activeSignalFilter);
-
-		// Hover effect
-		row.addEventListener('mouseenter', () => {
-			row.style.background = 'var(--background-modifier-hover)';
-		});
-		row.addEventListener('mouseleave', () => {
-			row.style.background = '';
-		});
-
-		// Expansion arrow (or empty space if leaf)
-		const arrow = row.createSpan();
-		arrow.style.minWidth = '0.8em';
-		arrow.style.fontSize = '0.8em';
-		arrow.style.color = 'var(--text-muted)';
-		const startsExpanded = depth < 2;
-		arrow.setText(node.children.size > 0 ? (startsExpanded ? '▾' : '▸') : ' ');
-
-		// Signal-colour swatch row (one per hit, up to 4 visible)
-		if (isHit) {
-			const swatches = row.createSpan();
-			swatches.style.display = 'inline-flex';
-			swatches.style.gap = '2px';
-			const visible = node.hits.slice(0, 4);
-			for (const hit of visible) {
-				const sw = swatches.createSpan();
-				sw.style.display = 'inline-block';
-				sw.style.width = '7px';
-				sw.style.height = '7px';
-				sw.style.borderRadius = '50%';
-				sw.style.background = colorForSignalIndex(hit.signalIndex);
-				sw.title = hit.signalLabel;
-			}
-			if (node.hits.length > visible.length) {
-				const more = swatches.createSpan({
-					text: `+${node.hits.length - visible.length}`,
-				});
-				more.style.fontSize = '0.7em';
-				more.style.color = 'var(--text-muted)';
-				more.style.marginLeft = '0.2em';
-			}
-		}
-
-		// Folder icon — slightly smaller for ancestor-only rows
-		const icon = row.createSpan({ text: '📁' });
-		icon.style.fontSize = '0.92em';
-
-		// Name
-		const nameSpan = row.createSpan({ text: node.name });
-		nameSpan.style.fontWeight = isHit ? '600' : '400';
-		if (!isHit) nameSpan.style.color = 'var(--text-muted)';
-		if (!filterMatch) {
-			row.style.opacity = '0.4'; // dim non-matching-filter rows
-		}
-
-		// Hit accent — coloured left border using the FIRST signal's colour
-		if (isHit) {
-			row.style.borderLeft = `3px solid ${colorForSignalIndex(node.hits[0].signalIndex)}`;
-			row.style.paddingLeft = `${depth * 1.0 + 0.1}em`;
-		}
-
-		// Signal label inline (only when filter is off + not too many)
-		if (isHit && activeSignalFilter === null && node.hits.length <= 2) {
-			const labels = row.createSpan({
-				text: node.hits.map((h) => h.signalLabel).join(', '),
-			});
-			labels.style.fontSize = '0.74em';
-			labels.style.color = 'var(--text-muted)';
-			labels.style.marginLeft = '0.4em';
-			labels.style.fontStyle = 'italic';
-		}
-
-		// Children container
-		const childWrap = parent.createDiv();
-		if (!startsExpanded) childWrap.style.display = 'none';
-		// Recurse
-		const childKeys = [...node.children.keys()].sort();
-		for (const key of childKeys) {
-			renderDetectionTreeNode(childWrap, node.children.get(key)!, depth + 1, activeSignalFilter, false);
-		}
-		// Elision badge for non-hit children
-		if (node.elidedChildCount > 0) {
-			const elision = childWrap.createDiv();
-			elision.style.paddingLeft = `${(depth + 1) * 1.0}em`;
-			elision.style.fontSize = '0.78em';
-			elision.style.color = 'var(--text-faint)';
-			elision.style.fontStyle = 'italic';
-			elision.setText(`… ${node.elidedChildCount} other folder(s), no matches`);
-		}
-
-		// Toggle expand on row click
-		if (node.children.size > 0) {
-			row.addEventListener('click', () => {
-				const open = childWrap.style.display === 'none';
-				childWrap.style.display = open ? '' : 'none';
-				arrow.setText(open ? '▾' : '▸');
-			});
-		}
-	} else {
-		// Root node — render its children directly without the row chrome.
-		const childKeys = [...node.children.keys()].sort();
-		for (const key of childKeys) {
-			renderDetectionTreeNode(parent, node.children.get(key)!, 0, activeSignalFilter, false);
-		}
-		// Root-level elision (vault folders without any hits in their subtree)
-		if (node.elidedChildCount > 0) {
-			const elision = parent.createDiv();
-			elision.style.fontSize = '0.78em';
-			elision.style.color = 'var(--text-faint)';
-			elision.style.fontStyle = 'italic';
-			elision.style.paddingTop = '0.3em';
-			elision.setText(`… ${node.elidedChildCount} top-level folder(s) with no matches`);
-		}
 	}
 }

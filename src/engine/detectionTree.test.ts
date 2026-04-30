@@ -13,8 +13,11 @@
 
 import { describe, expect, test } from 'bun:test';
 import {
+	buildAnnotatedTree,
 	buildDetectionTree,
 	buildInstanceTree,
+	collectAnnotatedTreeFolders,
+	collectCrossPackHits,
 	colorForSignalIndex,
 	extractInstances,
 } from './detectionTree';
@@ -391,6 +394,150 @@ describe('buildInstanceTree — nested-instance forest', () => {
 		const tree = buildInstanceTree(instances);
 		// Both instances should be at the forest root (neither nests inside the other)
 		expect(tree.length).toBe(2);
+	});
+});
+
+describe('collectCrossPackHits — cross-pack signal aggregation', () => {
+	function makeResultWithId(
+		id: string,
+		signals: Array<{ folderRegex: string; label?: string; scope?: 'name' | 'path' | 'leafName' }>,
+	): DetectionResult {
+		return {
+			packId: id,
+			score: 1,
+			signalsHit: signals.length,
+			minSignals: 1,
+			matchedSignals: signals.map((s) => ({
+				folderRegex: s.folderRegex,
+				scope: s.scope ?? 'name',
+				label: s.label,
+				exampleMatches: [],
+			})),
+		};
+	}
+
+	test('aggregates hits across multiple packs into one map', () => {
+		const folders = ['Projects', 'Areas', '01 - Notes'];
+		const para = makeResultWithId('para', [
+			{ folderRegex: '^Projects$', label: 'projects' },
+			{ folderRegex: '^Areas$', label: 'areas' },
+		]);
+		const jd = makeResultWithId('jd', [
+			{ folderRegex: '^\\d+\\s*-', label: 'jd-prefix' },
+		]);
+		const names = new Map([['para', 'PARA'], ['jd', 'JD']]);
+
+		const map = collectCrossPackHits(folders, [para, jd], names);
+		expect(map.allSignals.length).toBe(3); // 2 from PARA + 1 from JD
+		// Each signal has unique global index
+		const indices = map.allSignals.map((s) => s.globalIndex).sort();
+		expect(indices).toEqual([0, 1, 2]);
+		// Hits collected per folder
+		expect(map.hitsByPath.size).toBe(3);
+		const projectsHits = map.hitsByPath.get('Projects')!;
+		expect(projectsHits.length).toBe(1);
+		expect(projectsHits[0].signal.packName).toBe('PARA');
+		expect(projectsHits[0].signal.label).toBe('projects');
+	});
+
+	test('one folder hitting signals from multiple packs gets all annotations', () => {
+		const folders = ['01 - Projects'];
+		const para = makeResultWithId('para', [{ folderRegex: 'Projects', label: 'projects' }]);
+		const jd = makeResultWithId('jd', [{ folderRegex: '^\\d', label: 'jd' }]);
+		const names = new Map([['para', 'PARA'], ['jd', 'JD']]);
+
+		const map = collectCrossPackHits(folders, [para, jd], names);
+		const hits = map.hitsByPath.get('01 - Projects')!;
+		expect(hits.length).toBe(2);
+		const sources = hits.map((h) => h.signal.packId).sort();
+		expect(sources).toEqual(['jd', 'para']);
+	});
+
+	test('suppressed packs are excluded from cross-pack map', () => {
+		const folders = ['Projects'];
+		const para = makeResultWithId('para', [{ folderRegex: '^Projects$', label: 'projects' }]);
+		para.suppressedByMissingParent = true;
+		const names = new Map([['para', 'PARA']]);
+		const map = collectCrossPackHits(folders, [para], names);
+		expect(map.allSignals.length).toBe(0);
+		expect(map.hitsByPath.size).toBe(0);
+	});
+
+	test('pack name falls back to id if not in lookup', () => {
+		const folders = ['Projects'];
+		const result = makeResultWithId('mystery-pack', [{ folderRegex: '^Projects$', label: 'p' }]);
+		const map = collectCrossPackHits(folders, [result], new Map());
+		expect(map.allSignals[0].packName).toBe('mystery-pack');
+	});
+});
+
+describe('buildAnnotatedTree — cross-pack hierarchy view', () => {
+	function makeResultWithId(
+		id: string,
+		signals: Array<{ folderRegex: string; label?: string }>,
+	): DetectionResult {
+		return {
+			packId: id,
+			score: 1,
+			signalsHit: signals.length,
+			minSignals: 1,
+			matchedSignals: signals.map((s) => ({
+				folderRegex: s.folderRegex,
+				scope: 'name',
+				label: s.label,
+				exampleMatches: [],
+			})),
+		};
+	}
+
+	test('builds sparse tree with cross-pack hits per folder', () => {
+		const folders = [
+			'Projects',
+			'Projects/Web',
+			'Areas',
+			'Templates',
+		];
+		const para = makeResultWithId('para', [
+			{ folderRegex: '^Projects$', label: 'p' },
+			{ folderRegex: '^Areas$', label: 'a' },
+		]);
+		const map = collectCrossPackHits(folders, [para], new Map([['para', 'PARA']]));
+		const tree = buildAnnotatedTree(folders, map);
+		expect(tree.totalHitFolders).toBe(2); // Projects + Areas
+		expect(tree.root.children.has('Projects')).toBe(true);
+		expect(tree.root.children.has('Areas')).toBe(true);
+		expect(tree.root.children.has('Templates')).toBe(false); // elided
+		expect(tree.root.elidedChildCount).toBe(1); // Templates
+		const projects = tree.root.children.get('Projects')!;
+		expect(projects.hits.length).toBe(1);
+		expect(projects.hits[0].signal.packName).toBe('PARA');
+	});
+
+	test('folder hit by multiple packs has multiple annotations on its node', () => {
+		const folders = ['01 - Projects', '01 - Projects/Web'];
+		const para = makeResultWithId('para', [{ folderRegex: 'Projects', label: 'p' }]);
+		const jd = makeResultWithId('jd', [{ folderRegex: '^\\d', label: 'jd' }]);
+		const names = new Map([['para', 'PARA'], ['jd', 'JD']]);
+		const map = collectCrossPackHits(folders, [para, jd], names);
+		const tree = buildAnnotatedTree(folders, map);
+		const proj = tree.root.children.get('01 - Projects')!;
+		expect(proj.hits.length).toBe(2);
+		const packs = proj.hits.map((h) => h.signal.packId).sort();
+		expect(packs).toEqual(['jd', 'para']);
+	});
+
+	test('collectAnnotatedTreeFolders walks all kept folders', () => {
+		const folders = [
+			'Projects',
+			'Projects/Web',
+			'Projects/Web/Auth',
+			'Areas',
+		];
+		const para = makeResultWithId('para', [{ folderRegex: '^Auth$', label: 'a' }]);
+		const map = collectCrossPackHits(folders, [para], new Map([['para', 'PARA']]));
+		const tree = buildAnnotatedTree(folders, map);
+		const all = collectAnnotatedTreeFolders(tree.root);
+		expect(all.sort()).toEqual(['Projects', 'Projects/Web', 'Projects/Web/Auth']);
 	});
 });
 

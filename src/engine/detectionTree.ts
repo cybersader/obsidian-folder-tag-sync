@@ -27,6 +27,56 @@
 
 import type { DetectionResult, DetectionSignalResult } from './detectPacks';
 
+// ─── Cross-pack hierarchy view types ──────────────────────────────────
+//
+// The pack-centric model ("here's pack X, here's pack Y") doesn't match
+// how users actually think when they look at their vault. They see a
+// folder tree and want to know: "what patterns fired here?" — they
+// don't care which plugin pack contributed the signal. The UI surfaces
+// signals as the primary unit; pack identity is metadata used at apply
+// time to figure out which rule sets to load.
+
+export interface AnnotatedSignal {
+	/** Source pack — used at apply time to load the right rule set. */
+	packId: string;
+	packName: string;
+	/** Position of this signal inside its pack's matchedSignals list. */
+	signalIndex: number;
+	/** Globally unique index across all detected packs. Drives the colour
+	 * scheme so every signal has a stable hue regardless of pack ordering. */
+	globalIndex: number;
+	label: string;
+	regex: string;
+	scope: 'name' | 'path' | 'leafName';
+}
+
+export interface AnnotatedHit {
+	folderPath: string;
+	signal: AnnotatedSignal;
+}
+
+export interface CrossPackHitMap {
+	/** All signals from all detected packs, with deterministic globalIndex. */
+	allSignals: AnnotatedSignal[];
+	/** Hits keyed by folder path — each list contains every (pack, signal)
+	 * pair that matched that folder. */
+	hitsByPath: Map<string, AnnotatedHit[]>;
+}
+
+export interface AnnotatedTreeNode {
+	name: string;
+	fullPath: string;
+	children: Map<string, AnnotatedTreeNode>;
+	hits: AnnotatedHit[];
+	elidedChildCount: number;
+}
+
+export interface AnnotatedTree {
+	root: AnnotatedTreeNode;
+	totalHitFolders: number;
+	totalVaultFolders: number;
+}
+
 export interface DetectionHit {
 	/** Signal that matched this folder. */
 	signalLabel: string;
@@ -392,4 +442,145 @@ function isAnchorPrefix(prefix: string, target: string): boolean {
 	if (prefix === target) return false;
 	if (prefix === '') return target !== '';
 	return target.startsWith(prefix + '/');
+}
+
+// ─── Cross-pack hit aggregation ───────────────────────────────────────
+//
+// Take every detected pack's signals and merge them into one map keyed
+// by folder path. Each folder's annotation list shows every (pack,
+// signal) that fired for it — this is what the hierarchy-first view
+// renders as folder-row chips, with packs invisible to the user.
+
+/**
+ * Collect hits from every detection result into one cross-pack map. Each
+ * signal across all packs gets a globally unique `globalIndex` so the UI
+ * can assign deterministic colours. The hit map enumerates per-folder
+ * which (pack, signal) pairs fired.
+ *
+ * `packNamesById` is a lookup from pack ID to display name — passed in
+ * rather than resolved internally so the engine stays decoupled from the
+ * manifest shape.
+ *
+ * Suppressed packs (parent missing) are intentionally excluded. They're
+ * surfaced separately by the modal as a notice; including their signals
+ * in the hierarchy view would mislead the user into thinking those
+ * patterns are confidently detected.
+ */
+export function collectCrossPackHits(
+	folderPaths: string[],
+	results: DetectionResult[],
+	packNamesById: Map<string, string>,
+): CrossPackHitMap {
+	const allSignals: AnnotatedSignal[] = [];
+	const hitsByPath = new Map<string, AnnotatedHit[]>();
+	let globalIdx = 0;
+
+	for (const result of results) {
+		if (result.suppressedByMissingParent) continue;
+		const packName = packNamesById.get(result.packId) ?? result.packId;
+		const annotatedForPack: AnnotatedSignal[] = result.matchedSignals.map((sig, i) => ({
+			packId: result.packId,
+			packName,
+			signalIndex: i,
+			globalIndex: globalIdx++,
+			label: sig.label ?? sig.folderRegex,
+			regex: sig.folderRegex,
+			scope: sig.scope,
+		}));
+		allSignals.push(...annotatedForPack);
+
+		const packHits = collectAllHits(folderPaths, result.matchedSignals);
+		for (const [path, hits] of packHits) {
+			const enriched: AnnotatedHit[] = hits.map((h) => ({
+				folderPath: path,
+				signal: annotatedForPack[h.signalIndex],
+			}));
+			const existing = hitsByPath.get(path);
+			if (existing) existing.push(...enriched);
+			else hitsByPath.set(path, enriched);
+		}
+	}
+
+	return { allSignals, hitsByPath };
+}
+
+/**
+ * Build a sparse vault tree from a cross-pack hit map. Same shape as
+ * `buildDetectionTree` but each node carries `AnnotatedHit[]` so the
+ * renderer can show per-folder pack/signal chips, not single-pack data.
+ *
+ * The walking algorithm is the same: keep hit folders + ancestors, count
+ * elided children at each kept node.
+ */
+export function buildAnnotatedTree(
+	folderPaths: string[],
+	hitMap: CrossPackHitMap,
+): AnnotatedTree {
+	const childrenByParent = new Map<string, string[]>();
+	for (const path of folderPaths) {
+		const idx = path.lastIndexOf('/');
+		const parent = idx === -1 ? '' : path.slice(0, idx);
+		if (!childrenByParent.has(parent)) childrenByParent.set(parent, []);
+		childrenByParent.get(parent)!.push(path);
+	}
+
+	const keep = new Set<string>();
+	for (const hitPath of hitMap.hitsByPath.keys()) {
+		let cursor: string | null = hitPath;
+		while (cursor !== null && cursor !== '') {
+			keep.add(cursor);
+			const idx = cursor.lastIndexOf('/');
+			cursor = idx === -1 ? null : cursor.slice(0, idx);
+		}
+	}
+
+	const root: AnnotatedTreeNode = {
+		name: '',
+		fullPath: '',
+		children: new Map(),
+		hits: [],
+		elidedChildCount: 0,
+	};
+	const nodesByPath = new Map<string, AnnotatedTreeNode>();
+	nodesByPath.set('', root);
+
+	const ordered = [...keep].sort((a, b) => a.length - b.length);
+	for (const path of ordered) {
+		const idx = path.lastIndexOf('/');
+		const parentPath = idx === -1 ? '' : path.slice(0, idx);
+		const name = idx === -1 ? path : path.slice(idx + 1);
+		const parent = nodesByPath.get(parentPath) ?? root;
+		const node: AnnotatedTreeNode = {
+			name,
+			fullPath: path,
+			children: new Map(),
+			hits: hitMap.hitsByPath.get(path) ?? [],
+			elidedChildCount: 0,
+		};
+		parent.children.set(name, node);
+		nodesByPath.set(path, node);
+	}
+
+	for (const [path, node] of nodesByPath) {
+		const realChildren = childrenByParent.get(path) ?? [];
+		for (const childPath of realChildren) {
+			if (!keep.has(childPath)) node.elidedChildCount++;
+		}
+	}
+
+	return {
+		root,
+		totalHitFolders: hitMap.hitsByPath.size,
+		totalVaultFolders: folderPaths.length,
+	};
+}
+
+/** All folders (full paths) under `node` in the annotated tree. */
+export function collectAnnotatedTreeFolders(node: AnnotatedTreeNode): string[] {
+	const out: string[] = [];
+	if (node.fullPath !== '') out.push(node.fullPath);
+	for (const child of node.children.values()) {
+		out.push(...collectAnnotatedTreeFolders(child));
+	}
+	return out;
 }

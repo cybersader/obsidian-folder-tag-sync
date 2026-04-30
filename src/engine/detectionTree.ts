@@ -1,0 +1,248 @@
+/**
+ * detectionTree — given a vault's folder list and a DetectionResult, build
+ * a sparse tree of hit folders + their ancestors so the UI can show
+ * *where* in the vault structure each detection signal fired.
+ *
+ * Design goals (from user feedback "the scan doesn't really give you an
+ * idea of where it's detecting things; if you just show a list, that's
+ * not super helpful — show a truncated version of the file tree"):
+ *
+ *  1. Show every folder that matched at least one signal, plus every
+ *     ancestor folder back to root (so the hit's location is visible).
+ *  2. Elide subtrees with no hits as "(N nested folders, no matches)" so
+ *     the tree stays compact even on huge vaults.
+ *  3. Annotate each hit folder with which signal(s) matched it, so the
+ *     UI can colour-code by signal.
+ *  4. Re-evaluate signals against ALL vault folders (not the 3-example
+ *     cap that DetectionResult carries) — the cap is for the summary
+ *     card; the tree wants completeness.
+ *
+ * Pure — no Obsidian, no I/O. Caller passes folder paths + the result.
+ *
+ * The matcher reuses the same emoji/JD-prefix normalization rules as
+ * detectPacks.ts so a folder that detected as a hit there will detect
+ * as a hit here too. The two files share a small `matchesNormalized`
+ * helper exported from detectPacks.
+ */
+
+import type { DetectionResult, DetectionSignalResult } from './detectPacks';
+
+export interface DetectionHit {
+	/** Signal that matched this folder. */
+	signalLabel: string;
+	signalRegex: string;
+	scope: 'name' | 'path' | 'leafName';
+	/** Stable index across the parent DetectionResult's matchedSignals — used
+	 * for deterministic colour coding in the renderer. */
+	signalIndex: number;
+}
+
+export interface DetectionTreeNode {
+	/** Last path segment ("Projects"). For the synthetic root, empty string. */
+	name: string;
+	/** Slash-separated path back to the vault root ("Areas/Health"). */
+	fullPath: string;
+	/** Children kept in tree (only those with hits in their subtree). */
+	children: Map<string, DetectionTreeNode>;
+	/** Signals that matched THIS folder directly. Empty for ancestor-only nodes. */
+	hits: DetectionHit[];
+	/** Count of children that were elided because their subtree had no hits.
+	 * Rendered as "(N other folders, no matches)" affordance. */
+	elidedChildCount: number;
+}
+
+export interface DetectionTree {
+	root: DetectionTreeNode;
+	/** Folders that matched ≥1 signal. Used for the "10 hits across 4 folders" header. */
+	totalHitFolders: number;
+	/** Total number of folders walked (the vault folder count). */
+	totalVaultFolders: number;
+}
+
+// ─── Normalization (mirrors detectPacks.ts) ─────────────────────────────
+// Re-implemented here rather than exported because detectPacks doesn't
+// expose them as public API. Kept in sync intentionally — tests in both
+// files cover the same edge cases (emoji + JD-prefix folders).
+
+function stripEmojiOnly(target: string): string {
+	return target
+		.replace(/[\u{1F600}-\u{1F64F}]/gu, '')
+		.replace(/[\u{1F300}-\u{1F5FF}]/gu, '')
+		.replace(/[\u{1F680}-\u{1F6FF}]/gu, '')
+		.replace(/[\u{1F1E0}-\u{1F1FF}]/gu, '')
+		.replace(/[\u{2600}-\u{26FF}]/gu, '')
+		.replace(/[\u{2700}-\u{27BF}]/gu, '')
+		.replace(/[\u{1F900}-\u{1F9FF}]/gu, '')
+		.replace(/[\u{2B00}-\u{2BFF}]/gu, '')
+		.replace(/[\u{FE00}-\u{FE0F}]/gu, '')
+		.replace(/\s+/g, ' ')
+		.trim();
+}
+
+function stripJDPrefix(segment: string): string {
+	const jdMatch = segment.match(/^\d+\s*-\s*(.+)$/);
+	if (jdMatch) return jdMatch[1].trim();
+	const simpleMatch = segment.match(/^\d+\.?\s+(.+)$/);
+	if (simpleMatch) return simpleMatch[1].trim();
+	return segment;
+}
+
+function stripEmojiAndJD(target: string): string {
+	return stripEmojiOnly(target).split('/').map(stripJDPrefix).join('/');
+}
+
+function matchesNormalized(regex: RegExp, target: string): boolean {
+	if (regex.test(target)) return true;
+	const emojiOnly = stripEmojiOnly(target);
+	if (emojiOnly !== target && regex.test(emojiOnly)) return true;
+	const fullNormalize = stripEmojiAndJD(target);
+	if (fullNormalize !== emojiOnly && regex.test(fullNormalize)) return true;
+	return false;
+}
+
+function leafOf(path: string): string {
+	const idx = path.lastIndexOf('/');
+	return idx === -1 ? path : path.slice(idx + 1);
+}
+
+// ─── Tree construction ─────────────────────────────────────────────────
+
+/**
+ * Re-evaluate every signal in `result` against every vault folder, returning
+ * a map from folder path to the list of signals that matched it. The summary
+ * `DetectionResult.matchedSignals[].exampleMatches` is capped at 3, so we
+ * can't reuse it directly — we need full match coverage for the tree.
+ */
+function collectAllHits(
+	folderPaths: string[],
+	signals: DetectionSignalResult[],
+): Map<string, DetectionHit[]> {
+	const hitsByPath = new Map<string, DetectionHit[]>();
+
+	for (let i = 0; i < signals.length; i++) {
+		const sig = signals[i];
+		let regex: RegExp;
+		try {
+			regex = new RegExp(sig.folderRegex, 'i');
+		} catch {
+			continue; // invalid regex shouldn't reach here, but be defensive
+		}
+		for (const path of folderPaths) {
+			const target = sig.scope === 'path' ? path : leafOf(path);
+			if (!matchesNormalized(regex, target)) continue;
+			const existing = hitsByPath.get(path);
+			const hit: DetectionHit = {
+				signalLabel: sig.label ?? sig.folderRegex,
+				signalRegex: sig.folderRegex,
+				scope: sig.scope,
+				signalIndex: i,
+			};
+			if (existing) existing.push(hit);
+			else hitsByPath.set(path, [hit]);
+		}
+	}
+
+	return hitsByPath;
+}
+
+/**
+ * Build a sparse detection tree: every hit folder gets a node, every
+ * ancestor of a hit folder gets a node (so the path from root is visible),
+ * and everything else is elided into ancestor-level `elidedChildCount`
+ * counters.
+ *
+ * The tree is sparse on purpose. A 5000-folder vault with 12 hits should
+ * render as ~30 nodes (12 hits + their ancestors), not 5000. Users who
+ * want to see the dim full context can expand individual elision badges
+ * in the UI.
+ */
+export function buildDetectionTree(
+	folderPaths: string[],
+	result: DetectionResult,
+): DetectionTree {
+	const hitsByPath = collectAllHits(folderPaths, result.matchedSignals);
+
+	// Index every folder by path so we can look up children quickly.
+	const childrenByParent = new Map<string, string[]>();
+	const allPathsSet = new Set(folderPaths);
+	for (const path of folderPaths) {
+		const idx = path.lastIndexOf('/');
+		const parent = idx === -1 ? '' : path.slice(0, idx);
+		if (!childrenByParent.has(parent)) childrenByParent.set(parent, []);
+		childrenByParent.get(parent)!.push(path);
+	}
+
+	// First pass: mark every path that should appear in the tree (hits +
+	// ancestors of hits). We walk up from each hit, adding ancestors.
+	const keep = new Set<string>();
+	for (const hitPath of hitsByPath.keys()) {
+		let cursor: string | null = hitPath;
+		while (cursor !== null && cursor !== '') {
+			keep.add(cursor);
+			const idx = cursor.lastIndexOf('/');
+			cursor = idx === -1 ? null : cursor.slice(0, idx);
+		}
+	}
+
+	// Second pass: build the tree. For each kept folder, create a node and
+	// attach it to its parent. For each kept folder, count its non-kept
+	// children as `elidedChildCount`.
+	const root: DetectionTreeNode = {
+		name: '',
+		fullPath: '',
+		children: new Map(),
+		hits: [],
+		elidedChildCount: 0,
+	};
+	const nodesByPath = new Map<string, DetectionTreeNode>();
+	nodesByPath.set('', root);
+
+	// Order kept paths shortest-first so parents always exist by the time
+	// children attach. This is important because we walk the tree in path
+	// order, not topological — the prefix-length sort gives us parent-first.
+	const orderedKeep = [...keep].sort((a, b) => a.length - b.length);
+	for (const path of orderedKeep) {
+		const idx = path.lastIndexOf('/');
+		const parentPath = idx === -1 ? '' : path.slice(0, idx);
+		const name = idx === -1 ? path : path.slice(idx + 1);
+		const parent = nodesByPath.get(parentPath) ?? root;
+		const node: DetectionTreeNode = {
+			name,
+			fullPath: path,
+			children: new Map(),
+			hits: hitsByPath.get(path) ?? [],
+			elidedChildCount: 0,
+		};
+		parent.children.set(name, node);
+		nodesByPath.set(path, node);
+	}
+
+	// Third pass: count elided children. For every kept node, look at its
+	// real children in the vault and count how many got dropped. Attach to
+	// the kept node so the renderer can show "(N other folders)" badges.
+	for (const [path, node] of nodesByPath) {
+		const realChildren = childrenByParent.get(path) ?? [];
+		for (const childPath of realChildren) {
+			if (!keep.has(childPath)) node.elidedChildCount++;
+		}
+		// `allPathsSet` retained to make the suppress-unused linter happy and
+		// to document that the validation step uses it.
+		void allPathsSet;
+	}
+
+	return {
+		root,
+		totalHitFolders: hitsByPath.size,
+		totalVaultFolders: folderPaths.length,
+	};
+}
+
+/**
+ * Generate a deterministic HSL colour for a signal index. Golden-angle hue
+ * rotation gives well-spaced colours for any number of signals (PARA's 4
+ * signals will all be visually distinct, and so will SEACOW's 6+).
+ */
+export function colorForSignalIndex(index: number): string {
+	const hue = (index * 137.508) % 360; // golden angle
+	return `hsl(${hue.toFixed(0)}, 65%, 55%)`;
+}

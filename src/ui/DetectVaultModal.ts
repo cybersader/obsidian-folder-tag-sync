@@ -23,6 +23,11 @@ import {
 	type DetectionResult,
 	type ManifestPackEntry,
 } from '../engine/detectPacks';
+import {
+	buildDetectionTree,
+	colorForSignalIndex,
+	type DetectionTreeNode,
+} from '../engine/detectionTree';
 import { loadRulePackFromJSON } from '../engine/rulePackLoader';
 import type { MappingRule } from '../types/settings';
 // Bundle the manifest at build time so the modal works even when the
@@ -117,7 +122,7 @@ export class DetectVaultModal extends Modal {
 			heading.style.marginTop = '0.5em';
 			heading.style.fontSize = '0.95em';
 			for (const result of surfacing) {
-				this.renderResult(contentEl, result, manifest, false);
+				this.renderResult(contentEl, result, manifest, false, folderPaths);
 			}
 		}
 
@@ -127,7 +132,7 @@ export class DetectVaultModal extends Modal {
 			heading.style.fontSize = '0.95em';
 			heading.style.color = 'var(--text-muted)';
 			for (const result of lowConfidence) {
-				this.renderResult(contentEl, result, manifest, false);
+				this.renderResult(contentEl, result, manifest, false, folderPaths);
 			}
 		}
 
@@ -137,7 +142,7 @@ export class DetectVaultModal extends Modal {
 			heading.style.fontSize = '0.95em';
 			heading.style.color = 'var(--text-muted)';
 			for (const result of suppressed) {
-				this.renderResult(contentEl, result, manifest, true);
+				this.renderResult(contentEl, result, manifest, true, folderPaths);
 			}
 		}
 	}
@@ -147,6 +152,7 @@ export class DetectVaultModal extends Modal {
 		result: DetectionResult,
 		manifest: ManifestFile,
 		suppressed: boolean,
+		folderPaths: string[],
 	): void {
 		const pack = manifest.packs.find((p) => p.id === result.packId);
 		if (!pack) return;
@@ -193,26 +199,122 @@ export class DetectVaultModal extends Modal {
 			);
 		}
 
-		// Matched signals list
-		if (result.matchedSignals.length > 0) {
-			const sigList = card.createEl('ul');
-			sigList.style.fontSize = '0.85em';
-			sigList.style.paddingLeft = '1.2em';
-			sigList.style.marginTop = '0.2em';
-			sigList.style.marginBottom = '0.4em';
-			for (const sig of result.matchedSignals) {
-				const li = sigList.createEl('li');
-				if (sig.label) li.createSpan({ text: sig.label });
-				else li.createEl('code', { text: sig.folderRegex });
-				if (sig.exampleMatches.length > 0) {
-					li.createSpan({ text: ` — ` });
-					sig.exampleMatches.forEach((ex, i) => {
-						if (i > 0) li.createSpan({ text: ', ' });
-						li.createEl('code', { text: ex });
-					});
-				}
-			}
+		// Matched-signals legend — one chip per signal, colour-coded so the
+		// vault tree below can show which signal lit up each folder. Click a
+		// chip to highlight just that signal in the tree.
+		let activeSignalFilter: number | null = null;
+		const legend = card.createDiv();
+		legend.style.display = 'flex';
+		legend.style.flexWrap = 'wrap';
+		legend.style.gap = '0.3em';
+		legend.style.marginBottom = '0.4em';
+
+		const signalChips: HTMLElement[] = [];
+		for (let i = 0; i < result.matchedSignals.length; i++) {
+			const sig = result.matchedSignals[i];
+			const color = colorForSignalIndex(i);
+			const chip = legend.createSpan();
+			chip.style.display = 'inline-flex';
+			chip.style.alignItems = 'center';
+			chip.style.gap = '0.3em';
+			chip.style.padding = '0.15em 0.55em';
+			chip.style.background = 'var(--background-secondary-alt)';
+			chip.style.border = '1px solid var(--background-modifier-border)';
+			chip.style.borderRadius = '999px';
+			chip.style.fontSize = '0.78em';
+			chip.style.cursor = 'pointer';
+			chip.style.userSelect = 'none';
+			const swatch = chip.createSpan();
+			swatch.style.display = 'inline-block';
+			swatch.style.width = '8px';
+			swatch.style.height = '8px';
+			swatch.style.borderRadius = '50%';
+			swatch.style.background = color;
+			chip.createSpan({ text: sig.label ?? sig.folderRegex });
+			signalChips.push(chip);
 		}
+
+		// "Show vault tree" expand-toggle — building the tree is fast (single
+		// pass over folders) but rendering 5000 nodes is wasteful when the
+		// user just wants to glance at scores. Hidden behind a click.
+		const treeToggle = card.createDiv();
+		treeToggle.style.display = 'flex';
+		treeToggle.style.alignItems = 'center';
+		treeToggle.style.gap = '0.4em';
+		treeToggle.style.cursor = 'pointer';
+		treeToggle.style.userSelect = 'none';
+		treeToggle.style.fontSize = '0.85em';
+		treeToggle.style.color = 'var(--text-muted)';
+		treeToggle.style.marginTop = '0.3em';
+		treeToggle.style.marginBottom = '0.3em';
+		const toggleArrow = treeToggle.createSpan({ text: '▸' });
+		toggleArrow.style.fontSize = '0.8em';
+		const toggleLabel = treeToggle.createSpan({ text: 'Show where this detected (vault tree)' });
+
+		const treeContainer = card.createDiv();
+		treeContainer.style.display = 'none';
+		treeContainer.style.background = 'var(--background-primary)';
+		treeContainer.style.padding = '0.5em 0.6em';
+		treeContainer.style.borderRadius = '4px';
+		treeContainer.style.border = '1px solid var(--background-modifier-border)';
+		treeContainer.style.marginBottom = '0.4em';
+		treeContainer.style.maxHeight = '40vh';
+		treeContainer.style.overflow = 'auto';
+
+		let treeBuilt = false;
+		const renderTree = () => {
+			treeContainer.empty();
+			const tree = buildDetectionTree(folderPaths, result);
+			if (tree.totalHitFolders === 0) {
+				const empty = treeContainer.createDiv();
+				empty.style.color = 'var(--text-muted)';
+				empty.style.fontStyle = 'italic';
+				empty.style.padding = '0.4em';
+				empty.setText('No folders matched any signal in this vault.');
+				return;
+			}
+			// Header line with hit count + (if filtering) which signal
+			const header = treeContainer.createDiv();
+			header.style.fontSize = '0.82em';
+			header.style.color = 'var(--text-muted)';
+			header.style.marginBottom = '0.3em';
+			const baseText =
+				`${tree.totalHitFolders} folder(s) matched · ${tree.totalVaultFolders} folders scanned`;
+			header.setText(activeSignalFilter !== null
+				? `${baseText} · filtering: ${result.matchedSignals[activeSignalFilter].label ?? result.matchedSignals[activeSignalFilter].folderRegex}`
+				: baseText);
+
+			renderDetectionTreeNode(treeContainer, tree.root, 0, activeSignalFilter, true);
+		};
+
+		treeToggle.addEventListener('click', () => {
+			const isOpen = treeContainer.style.display !== 'none';
+			if (isOpen) {
+				treeContainer.style.display = 'none';
+				toggleArrow.setText('▸');
+				return;
+			}
+			if (!treeBuilt) {
+				renderTree();
+				treeBuilt = true;
+			}
+			treeContainer.style.display = '';
+			toggleArrow.setText('▾');
+		});
+
+		// Wire signal-chip clicks → toggle filter, re-render tree if open
+		signalChips.forEach((chip, idx) => {
+			chip.addEventListener('click', () => {
+				activeSignalFilter = activeSignalFilter === idx ? null : idx;
+				signalChips.forEach((c, i) => {
+					c.style.outline =
+						activeSignalFilter === i ? '2px solid var(--interactive-accent)' : '';
+					c.style.opacity =
+						activeSignalFilter !== null && i !== activeSignalFilter ? '0.4' : '1';
+				});
+				if (treeBuilt) renderTree();
+			});
+		});
 
 		// Apply button (disabled for suppressed)
 		const actions = card.createDiv();
@@ -273,5 +375,163 @@ export class DetectVaultModal extends Modal {
 
 	onClose(): void {
 		this.contentEl.empty();
+	}
+}
+
+// ─── Detection tree renderer ──────────────────────────────────────────
+
+/**
+ * Recursively render a `DetectionTreeNode` into the DOM.
+ *
+ * Visual scheme:
+ *   - Hit folders: bold name + signal-coloured swatches + accent left border
+ *     (so you can scan the tree and see lit-up folders at a glance).
+ *   - Ancestor-only folders: dimmed/muted text — they exist purely to give
+ *     the hit folders a location.
+ *   - Elision badge: "(N more folders, no matches)" rendered subdued at the
+ *     bottom of each node's children list. Non-interactive — the user is
+ *     told what was hidden, but doesn't need to drill into non-hit branches
+ *     (that's what would defeat the elision).
+ *   - Filter mode: when `activeSignalFilter` is non-null, only show hits
+ *     that include that signal. Other hits are dimmed-but-visible.
+ *
+ * Default expansion: depth 0 (root children) and depth 1 are open by
+ * default; deeper levels are collapsed so the initial view is compact.
+ * Click a folder row to toggle its subtree.
+ */
+function renderDetectionTreeNode(
+	parent: HTMLElement,
+	node: DetectionTreeNode,
+	depth: number,
+	activeSignalFilter: number | null,
+	isRoot: boolean,
+): void {
+	if (!isRoot) {
+		const row = parent.createDiv();
+		row.style.display = 'flex';
+		row.style.alignItems = 'center';
+		row.style.gap = '0.35em';
+		row.style.padding = '0.18em 0.3em';
+		row.style.paddingLeft = `${depth * 1.0}em`;
+		row.style.borderRadius = '3px';
+		row.style.cursor = node.children.size > 0 ? 'pointer' : 'default';
+		row.style.userSelect = 'none';
+
+		const isHit = node.hits.length > 0;
+		const filterMatch =
+			activeSignalFilter === null ||
+			node.hits.some((h) => h.signalIndex === activeSignalFilter);
+
+		// Hover effect
+		row.addEventListener('mouseenter', () => {
+			row.style.background = 'var(--background-modifier-hover)';
+		});
+		row.addEventListener('mouseleave', () => {
+			row.style.background = '';
+		});
+
+		// Expansion arrow (or empty space if leaf)
+		const arrow = row.createSpan();
+		arrow.style.minWidth = '0.8em';
+		arrow.style.fontSize = '0.8em';
+		arrow.style.color = 'var(--text-muted)';
+		const startsExpanded = depth < 2;
+		arrow.setText(node.children.size > 0 ? (startsExpanded ? '▾' : '▸') : ' ');
+
+		// Signal-colour swatch row (one per hit, up to 4 visible)
+		if (isHit) {
+			const swatches = row.createSpan();
+			swatches.style.display = 'inline-flex';
+			swatches.style.gap = '2px';
+			const visible = node.hits.slice(0, 4);
+			for (const hit of visible) {
+				const sw = swatches.createSpan();
+				sw.style.display = 'inline-block';
+				sw.style.width = '7px';
+				sw.style.height = '7px';
+				sw.style.borderRadius = '50%';
+				sw.style.background = colorForSignalIndex(hit.signalIndex);
+				sw.title = hit.signalLabel;
+			}
+			if (node.hits.length > visible.length) {
+				const more = swatches.createSpan({
+					text: `+${node.hits.length - visible.length}`,
+				});
+				more.style.fontSize = '0.7em';
+				more.style.color = 'var(--text-muted)';
+				more.style.marginLeft = '0.2em';
+			}
+		}
+
+		// Folder icon — slightly smaller for ancestor-only rows
+		const icon = row.createSpan({ text: '📁' });
+		icon.style.fontSize = '0.92em';
+
+		// Name
+		const nameSpan = row.createSpan({ text: node.name });
+		nameSpan.style.fontWeight = isHit ? '600' : '400';
+		if (!isHit) nameSpan.style.color = 'var(--text-muted)';
+		if (!filterMatch) {
+			row.style.opacity = '0.4'; // dim non-matching-filter rows
+		}
+
+		// Hit accent — coloured left border using the FIRST signal's colour
+		if (isHit) {
+			row.style.borderLeft = `3px solid ${colorForSignalIndex(node.hits[0].signalIndex)}`;
+			row.style.paddingLeft = `${depth * 1.0 + 0.1}em`;
+		}
+
+		// Signal label inline (only when filter is off + not too many)
+		if (isHit && activeSignalFilter === null && node.hits.length <= 2) {
+			const labels = row.createSpan({
+				text: node.hits.map((h) => h.signalLabel).join(', '),
+			});
+			labels.style.fontSize = '0.74em';
+			labels.style.color = 'var(--text-muted)';
+			labels.style.marginLeft = '0.4em';
+			labels.style.fontStyle = 'italic';
+		}
+
+		// Children container
+		const childWrap = parent.createDiv();
+		if (!startsExpanded) childWrap.style.display = 'none';
+		// Recurse
+		const childKeys = [...node.children.keys()].sort();
+		for (const key of childKeys) {
+			renderDetectionTreeNode(childWrap, node.children.get(key)!, depth + 1, activeSignalFilter, false);
+		}
+		// Elision badge for non-hit children
+		if (node.elidedChildCount > 0) {
+			const elision = childWrap.createDiv();
+			elision.style.paddingLeft = `${(depth + 1) * 1.0}em`;
+			elision.style.fontSize = '0.78em';
+			elision.style.color = 'var(--text-faint)';
+			elision.style.fontStyle = 'italic';
+			elision.setText(`… ${node.elidedChildCount} other folder(s), no matches`);
+		}
+
+		// Toggle expand on row click
+		if (node.children.size > 0) {
+			row.addEventListener('click', () => {
+				const open = childWrap.style.display === 'none';
+				childWrap.style.display = open ? '' : 'none';
+				arrow.setText(open ? '▾' : '▸');
+			});
+		}
+	} else {
+		// Root node — render its children directly without the row chrome.
+		const childKeys = [...node.children.keys()].sort();
+		for (const key of childKeys) {
+			renderDetectionTreeNode(parent, node.children.get(key)!, 0, activeSignalFilter, false);
+		}
+		// Root-level elision (vault folders without any hits in their subtree)
+		if (node.elidedChildCount > 0) {
+			const elision = parent.createDiv();
+			elision.style.fontSize = '0.78em';
+			elision.style.color = 'var(--text-faint)';
+			elision.style.fontStyle = 'italic';
+			elision.style.paddingTop = '0.3em';
+			elision.setText(`… ${node.elidedChildCount} top-level folder(s) with no matches`);
+		}
 	}
 }

@@ -1,5 +1,9 @@
 import { browser, expect } from '@wdio/globals';
-import { describe, it } from 'mocha';
+// `describe` / `it` come from wdio-mocha-framework's runtime-bound globals.
+// Importing them from 'mocha' fails because the module's bindings aren't
+// populated until mocha.run() — which happens AFTER tsx has loaded the spec.
+declare const describe: (name: string, fn: () => void) => void;
+declare const it: (name: string, fn: () => Promise<void> | void) => void;
 
 /**
  * Smoke test: Obsidian launches, the plugin loads and registers its commands.

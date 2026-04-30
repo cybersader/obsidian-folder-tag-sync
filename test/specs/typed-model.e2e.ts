@@ -1,5 +1,9 @@
 import { browser, expect } from '@wdio/globals';
-import { describe, it, before } from 'mocha';
+// Use wdio-mocha-framework's runtime-bound globals; importing from 'mocha'
+// fails because the module bindings populate AFTER tsx loads the spec.
+declare const describe: (name: string, fn: (this: { timeout: (ms: number) => void }) => void) => void;
+declare const it: (name: string, fn: () => Promise<void> | void) => void;
+declare const before: (fn: () => Promise<void> | void) => void;
 import * as path from 'node:path';
 import * as fs from 'node:fs/promises';
 

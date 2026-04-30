@@ -33,6 +33,7 @@ import {
 	type AnnotatedTreeNode,
 } from '../engine/detectionTree';
 import { loadRulePackFromJSON } from '../engine/rulePackLoader';
+import { minimalScopeCover, scopeRules } from '../engine/scopeRules';
 import type { MappingRule } from '../types/settings';
 import bundledManifest from '../../rule-packs/manifest.json';
 
@@ -196,6 +197,7 @@ export class DetectVaultModal extends Modal {
 
 		// ─── Tree ─────────────────────────────────────────────────────
 		this.treeContainer = contentEl.createDiv();
+		this.treeContainer.dataset.dtfDetectTree = '1';
 		this.treeContainer.style.maxHeight = '50vh';
 		this.treeContainer.style.overflow = 'auto';
 		this.treeContainer.style.background = 'var(--background-secondary)';
@@ -307,9 +309,21 @@ export class DetectVaultModal extends Modal {
 
 	private renderTree(tree: import('../engine/detectionTree').AnnotatedTree): void {
 		this.treeContainer.empty();
+		// Pre-compute the cover for visual tinting so each row knows whether
+		// it's a scope point, inside a scope, or outside.
+		const cover = minimalScopeCover([...this.selectedFolders]);
+		const coverSet = new Set(cover);
+		// Stable colour per scope index. When the user selects multiple
+		// non-overlapping scopes, each scope's reach paints in a distinct
+		// hue so they're visually separable in the tree.
+		const scopeColorByPath = new Map<string, string>();
+		cover.forEach((p, i) => {
+			scopeColorByPath.set(p, scopeColorForIndex(i));
+		});
+
 		const childKeys = [...tree.root.children.keys()].sort();
 		for (const key of childKeys) {
-			this.renderTreeNode(this.treeContainer, tree.root.children.get(key)!, 0);
+			this.renderTreeNode(this.treeContainer, tree.root.children.get(key)!, 0, coverSet, cover, scopeColorByPath);
 		}
 		if (tree.root.elidedChildCount > 0) {
 			const elision = this.treeContainer.createDiv();
@@ -321,11 +335,59 @@ export class DetectVaultModal extends Modal {
 		}
 	}
 
-	private renderTreeNode(parent: HTMLElement, node: AnnotatedTreeNode, depth: number): void {
+	/**
+	 * Decide whether a folder path is INSIDE any cover scope. A path is
+	 * inside scope S iff S is a strict ancestor (segment-aligned). Used to
+	 * paint the "scope reach" tint into descendant rows.
+	 */
+	private isInsideAnyScope(path: string, cover: string[]): boolean {
+		for (const s of cover) {
+			if (s === '') continue;
+			if (path === s) continue; // scope point itself, not "inside"
+			if (path.startsWith(s + '/')) return true;
+		}
+		return false;
+	}
+
+	/** Find which cover scope contains this path (most specific wins). */
+	private scopeContaining(path: string, cover: string[]): string | null {
+		let bestMatch: string | null = null;
+		let bestLen = -1;
+		for (const s of cover) {
+			if (s === '') continue;
+			if (path === s) return s; // exact scope point
+			if (path.startsWith(s + '/') && s.length > bestLen) {
+				bestMatch = s;
+				bestLen = s.length;
+			}
+		}
+		return bestMatch;
+	}
+
+	/**
+	 * True iff path is a "covered" descendant — i.e. a checkbox-selected
+	 * folder that the cover algorithm absorbed because an ancestor was
+	 * also selected. Used to dim its row visually so the user understands
+	 * "your selection here is redundant; the outer scope already covers it."
+	 */
+	private isAbsorbedSelection(path: string, coverSet: Set<string>): boolean {
+		return this.selectedFolders.has(path) && !coverSet.has(path);
+	}
+
+	private renderTreeNode(parent: HTMLElement, node: AnnotatedTreeNode, depth: number, coverSet: Set<string>, cover: string[], scopeColorByPath: Map<string, string>): void {
 		const isHit = node.hits.length > 0;
 		const filterMatch =
 			this.signalFilter === null ||
 			node.hits.some((h) => h.signal.globalIndex === this.signalFilter);
+		const isScopePoint = coverSet.has(node.fullPath);
+		const isInsideScope = this.isInsideAnyScope(node.fullPath, cover);
+		const isAbsorbed = this.isAbsorbedSelection(node.fullPath, coverSet);
+		// Resolve the colour this row should use for its scope tint. A
+		// scope point uses its own colour; descendants use the colour of
+		// the most-specific containing scope so multi-scope selections
+		// stay visually separable.
+		const containingScope = isScopePoint ? node.fullPath : this.scopeContaining(node.fullPath, cover);
+		const scopeColor = containingScope ? scopeColorByPath.get(containingScope) ?? 'var(--interactive-accent)' : 'var(--interactive-accent)';
 
 		const row = parent.createDiv();
 		row.style.display = 'flex';
@@ -337,8 +399,48 @@ export class DetectVaultModal extends Modal {
 		row.style.cursor = node.children.size > 0 ? 'pointer' : 'default';
 		row.style.userSelect = 'none';
 		if (!filterMatch) row.style.opacity = '0.4';
-		row.addEventListener('mouseenter', () => row.style.background = 'var(--background-modifier-hover)');
-		row.addEventListener('mouseleave', () => row.style.background = '');
+
+		// Scope visual treatment: surprise-but-intuitive. Checking a folder
+		// paints a coloured "scope reach" region into its subtree so the
+		// user SEES exactly what their selection will cover, before they
+		// click Apply.
+		//   - Scope point (selected, kept by minimal cover):
+		//       thick accent left border + tinted background + "[scope]" badge.
+		//   - Inside-scope (descendant of a scope point, not selected):
+		//       very faint accent background — visualises rule reach.
+		//   - Absorbed selection (selected, but absorbed by a parent
+		//     scope in the cover): dashed accent border + dim — tells
+		//     the user "your check here is redundant."
+		// HSL with low alpha works in any theme without needing the accent
+		// CSS var to expose its RGB components. Each scope gets a stable
+		// hue (golden-angle) so multi-scope selections are visually
+		// separable.
+		const tintBg = (alpha: number) => {
+			// scopeColor is `hsl(H, S%, L%)` — slice into hsla(...)
+			if (scopeColor.startsWith('hsl(')) return scopeColor.replace('hsl(', 'hsla(').replace(')', `, ${alpha})`);
+			// Fallback: use accent variable with alpha layer
+			return `rgba(var(--interactive-accent-rgb, 84, 132, 255), ${alpha})`;
+		};
+		const baseBg = isScopePoint
+			? tintBg(0.20)
+			: isInsideScope
+				? tintBg(0.07)
+				: '';
+		if (baseBg) row.style.background = baseBg;
+		if (isScopePoint) {
+			row.style.borderLeft = `4px solid ${scopeColor}`;
+			row.style.paddingLeft = `${depth * 1.0 + 0.1}em`;
+		} else if (isAbsorbed) {
+			row.style.borderLeft = `2px dashed ${scopeColor}`;
+			row.style.paddingLeft = `${depth * 1.0 + 0.15}em`;
+			row.style.opacity = '0.55';
+		}
+		// Hover preserves the scope tint so the visual region doesn't
+		// flicker as the user moves through the tree.
+		row.addEventListener('mouseenter', () => {
+			row.style.background = baseBg ? tintBg(0.32) : 'var(--background-modifier-hover)';
+		});
+		row.addEventListener('mouseleave', () => { row.style.background = baseBg; });
 
 		// Per-row checkbox: only meaningful for hit folders. Ancestor-only
 		// folders don't get a checkbox; they're just structure.
@@ -349,6 +451,9 @@ export class DetectVaultModal extends Modal {
 			cb.addEventListener('change', () => {
 				if (cb.checked) this.selectedFolders.add(node.fullPath);
 				else this.selectedFolders.delete(node.fullPath);
+				// Re-render so scope tints recompute live (the surprise: when
+				// you check a box, you SEE the scope wrap the subtree).
+				this.refreshTree();
 				this.refreshApplyBtn();
 			});
 		} else {
@@ -372,6 +477,31 @@ export class DetectVaultModal extends Modal {
 		const nameSpan = row.createSpan({ text: node.name });
 		nameSpan.style.fontWeight = isHit ? '600' : '400';
 		if (!isHit) nameSpan.style.color = 'var(--text-muted)';
+
+		// Scope badge — explicit label so the user knows exactly what's
+		// happening: this folder is the entry point for the rules. Uses
+		// the scope's distinctive colour so multi-scope selections are
+		// visually parsable.
+		if (isScopePoint) {
+			const badge = row.createSpan({ text: 'scope' });
+			badge.style.fontSize = '0.65em';
+			badge.style.padding = '0.05em 0.4em';
+			badge.style.background = scopeColor;
+			badge.style.color = 'white';
+			badge.style.borderRadius = '999px';
+			badge.style.marginLeft = '0.35em';
+			badge.style.fontWeight = '600';
+			badge.style.letterSpacing = '0.04em';
+			badge.style.textTransform = 'uppercase';
+			badge.title = `Rules will be entry-pointed at "${node.fullPath}". The tinted region below shows reach.`;
+		} else if (isAbsorbed) {
+			const badge = row.createSpan({ text: '↑ absorbed' });
+			badge.style.fontSize = '0.65em';
+			badge.style.color = 'var(--text-muted)';
+			badge.style.marginLeft = '0.35em';
+			badge.style.fontStyle = 'italic';
+			badge.title = 'A parent folder is also selected as a scope; this selection is absorbed by it.';
+		}
 
 		// Per-folder signal chips. Show every annotation; if a folder is
 		// claimed by 4+ signals, collapse to "+N" so the row stays compact.
@@ -418,7 +548,7 @@ export class DetectVaultModal extends Modal {
 		childWrap.dataset.dtfTreeContainer = '1';
 		const childKeys = [...node.children.keys()].sort();
 		for (const key of childKeys) {
-			this.renderTreeNode(childWrap, node.children.get(key)!, depth + 1);
+			this.renderTreeNode(childWrap, node.children.get(key)!, depth + 1, coverSet, cover, scopeColorByPath);
 		}
 		if (node.elidedChildCount > 0) {
 			const elision = childWrap.createDiv();
@@ -445,60 +575,81 @@ export class DetectVaultModal extends Modal {
 
 	private refreshApplyBtn(): void {
 		const folderCount = this.selectedFolders.size;
-		const packsToApply = this.computeRequiredPacks();
+		const cover = minimalScopeCover([...this.selectedFolders]);
+		const scopedPacks = this.computeScopedPackPlan(cover);
+		const totalRulesEstimate = scopedPacks.reduce((sum, sp) => sum + sp.packIds.size, 0);
 		this.applyBtn.disabled = folderCount === 0;
-		this.applyBtn.setText(
-			folderCount === 0
-				? 'Apply (no folders selected)'
-				: `Apply (${folderCount} folder${folderCount === 1 ? '' : 's'} · ${packsToApply.size} system${packsToApply.size === 1 ? '' : 's'})`,
-		);
+		if (folderCount === 0) {
+			this.applyBtn.setText('Apply (no folders selected)');
+		} else if (cover.length === 1) {
+			this.applyBtn.setText(`Apply (1 scope · ${totalRulesEstimate} pack-rule-set${totalRulesEstimate === 1 ? '' : 's'})`);
+		} else {
+			this.applyBtn.setText(`Apply (${cover.length} scopes · ${totalRulesEstimate} pack-rule-set${totalRulesEstimate === 1 ? '' : 's'})`);
+		}
 	}
 
 	/**
-	 * Look at the selected folders and figure out which packs need to load
-	 * — i.e. the pack IDs of every signal that hit any selected folder.
+	 * For each cover scope, find the pack IDs whose signals fired anywhere
+	 * inside that scope (at-or-under). This is the set of packs whose rules
+	 * we'll load and re-scope when the user applies.
 	 *
-	 * Stored on the modal so the same map computation is reused by both
-	 * the Apply-button label refresh and the actual apply path.
+	 * "At-or-under" semantics: selecting `Projects` means "I want pack rules
+	 * scoped to the Projects branch even if the actual signal hit was at
+	 * `Projects/01-Foo`." Without this, scoping would miss the case where
+	 * the user selects an ancestor folder of the actual hit.
 	 */
-	private computeRequiredPacks(): Set<string> {
+	private computeScopedPackPlan(cover: string[]): Array<{ scope: string; packIds: Set<string> }> {
 		const tree = (this.treeContainer as HTMLElement & { _annotatedTree?: import('../engine/detectionTree').AnnotatedTree })._annotatedTree;
-		if (!tree) return new Set();
-		const required = new Set<string>();
-		const walk = (node: AnnotatedTreeNode): void => {
-			if (this.selectedFolders.has(node.fullPath)) {
-				for (const h of node.hits) required.add(h.signal.packId);
-			}
-			for (const c of node.children.values()) walk(c);
-		};
-		walk(tree.root);
-		return required;
+		if (!tree) return [];
+		const plan: Array<{ scope: string; packIds: Set<string> }> = [];
+		for (const scope of cover) {
+			const ids = new Set<string>();
+			const walk = (node: AnnotatedTreeNode): void => {
+				const isInScope =
+					scope === '' ||
+					node.fullPath === scope ||
+					node.fullPath.startsWith(scope + '/');
+				if (isInScope) {
+					for (const h of node.hits) ids.add(h.signal.packId);
+				}
+				for (const c of node.children.values()) walk(c);
+			};
+			walk(tree.root);
+			if (ids.size > 0) plan.push({ scope, packIds: ids });
+		}
+		return plan;
 	}
 
 	private async applySelected(manifest: ManifestFile, _hitMap: import('../engine/detectionTree').CrossPackHitMap): Promise<void> {
-		const requiredPackIds = this.computeRequiredPacks();
-		if (requiredPackIds.size === 0) {
+		const cover = minimalScopeCover([...this.selectedFolders]);
+		const plan = this.computeScopedPackPlan(cover);
+		if (plan.length === 0) {
 			new Notice('No folders selected.');
 			return;
 		}
-		const adapter = this.app.vault.adapter;
-		const allRules: MappingRule[] = [];
-		const failed: string[] = [];
 
-		for (const packId of requiredPackIds) {
-			const packEntry = manifest.packs.find((p) => p.id === packId);
-			if (!packEntry) continue;
-			const path = `${this.app.vault.configDir}/plugins/folder-tag-sync/rule-packs/${packEntry.file}`;
-			try {
-				const json = await adapter.read(path);
-				const result = loadRulePackFromJSON(json);
-				if (!result.ok) {
-					failed.push(`${packEntry.name}: ${result.errors[0]}`);
-					continue;
+		// Cache loaded packs by ID so we don't read the same JSON twice if
+		// it appears in multiple scopes.
+		const packCache = new Map<string, MappingRule[]>();
+		const adapter = this.app.vault.adapter;
+		const failed: string[] = [];
+		for (const { packIds } of plan) {
+			for (const packId of packIds) {
+				if (packCache.has(packId)) continue;
+				const packEntry = manifest.packs.find((p) => p.id === packId);
+				if (!packEntry) continue;
+				const path = `${this.app.vault.configDir}/plugins/folder-tag-sync/rule-packs/${packEntry.file}`;
+				try {
+					const json = await adapter.read(path);
+					const result = loadRulePackFromJSON(json);
+					if (!result.ok) {
+						failed.push(`${packEntry.name}: ${result.errors[0]}`);
+						continue;
+					}
+					packCache.set(packId, result.pack.rules);
+				} catch (err) {
+					failed.push(`${packEntry.name}: ${(err as Error).message}`);
 				}
-				allRules.push(...result.pack.rules);
-			} catch (err) {
-				failed.push(`${packEntry.name}: ${(err as Error).message}`);
 			}
 		}
 
@@ -507,9 +658,23 @@ export class DetectVaultModal extends Modal {
 			return;
 		}
 
+		// Build the final scoped rule list. For each (scope, packIds) plan
+		// entry, take each pack's rules and run them through scopeRules
+		// with the current scope path. The scope === '' branch is a no-op
+		// in scopeRules, preserving the original behaviour for vault-root
+		// scope selections.
+		const allRules: MappingRule[] = [];
+		for (const { scope, packIds } of plan) {
+			for (const packId of packIds) {
+				const rules = packCache.get(packId);
+				if (!rules) continue;
+				allRules.push(...scopeRules(rules, scope));
+			}
+		}
+
 		await this.onApply(allRules);
 		new Notice(
-			`✓ Applied rules from ${requiredPackIds.size} system(s) — ${allRules.length} rule(s) for ${this.selectedFolders.size} folder(s)`,
+			`✓ Applied ${allRules.length} rule(s) across ${plan.length} scope${plan.length === 1 ? '' : 's'}`,
 		);
 		this.close();
 	}
@@ -531,4 +696,16 @@ export class DetectVaultModal extends Modal {
 	onClose(): void {
 		this.contentEl.empty();
 	}
+}
+
+/**
+ * Deterministic colour per scope index — golden-angle hue rotation gives
+ * well-spaced colours for any number of scopes. Used to paint the scope
+ * tint in the detection tree so multi-scope selections stay visually
+ * separable. Slightly more saturated than the signal-chip colours so the
+ * scope regions read clearly even at low alpha.
+ */
+function scopeColorForIndex(index: number): string {
+	const hue = (index * 137.508 + 200) % 360; // offset so first scope isn't red
+	return `hsl(${hue.toFixed(0)}, 72%, 52%)`;
 }

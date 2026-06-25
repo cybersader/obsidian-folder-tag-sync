@@ -5,6 +5,7 @@ import { SettingsTab } from './ui/SettingsTab';
 import { RulePackPickerModal } from './ui/RulePackPickerModal';
 import { DetectVaultModal } from './ui/DetectVaultModal';
 import { ScanAndSnapModal } from './ui/ScanAndSnapModal';
+import { OrgsysPreviewModal } from './ui/OrgsysPreviewModal';
 import { DebugLogger } from './utils/debug';
 import { FolderToTagSync } from './sync/FolderToTagSync';
 import { TagToFolderSync } from './sync/TagToFolderSync';
@@ -101,9 +102,17 @@ export default class DynamicTagsFoldersPlugin extends Plugin {
 
 		this.addCommand({
 			id: 'scan-and-snap-draft-rules',
-			name: 'Scan & snap: draft rules from my vault',
+			name: 'Taxonomy Workbench: draft rules from detected systems',
 			callback: () => {
 				this.scanAndSnapDraftRules();
+			}
+		});
+
+		this.addCommand({
+			id: 'taxonomy-workbench-preview-orgsys',
+			name: 'Taxonomy Workbench: preview a system definition',
+			callback: () => {
+				this.previewOrgsysDefinition();
 			}
 		});
 
@@ -320,6 +329,17 @@ export default class DynamicTagsFoldersPlugin extends Plugin {
 				});
 			},
 		);
+		modal.open();
+	}
+
+	/**
+	 * Open the Taxonomy Workbench preview modal — a live "edit a `.orgsys`
+	 * definition → see what it compiles to" surface. Read-only: it compiles the
+	 * definition with the verified compiler and previews sample emissions
+	 * against the vault's folders, but never mutates settings, folders, or files.
+	 */
+	previewOrgsysDefinition(): void {
+		const modal = new OrgsysPreviewModal(this.app, this.settings.groupPrecedence);
 		modal.open();
 	}
 

@@ -9,7 +9,16 @@ import { DEFAULT_BRANDS } from "eslint-plugin-obsidianmd/dist/lib/rules/ui/brand
 
 // Project-specific proper nouns that legitimately keep their casing in UI text.
 // "Path Lens" is a core feature name surfaced to users (see concepts/philosophy).
-const PROJECT_BRANDS = ["Path Lens"];
+// "Taxonomy Workbench" is the in-app feature name; "Johnny Decimal" is a named
+// organizational system surfaced verbatim in the workbench presets. These are
+// multi-word phrases, safe to match case-insensitively (no lowercase clashes).
+const PROJECT_BRANDS = ["Path Lens", "Taxonomy Workbench", "Johnny Decimal"];
+
+// All-caps proper nouns matched case-SENSITIVELY (exact token), so they don't
+// force unrelated lowercase usages (e.g. the lowercase group id "para" in a
+// settings placeholder) to capitalize. "PARA" is Tiago Forte's method, surfaced
+// verbatim in a workbench preset button.
+const PROJECT_IGNORE_WORDS = ["PARA"];
 
 export default tseslint.config(
   {
@@ -32,7 +41,11 @@ export default tseslint.config(
     rules: {
       "obsidianmd/ui/sentence-case": [
         "error",
-        { enforceCamelCaseLower: true, brands: [...PROJECT_BRANDS, ...DEFAULT_BRANDS] },
+        {
+          enforceCamelCaseLower: true,
+          brands: [...PROJECT_BRANDS, ...DEFAULT_BRANDS],
+          ignoreWords: PROJECT_IGNORE_WORDS,
+        },
       ],
       "obsidianmd/settings-tab/no-manual-html-headings": "error",
       "obsidianmd/settings-tab/no-problematic-settings-headings": "error",

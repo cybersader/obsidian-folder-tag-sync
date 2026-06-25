@@ -179,7 +179,15 @@ Input Folder: "📁 01 - Projects/My Cool Thing"
 
 ## Current Status
 
-Phase 2 complete (basic sync). See `FEATURE_ROADMAP.md` for upcoming work:
-- Conflict resolution (multiple tags)
-- Automatic sync on file events
-- Bulk vault operations
+**v0.1.27** (distributed via BRAT; not yet in the Obsidian community catalog). The engine is mature — both sync directions, the typed model, Path Lens templates, specificity-aware matching, frontmatter witness, bulk sync, and detection of known systems all ship. Forward auto-sync, bulk vault operations, and the "where do my rules apply" coverage report (all once listed as upcoming) have shipped.
+
+The current centre of gravity is **rule authoring at scale** — visibility is solved end-to-end (detection tree, hierarchy-first view, scope tint), but authoring new rules for an idiosyncratic vault still means hand-writing regex/templates.
+
+### Knowledge base — read this first
+
+The living project knowledge base is at `docs/src/content/docs/agent-context/`. For a fresh session, start with:
+
+1. `agent-context/current-state.md` — where things are now + the live direction.
+2. `agent-context/glossary.md` — plain-language definitions of every term.
+
+Then `decisions.md`, `open-questions.md`, and the dated `zz-log/` entries. Keep these current as you work.

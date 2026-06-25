@@ -55,3 +55,6 @@ docs/visual-reports/
 data.json
 docs/**/.obsidian/
 *.toml
+
+# Hot Reload dev marker (pjeby/hot-reload) — local-only; reloads this plugin on rebuild
+.hotreload

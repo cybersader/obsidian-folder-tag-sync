@@ -185,11 +185,11 @@ describe('scan & snap — draft rules from detected packs', function () {
 		const chipInfo = await browser.executeObsidian(() => {
 			const tree = document.querySelector<HTMLElement>('[data-dtf-scan-snap-tree="1"]');
 			if (!tree) return { hasCoverage: false };
-			// Coverage chips read either "N files" or "0 — no match".
+			// Coverage chips read either "N folder(s)" or "0 — no match".
 			const spans = Array.from(tree.querySelectorAll('span'));
 			const coverageChips = spans.filter((s) => {
 				const t = (s.textContent ?? '').trim();
-				return /\d+ files$/.test(t) || /^0 — no match$/.test(t);
+				return /\d+ folders?$/.test(t) || /^0 — no match$/.test(t);
 			});
 			return { hasCoverage: coverageChips.length > 0, count: coverageChips.length };
 		});

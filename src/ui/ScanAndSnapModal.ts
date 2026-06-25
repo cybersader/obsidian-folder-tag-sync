@@ -149,7 +149,7 @@ export class ScanAndSnapModal extends Modal {
 		statBar.style.gap = '0.5em';
 		statBar.style.marginBottom = '0.7em';
 		this.makeStat(statBar, 'Candidates', plan.summary.totalCandidates);
-		this.makeStat(statBar, 'Would touch files', plan.summary.touchingCandidates);
+		this.makeStat(statBar, 'With matches', plan.summary.touchingCandidates);
 		this.makeStat(statBar, 'Conflicts', plan.summary.conflictingCandidates);
 		this.makeStat(statBar, 'Overlap existing', plan.summary.collidingWithExistingCandidates);
 		this.makeStat(statBar, 'Systems', plan.summary.distinctSourcePacks.length);
@@ -340,7 +340,10 @@ export class ScanAndSnapModal extends Modal {
 		chip.style.fontSize = '0.74em';
 		chip.style.fontWeight = '600';
 		if (count > 0) {
-			chip.setText(`${count} files`);
+			// matchCount is the number of matched FOLDERS (previewRule counts
+			// folders, not notes). Label it accurately.
+			chip.setText(`${count} folder${count === 1 ? '' : 's'}`);
+			chip.title = 'Folders this rule matches. Each matched folder\'s notes get the tag on sync.';
 			chip.style.background = 'rgba(40, 140, 70, 0.15)';
 			chip.style.color = 'var(--text-success, rgb(40, 140, 70))';
 			chip.style.border = '1px solid rgba(40, 140, 70, 0.35)';

@@ -253,10 +253,24 @@ export class FolderToTagSync {
    * EOF with no trailing newline (some template-created notes) is still
    * recognized as having frontmatter, instead of being treated as bodyless and
    * getting a second frontmatter block prepended on write.
+   *
+   * A leading UTF-8 BOM is stripped and CRLF / lone-CR line endings are
+   * normalized to LF BEFORE matching. The opening-fence regex (`^---\n`) is
+   * LF-only, so without this a CRLF or BOM-prefixed file is mis-detected as
+   * having no frontmatter — and `reconstructFile` then PREPENDS a second `---`
+   * block, producing four fences and orphaning the original tags. Correctness
+   * (a single frontmatter block) is prioritized over preserving the original
+   * CRLF/BOM bytes.
    */
   private parseFrontmatter(content: string): { frontmatter: string; body: string } {
+    let normalized = content;
+    if (normalized.charCodeAt(0) === 0xfeff) {
+      normalized = normalized.slice(1);
+    }
+    normalized = normalized.replace(/\r\n?/g, '\n');
+
     const fmRegex = /^---\n([\s\S]*?)\n---(?:\n([\s\S]*))?$/;
-    const match = content.match(fmRegex);
+    const match = normalized.match(fmRegex);
 
     if (match) {
       return {
@@ -267,7 +281,7 @@ export class FolderToTagSync {
 
     return {
       frontmatter: '',
-      body: content
+      body: normalized
     };
   }
 

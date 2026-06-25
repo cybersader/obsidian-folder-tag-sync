@@ -216,6 +216,49 @@ describe('syncFile — metadata-cache fallback', () => {
 	});
 });
 
+describe('syncFile — CRLF / BOM produce ONE frontmatter block (hole 3)', () => {
+	test('CRLF file: parses one block, adds tag, writes exactly two fences', async () => {
+		const state: VaultState = {
+			content: '---\r\ntags:\r\n  - alpha\r\n---\r\nbody\r\n',
+			modified: [],
+			cache: { frontmatter: { tags: ['alpha'] } },
+			files: [FILE],
+		};
+		const sync = new FolderToTagSync(makeApp(state), makeSettings(), logger);
+
+		const result = await sync.syncFile(FILE);
+
+		// alpha is already present; the folder contributes a NEW tag → one write.
+		expect(result.tagsAdded).toEqual([FOLDER_TAG]);
+		expect(state.modified.length).toBe(1);
+		const written = state.modified[0];
+		// Exactly TWO `---` fences — NOT a second prepended frontmatter block.
+		expect((written.match(/^---$/gm) ?? []).length).toBe(2);
+		// Original tag preserved, new tag appended, single clean block.
+		expect(written).toContain('tags:\n  - alpha\n  - work/projects/my-project');
+		expect(written).not.toContain('\r');
+	});
+
+	test('BOM-prefixed file: parses one block, adds tag, writes exactly two fences', async () => {
+		const BOM = String.fromCharCode(0xfeff);
+		const state: VaultState = {
+			content: `${BOM}---\ntags:\n  - alpha\n---\nbody\n`,
+			modified: [],
+			cache: { frontmatter: { tags: ['alpha'] } },
+			files: [FILE],
+		};
+		const sync = new FolderToTagSync(makeApp(state), makeSettings(), logger);
+
+		const result = await sync.syncFile(FILE);
+
+		expect(result.tagsAdded).toEqual([FOLDER_TAG]);
+		expect(state.modified.length).toBe(1);
+		const written = state.modified[0];
+		expect((written.match(/^---$/gm) ?? []).length).toBe(2);
+		expect(written).toContain('tags:\n  - alpha\n  - work/projects/my-project');
+	});
+});
+
 describe('previewVault — no phantom additions', () => {
 	test('a file already carrying its folder tag reports zero tagsToAdd', async () => {
 		const state: VaultState = {

@@ -125,15 +125,20 @@ describe('parseFrontmatterTags — glued-duplicate corruption self-heal (issue #
 		]);
 	});
 
-	test('variant B: list value "my-projectmy-project" (direct concat)', () => {
+	test('variant B: separator-less concat is treated as ONE literal tag (NOT halved)', () => {
+		// The blind even-length "halving" heuristic was removed (hole 1) — it
+		// destroyed legitimate tags like `2020`/`bonbon`. Separator-less glue is
+		// now an accepted, documented limitation: lossless, never corrupting.
 		expect(parseFrontmatterTags('tags:\n  - my-projectmy-project')).toEqual([
-			'#my-project',
+			'#my-projectmy-project',
 		]);
 	});
 
-	test('variant C: inline scalar "<tag><tag>" concat', () => {
+	test('variant C: inline scalar concat is also a single literal tag (NOT halved)', () => {
 		const corrupt = 'tags: work/projects/my-projectwork/projects/my-project';
-		expect(parseFrontmatterTags(corrupt)).toEqual(['#work/projects/my-project']);
+		expect(parseFrontmatterTags(corrupt)).toEqual([
+			'#work/projects/my-projectwork/projects/my-project',
+		]);
 	});
 
 	test('mixed real + glued preserves the real neighbor', () => {
@@ -141,8 +146,7 @@ describe('parseFrontmatterTags — glued-duplicate corruption self-heal (issue #
 		expect(parseFrontmatterTags(fm)).toEqual(['#alpha', '#my-project']);
 	});
 
-	test('a clean nested tag is NOT collapsed (separator makes it odd-length)', () => {
-		// `done/done` has a slash → odd length → the doubling heuristic leaves it.
+	test('a clean nested tag is NOT collapsed', () => {
 		expect(parseFrontmatterTags('tags:\n  - done/done')).toEqual(['#done/done']);
 	});
 });
@@ -162,8 +166,18 @@ describe('splitGluedTagValue — unit behavior', () => {
 		expect(splitGluedTagValue('a- b')).toEqual(['a', 'b']);
 	});
 
-	test('collapses exact even-length doubling', () => {
-		expect(splitGluedTagValue('abab')).toEqual(['ab']);
+	test('does NOT collapse separator-less doubling (heuristic removed in hole 1)', () => {
+		// `abab` could be the corruption `ab`+`ab` OR a real tag literally named
+		// `abab` — indistinguishable, so it is left intact rather than destroyed.
+		expect(splitGluedTagValue('abab')).toEqual(['abab']);
+	});
+
+	test('splits the illegal "- " boundary and dedupes identical halves', () => {
+		expect(splitGluedTagValue('a/b- a/b')).toEqual(['a/b']);
+	});
+
+	test('splits the illegal ", " boundary too', () => {
+		expect(splitGluedTagValue('a, b')).toEqual(['a', 'b']);
 	});
 
 	test('empty / whitespace → no tokens', () => {
@@ -225,8 +239,9 @@ describe('round-trip — set then parse recovers the same set, per shape', () =>
 		['block list', 'tags:\n  - a/b\n  - c/d'],
 		['quoted block', 'tags:\n  - "a/b"\n  - \'c/d\''],
 		['block + siblings', 'title: Hi\ntags:\n  - a/b\nstatus: x'],
+		['multiline flow array', 'tags: [\n  a/b,\n  c/d\n]'],
 		['corruption variant A', 'tags:\n  - a/b- a/b'],
-		['corruption variant C', 'tags: a/ba/b'],
+		['separator-less value treated literally', 'tags: a/ba/b'],
 	];
 
 	for (const [label, fm] of shapes) {
@@ -244,5 +259,142 @@ describe('round-trip — set then parse recovers the same set, per shape', () =>
 		expect(healed).toBe('tags:\n  - work/projects/my-project');
 		// Re-running parse + set is a no-op (idempotent).
 		expect(setFrontmatterTags(healed, parseFrontmatterTags(healed))).toBe(healed);
+	});
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Adversarial-review holes (patches on top of the issue-#1 fix)
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('HOLE 1 — clean values are NEVER corrupted by a doubling heuristic', () => {
+	// The old `collapseDoubling` halved any even-length value whose halves
+	// matched, silently destroying real tags on every read (`2020`→`20`,
+	// `bonbon`→`bon`, `couscous`→`cous`). These lock that regression closed.
+	test('numeric year tag survives intact (VERIFIED bug: returned #20)', () => {
+		expect(parseFrontmatterTags('tags:\n  - 2020')).toEqual(['#2020']);
+	});
+
+	test('doubled-looking real words survive (bonbon/yoyo/aa/1010/couscous)', () => {
+		expect(parseFrontmatterTags('tags:\n  - bonbon')).toEqual(['#bonbon']);
+		expect(parseFrontmatterTags('tags:\n  - yoyo')).toEqual(['#yoyo']);
+		expect(parseFrontmatterTags('tags:\n  - aa')).toEqual(['#aa']);
+		expect(parseFrontmatterTags('tags:\n  - 1010')).toEqual(['#1010']);
+		expect(parseFrontmatterTags('tags:\n  - couscous')).toEqual(['#couscous']);
+	});
+
+	test('issue-#1 variant-A corruption STILL heals (the repair we kept)', () => {
+		const corrupt = 'tags:\n  - work/projects/my-project- work/projects/my-project';
+		expect(parseFrontmatterTags(corrupt)).toEqual(['#work/projects/my-project']);
+	});
+
+	// HARD ACCEPTANCE: set→parse identity for doubled-looking values.
+	for (const val of ['2020', 'bonbon', 'yoyo', 'aa', '1010', 'couscous']) {
+		test(`round-trip identity: set→parse is identity for "${val}"`, () => {
+			const written = setFrontmatterTags('', [`#${val}`]);
+			expect(written).toBe(`tags:\n  - ${val}`);
+			expect(parseFrontmatterTags(written)).toEqual([`#${val}`]);
+		});
+	}
+});
+
+describe('HOLE 2 — multiline flow array on the WRITE path stays valid YAML', () => {
+	test('write replaces the whole flow array, no dangling "]"', () => {
+		const out = setFrontmatterTags('tags: [\n  alpha\n]', ['#alpha', '#x']);
+		expect(out).toBe('tags:\n  - alpha\n  - x');
+		expect(out).not.toContain(']');
+	});
+
+	test('multiline flow array with siblings → only the block replaced, no dangle', () => {
+		const fm = 'title: Hi\ntags: [\n  alpha,\n  beta\n]\nstatus: draft';
+		const out = setFrontmatterTags(fm, ['#alpha', '#beta', '#x']);
+		expect(out).toBe('title: Hi\ntags:\n  - alpha\n  - beta\n  - x\nstatus: draft');
+	});
+
+	test('multiline flow array is also READ (no data loss on a triggered write)', () => {
+		expect(parseFrontmatterTags('tags: [\n  alpha,\n  beta\n]')).toEqual([
+			'#alpha',
+			'#beta',
+		]);
+		// Newline-separated (no commas) flow array items are read too.
+		expect(parseFrontmatterTags('tags: [\n  alpha\n  beta\n]')).toEqual([
+			'#alpha',
+			'#beta',
+		]);
+	});
+});
+
+describe('HOLE 3 — CRLF / lone-CR tolerated by the pure parser/writer', () => {
+	test('CRLF frontmatter parses correctly (trailing \\r stripped)', () => {
+		expect(parseFrontmatterTags('tags:\r\n  - alpha\r\n')).toEqual(['#alpha']);
+	});
+
+	test('CRLF inline scalar parses correctly', () => {
+		expect(parseFrontmatterTags('tags: a/b/c\r\nstatus: draft')).toEqual(['#a/b/c']);
+	});
+
+	test('CRLF input writes a clean LF block', () => {
+		expect(setFrontmatterTags('tags:\r\n  - old', ['#new'])).toBe('tags:\n  - new');
+	});
+});
+
+describe('HOLE 4 — bare null/bool/number scalar is NOT a tag', () => {
+	test('tags: null / ~ / true / false / number → no tags', () => {
+		expect(parseFrontmatterTags('tags: null')).toEqual([]);
+		expect(parseFrontmatterTags('tags: ~')).toEqual([]);
+		expect(parseFrontmatterTags('tags: true')).toEqual([]);
+		expect(parseFrontmatterTags('tags: false')).toEqual([]);
+		expect(parseFrontmatterTags('tags: 123')).toEqual([]);
+		expect(parseFrontmatterTags('tags: 1.5')).toEqual([]);
+	});
+
+	test('a QUOTED "null" is an explicit string tag and is kept', () => {
+		expect(parseFrontmatterTags('tags: "null"')).toEqual(['#null']);
+	});
+
+	test('a numeric value in a block LIST is preserved (only scalars are filtered)', () => {
+		expect(parseFrontmatterTags('tags:\n  - 2020')).toEqual(['#2020']);
+		expect(parseFrontmatterTags('tags: [2020, alpha]')).toEqual(['#2020', '#alpha']);
+	});
+});
+
+describe('HOLE 5 — duplicate tags: keys are healed', () => {
+	test('both keys are unioned on read', () => {
+		expect(parseFrontmatterTags('tags:\n  - a\ntags:\n  - b')).toEqual(['#a', '#b']);
+	});
+
+	test('all keys collapse into ONE block on write', () => {
+		const out = setFrontmatterTags('tags:\n  - a\ntags:\n  - b', ['#a', '#b']);
+		expect(out).toBe('tags:\n  - a\n  - b');
+		expect((out.match(/^tags:/gm) ?? []).length).toBe(1);
+	});
+
+	test('duplicate keys with siblings collapse to one block, siblings preserved', () => {
+		const fm = 'title: Hi\ntags:\n  - a\nstatus: x\ntags:\n  - b';
+		const out = setFrontmatterTags(fm, parseFrontmatterTags(fm));
+		expect((out.match(/^tags:/gm) ?? []).length).toBe(1);
+		expect(out).toContain('title: Hi');
+		expect(out).toContain('status: x');
+		expect(out).toContain('  - a');
+		expect(out).toContain('  - b');
+	});
+});
+
+describe('HOLE 6 — YAML comments do not hide or pollute tags', () => {
+	test('full-line indented comment inside a block does not hide following items', () => {
+		expect(parseFrontmatterTags('tags:\n  # a comment\n  - alpha')).toEqual([
+			'#alpha',
+		]);
+	});
+
+	test('trailing inline comment is stripped from a list-item value', () => {
+		expect(parseFrontmatterTags('tags:\n  - alpha # note')).toEqual(['#alpha']);
+	});
+
+	test('trailing inline comment is stripped from an inline scalar', () => {
+		expect(parseFrontmatterTags('tags: alpha # note')).toEqual(['#alpha']);
+	});
+
+	test('a #-prefixed tag value is NOT mistaken for a comment', () => {
+		expect(parseFrontmatterTags('tags:\n  - "#alpha"')).toEqual(['#alpha']);
 	});
 });

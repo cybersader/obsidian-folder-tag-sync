@@ -11,6 +11,16 @@ import { TagToFolderSync } from './sync/TagToFolderSync';
 import { loadRulePackFromJSON, RulePack } from './engine/rulePackLoader';
 
 /**
+ * Trailing-edge debounce window (ms) for auto-sync on file events. A single
+ * user action — e.g. creating a new note that Obsidian immediately auto-renames
+ * from `Untitled.md` to its first-line title — fires create + rename in quick
+ * succession; coalescing them into one forward sync avoids redundant churn.
+ * Correctness does NOT depend on this timing (the read/write path is
+ * idempotent); the debounce only reduces wasted work.
+ */
+const AUTO_SYNC_DEBOUNCE_MS = 400;
+
+/**
  * Dynamic Tags & Folders Plugin
  *
  * Bidirectional mapping between folder paths and tags using regex patterns
@@ -19,6 +29,13 @@ import { loadRulePackFromJSON, RulePack } from './engine/rulePackLoader';
 export default class DynamicTagsFoldersPlugin extends Plugin {
 	settings: DynamicTagsFoldersSettings = DEFAULT_SETTINGS;
 	debugLogger!: DebugLogger;
+
+	/**
+	 * Per-path trailing-edge debounce timers for event-driven auto-sync. Keyed
+	 * by file path; each new event for a path clears and reschedules the prior
+	 * timer. Cleared en masse in `onunload`.
+	 */
+	private pendingAutoSyncs = new Map<string, ReturnType<typeof setTimeout>>();
 
 	async onload() {
 		console.debug('Loading Dynamic Tags & Folders plugin');
@@ -124,13 +141,22 @@ export default class DynamicTagsFoldersPlugin extends Plugin {
 		//
 		// Forward sync is purely additive — adds tags to frontmatter, never moves files,
 		// never modifies folders. Worst case: extra tags the user can manually delete.
-		this.registerEvent(
-			this.app.vault.on('create', (file) => {
-				if (file instanceof TFile && file.extension === 'md') {
-					void this.autoSyncOnEvent(file, 'create');
-				}
-			}),
-		);
+		//
+		// The 'create' listener is registered behind onLayoutReady: Obsidian fires
+		// 'create' for EVERY existing markdown file during initial vault indexing,
+		// so registering it directly in onload would re-run a vault-wide forward
+		// sync on every startup. onLayoutReady is the canonical guard against that
+		// load-time 'create' storm. ('rename' does not fire en masse at load, so it
+		// stays registered directly.)
+		this.app.workspace.onLayoutReady(() => {
+			this.registerEvent(
+				this.app.vault.on('create', (file) => {
+					if (file instanceof TFile && file.extension === 'md') {
+						void this.autoSyncOnEvent(file, 'create');
+					}
+				}),
+			);
+		});
 		this.registerEvent(
 			this.app.vault.on('rename', (file, oldPath) => {
 				if (file instanceof TFile && file.extension === 'md') {
@@ -161,7 +187,7 @@ export default class DynamicTagsFoldersPlugin extends Plugin {
 				return r.direction === 'folder-to-tag' || r.direction === 'bidirectional';
 			});
 			if (eligibleRules.length === 0) return;
-			await this.syncFolderToTags(file);
+			this.scheduleAutoSync(file);
 		} catch (err) {
 			await this.debugLogger.error('Auto-sync failed on event', {
 				event,
@@ -171,8 +197,35 @@ export default class DynamicTagsFoldersPlugin extends Plugin {
 		}
 	}
 
+	/**
+	 * Schedule a trailing-edge debounced forward sync for `file`. Coalesces
+	 * rapid create→rename cascades (and duplicate create events) on the same
+	 * path into a single `syncFolderToTags` call. Re-validates the file still
+	 * exists when the timer fires (it may have been deleted/renamed within the
+	 * debounce window). Only ever invokes the additive forward direction —
+	 * never the inverse (file-moving) direction — preserving the safety-first
+	 * auto-sync design.
+	 */
+	private scheduleAutoSync(file: TFile): void {
+		const path = file.path;
+		const existing = this.pendingAutoSyncs.get(path);
+		if (existing !== undefined) clearTimeout(existing);
+		const handle = setTimeout(() => {
+			this.pendingAutoSyncs.delete(path);
+			const current = this.app.vault.getAbstractFileByPath(path);
+			if (current instanceof TFile && current.extension === 'md') {
+				void this.syncFolderToTags(current);
+			}
+		}, AUTO_SYNC_DEBOUNCE_MS);
+		this.pendingAutoSyncs.set(path, handle);
+	}
+
 	onunload(): void {
 		console.debug('Unloading Dynamic Tags & Folders plugin');
+		// Clear any pending debounced syncs so a timer can't fire against a
+		// torn-down plugin instance.
+		for (const handle of this.pendingAutoSyncs.values()) clearTimeout(handle);
+		this.pendingAutoSyncs.clear();
 		void this.debugLogger.info('Plugin unloaded');
 	}
 

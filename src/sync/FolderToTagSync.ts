@@ -5,6 +5,7 @@ import { findMatchingRules, findBestMatch } from '../engine/ruleMatcher';
 import { applyTransformPipeline } from '../transformers/pipeline';
 import { applyRuleForward } from '../engine/applyTransfer';
 import { injectWitness as injectWitnessFn, parseWitness as parseWitnessFn } from './frontmatterWitness';
+import { parseFrontmatterTags, setFrontmatterTags } from './frontmatterTags';
 
 /**
  * Handles folder-to-tag synchronization
@@ -112,7 +113,18 @@ export class FolderToTagSync {
       const { frontmatter, body } = this.parseFrontmatter(content);
       const currentTags = this.extractTags(frontmatter);
 
-      const newTagsToAdd = tags.filter((t) => !currentTags.includes(t));
+      // Metadata-cache fallback for the WRITE DECISION only. Obsidian's own
+      // parser (via metadataCache.frontmatter.tags) handles shapes our line
+      // parser intentionally can't (e.g. multiline flow arrays) and removes the
+      // FolderToTag/TagToFolder read asymmetry. We union it with the
+      // text-parsed tags ONLY to decide what's new — the block we actually
+      // reconstruct is still based on `currentTags` (freshly text-parsed), so a
+      // stale cache can suppress a duplicate add (safe) but can never resurrect
+      // a tag the user just deleted.
+      const cacheTags = this.cacheFrontmatterTags(file);
+      const existingForDecision = new Set([...currentTags, ...cacheTags]);
+
+      const newTagsToAdd = tags.filter((t) => !existingForDecision.has(t));
 
       // A6 — orphan cleanup. When `removeOrphanedTags: true` AND the file
       // has an `fts:` witness from a prior sync, identify FTS-owned tags
@@ -235,16 +247,21 @@ export class FolderToTagSync {
   }
 
   /**
-   * Parse frontmatter from markdown content
+   * Parse frontmatter from markdown content.
+   *
+   * The closing-fence newline is optional so a file whose frontmatter ends at
+   * EOF with no trailing newline (some template-created notes) is still
+   * recognized as having frontmatter, instead of being treated as bodyless and
+   * getting a second frontmatter block prepended on write.
    */
   private parseFrontmatter(content: string): { frontmatter: string; body: string } {
-    const fmRegex = /^---\n([\s\S]*?)\n---\n([\s\S]*)$/;
+    const fmRegex = /^---\n([\s\S]*?)\n---(?:\n([\s\S]*))?$/;
     const match = content.match(fmRegex);
 
     if (match) {
       return {
         frontmatter: match[1],
-        body: match[2]
+        body: match[2] ?? ''
       };
     }
 
@@ -255,62 +272,46 @@ export class FolderToTagSync {
   }
 
   /**
-   * Extract tags from frontmatter
+   * Extract tags from frontmatter. Delegates to the pure, line-based parser in
+   * `frontmatterTags.ts`, which correctly reads inline scalars, inline arrays,
+   * and block lists (including the plugin's own canonical output), heals
+   * glued-duplicate corruption, and dedupes — returning `#`-prefixed tags.
    */
   private extractTags(frontmatter: string): string[] {
-    const tags: string[] = [];
-
-    // Match tags: or tags:\n  - tag
-    const tagsMatch = frontmatter.match(/tags:\s*\n?((?:\s{2}- .+\n?)*|\[.*?\])/);
-
-    if (tagsMatch) {
-      const tagsContent = tagsMatch[1];
-
-      // Array format: [tag1, tag2]
-      if (tagsContent.trim().startsWith('[')) {
-        const arrayMatch = tagsContent.match(/\[(.*?)\]/);
-        if (arrayMatch) {
-          tags.push(...arrayMatch[1].split(',').map(t => t.trim().replace(/['"]/g, '')));
-        }
-      }
-      // List format:
-      // - tag1
-      // - tag2
-      else {
-        const listTags = tagsContent.match(/- (.+)/g);
-        if (listTags) {
-          tags.push(...listTags.map(t => t.replace(/^- /, '').trim()));
-        }
-      }
-    }
-
-    return tags.map(tag => tag.startsWith('#') ? tag : `#${tag}`);
+    return parseFrontmatterTags(frontmatter);
   }
 
   /**
-   * Update tags in frontmatter
+   * Read the file's frontmatter `tags` via Obsidian's own parser (metadata
+   * cache). Used only as a fallback for the write DECISION — never to
+   * reconstruct the written block. Reads ONLY `frontmatter.tags` (the property),
+   * deliberately NOT `cache.tags` (inline body tags), so body tags are never
+   * promoted into the frontmatter property. Returns `#`-prefixed tags.
+   */
+  private cacheFrontmatterTags(file: TFile): string[] {
+    try {
+      const cache = this.app.metadataCache.getFileCache(file);
+      const fmTags = cache?.frontmatter?.tags;
+      if (fmTags == null) return [];
+      const raw = Array.isArray(fmTags) ? fmTags : [fmTags];
+      return raw
+        .map((t) => String(t).trim())
+        .filter((t) => t.length > 0)
+        .map((t) => (t.startsWith('#') ? t : `#${t}`));
+    } catch {
+      return [];
+    }
+  }
+
+  /**
+   * Update tags in frontmatter. Delegates to the pure `setFrontmatterTags`,
+   * which replaces ANY existing tags shape (scalar / array / block list,
+   * before or after other properties) by whole-line span — never a regex
+   * substitution — so it can't append a second `tags:` block or leave an old
+   * value dangling.
    */
   private updateTags(frontmatter: string, tags: string[]): string {
-    // Remove # prefix for frontmatter
-    const cleanTags = tags.map(t => t.replace(/^#/, ''));
-
-    // If frontmatter is empty, create it
-    if (!frontmatter.trim()) {
-      return `tags:\n${cleanTags.map(t => `  - ${t}`).join('\n')}`;
-    }
-
-    // Check if tags field exists
-    const tagsRegex = /tags:\s*\n?((?:\s{2}- .+\n?)*|\[.*?\])/;
-    const tagsMatch = frontmatter.match(tagsRegex);
-
-    if (tagsMatch) {
-      // Replace existing tags
-      const newTagsSection = `tags:\n${cleanTags.map(t => `  - ${t}`).join('\n')}`;
-      return frontmatter.replace(tagsRegex, newTagsSection);
-    } else {
-      // Add tags field
-      return `${frontmatter}\ntags:\n${cleanTags.map(t => `  - ${t}`).join('\n')}`;
-    }
+    return setFrontmatterTags(frontmatter, tags);
   }
 
   private parseWitness(frontmatter: string): { origin: string; ruleId: string; tags: string[] } | null {
@@ -374,14 +375,18 @@ export class FolderToTagSync {
       }
 
       // Read frontmatter to compute currentTags + diff (but DO NOT write).
-      let currentTags: string[] = [];
+      // Mirror syncFile's metadata-cache union so the preview doesn't report
+      // phantom additions for files that already carry their folder tag in a
+      // YAML shape the line parser can't read (e.g. multiline flow arrays).
+      let textTags: string[] = [];
       try {
         const content = await this.app.vault.read(file);
         const { frontmatter } = this.parseFrontmatter(content);
-        currentTags = this.extractTags(frontmatter);
+        textTags = this.extractTags(frontmatter);
       } catch {
         // unreadable; treat as empty current
       }
+      const currentTags = [...new Set([...textTags, ...this.cacheFrontmatterTags(file)])];
       const tagsToAdd = tags.filter(t => !currentTags.includes(t));
 
       if (tagsToAdd.length > 0) {

@@ -18,6 +18,7 @@ declare const after: (fn: () => Promise<void> | void) => void;
  *   - the command is registered;
  *   - running it opens the modal with the preview heading;
  *   - the compiled-rules list renders ≥1 rule for the default PARA example;
+ *   - loading the composed example expands a mount into >1 compiled rule;
  *   - cancel/close cleans up the DOM.
  *
  * Structure mirrors scope-detect.e2e.ts (runtime-bound describe/it/before/
@@ -120,6 +121,47 @@ describe('taxonomy workbench — .orgsys preview modal', function () {
 			return /Sample emissions/i.test(out.textContent ?? '');
 		});
 		expect(hasOutput).toBe(true);
+	});
+
+	it('loading the composed example expands the mount into >1 compiled rule', async function () {
+		// Click the composition preset. The composed def mounts Johnny Decimal
+		// under every Entity/*/Output folder; even when the vault has none, the
+		// modal compiles against derived sample anchors so the nested expansion
+		// (host rule + mounted rule) is always visible — proving the mount fired.
+		const clicked = await browser.executeObsidian(() => {
+			const modal =
+				document.querySelector('.dtf-orgsys-preview-modal') ||
+				Array.from(document.querySelectorAll('.modal')).find((m) =>
+					/Taxonomy Workbench/i.test(m.textContent ?? ''),
+				);
+			if (!modal) return false;
+			const btn = Array.from(modal.querySelectorAll('button')).find(
+				(b) => (b.textContent ?? '').trim() === 'Load composed example',
+			);
+			if (!btn) return false;
+			(btn as HTMLButtonElement).click();
+			return true;
+		});
+		expect(clicked).toBe(true);
+
+		// loadPreset recompiles synchronously; a short settle is defensive.
+		await browser.pause(800);
+
+		const info = await browser.executeObsidian(() => {
+			const list = document.querySelector<HTMLElement>('[data-dtf-orgsys-rules="1"]');
+			const out = document.querySelector<HTMLElement>('[data-dtf-orgsys-preview="1"]');
+			const rows = list ? list.querySelectorAll('[data-dtf-orgsys-rule="1"]').length : 0;
+			return {
+				hasList: Boolean(list),
+				ruleCount: rows,
+				// The nested emission carries the host's tag namespace (`#--…`),
+				// which a bare un-mounted Johnny Decimal rule would never produce.
+				showsNestedTag: /#--/.test(out?.textContent ?? ''),
+			};
+		});
+		expect(info.hasList).toBe(true);
+		expect(info.ruleCount).toBeGreaterThan(1);
+		expect(info.showsNestedTag).toBe(true);
 	});
 
 	it('close cleans up the DOM', async function () {

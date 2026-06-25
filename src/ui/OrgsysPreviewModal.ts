@@ -15,6 +15,13 @@
  *      vault folder matches, fall back to illustrative sample paths derived
  *      from the definition so the user always sees something working.
  *
+ * COMPOSITION: when the definition carries `mounts` (or `extends`), step 2 runs
+ * the composed-compile path — `compileSystemDef(def, { registry, vaultFolders })`
+ * — so mounts resolve against a small inlined registry of base systems (`jd`,
+ * `people`) and the user's real folders. When a mount's `at:` glob matches no
+ * real folder, step 4 re-compiles against DERIVED sample anchors so the nested
+ * expansion is always visible (labelled as sample paths).
+ *
  * Pure consumer of the engine — it never mutates settings, folders, or files.
  * The compiler, matcher, and forward-emit runtime are all imported as-is.
  *
@@ -26,7 +33,8 @@
 import { App, Modal, TFolder } from 'obsidian';
 import { parseOrgsys } from '../engine/orgsys';
 import type { SystemDef } from '../engine/orgsys';
-import { compileSystemDef } from '../engine/compileSystemDef';
+import { compileSystemDef, composedGroupPrecedence } from '../engine/compileSystemDef';
+import type { RulePack } from '../engine/rulePackLoader';
 import { findBestMatch, type RuleEvaluationContext } from '../engine/ruleMatcher';
 import { applyRuleForward } from '../engine/applyTransfer';
 import type { MappingRule } from '../types/settings';
@@ -88,6 +96,69 @@ slots:
     deepen: true
 `;
 
+/**
+ * A people / entity namespace system — one folder per owner, one tag namespace
+ * each (`Entity/{owner}` ↔ `#--{owner}`). It is a registry BASE system: composed
+ * definitions can mount other systems beneath it, snap it in, or `extends` it to
+ * inherit its axes + defaults.
+ */
+const PEOPLE_ORGSYS = `# People / entity namespace — one folder per owner, one tag namespace each.
+# A registry base system: other definitions mount systems under it or extend it.
+system: people
+title: People
+version: 1.0.0
+axes: [entity]
+anchor:
+  default: root
+  relocatable: false
+defaults:
+  direction: bidirectional
+  folderCase: Title Case
+  tagCase: kebab-case
+slots:
+  - id: owner
+    folder: "Entity/{owner}"
+    tag: "#--{owner}"
+    transfer: identity
+    deepen: true
+`;
+
+/**
+ * The COMPOSITION example — the one arrangement a single flat rule-pack can't
+ * express. A people host (`Entity/{owner}` ↔ `#--{owner}`) with Johnny Decimal
+ * MOUNTED under every per-entity Output folder. The mount's `at:` glob resolves
+ * against the user's real folders; where the vault has none yet, the modal shows
+ * the nested compilation on derived sample paths.
+ */
+const COMPOSED_ORGSYS = `# Composition — nest one system inside another (what a single flat rule-pack
+# can't express). A people host (Entity/{owner} -> #--{owner}) with Johnny
+# Decimal mounted under every per-entity Output folder.
+#
+# The mount's "at: Entity/*/Output" glob resolves against your REAL vault
+# folders: every existing Entity/<owner>/Output becomes an anchor, and the JD
+# system is placed there with the owner's tag namespace inherited automatically
+# (e.g. Entity/Cybersader/Output/01 - Projects -> #--cybersader/01-projects).
+#
+# Where your vault has no matching Output folder yet, the sample emissions below
+# show the same nesting on derived sample paths (clearly labelled).
+system: seacow
+title: SEACOW
+axes: [entity]
+defaults:
+  direction: bidirectional
+  folderCase: Title Case
+  tagCase: kebab-case
+slots:
+  - id: owner
+    folder: "Entity/{owner}"
+    tag: "#--{owner}"
+    transfer: identity
+    deepen: true
+mounts:
+  - snap: jd
+    at: Entity/*/Output
+`;
+
 /** Max sample-emission rows rendered before we collapse the rest into a note. */
 const MAX_EMISSION_ROWS = 40;
 
@@ -137,6 +208,8 @@ export class OrgsysPreviewModal extends Modal {
 		paraBtn.addEventListener('click', () => this.loadPreset(PARA_ORGSYS));
 		const jdBtn = presetRow.createEl('button', { text: 'Load Johnny Decimal example' });
 		jdBtn.addEventListener('click', () => this.loadPreset(JD_ORGSYS));
+		const composedBtn = presetRow.createEl('button', { text: 'Load composed example' });
+		composedBtn.addEventListener('click', () => this.loadPreset(COMPOSED_ORGSYS));
 
 		// ─── Editor ───────────────────────────────────────────────────────
 		this.textarea = contentEl.createEl('textarea');
@@ -207,16 +280,52 @@ export class OrgsysPreviewModal extends Modal {
 			return;
 		}
 
-		let rules: MappingRule[];
+		// `extends` and `mounts` both resolve against the base-system registry;
+		// mounts additionally resolve their `at:` globs against the real folders.
+		const needsRegistry = Boolean(def.mounts?.length) || Boolean(def.extends);
+		const registry = needsRegistry ? this.buildRegistry() : undefined;
+		const vaultFolders = this.collectVaultFolders();
+
+		let pack: RulePack;
 		try {
-			rules = compileSystemDef(def).rules;
+			pack = needsRegistry
+				? compileSystemDef(def, { registry, vaultFolders })
+				: compileSystemDef(def);
 		} catch (err) {
 			this.renderError(`Compile error: ${err instanceof Error ? err.message : String(err)}`);
 			return;
 		}
 
-		this.renderCompiledRules(rules);
-		this.renderEmissions(def, rules);
+		const hasMounts = Boolean(def.mounts?.length);
+		const mountsResolved = pack.rules.some((r) => isMountGroup(r.group));
+
+		// Composition with no real anchors: the `at:` glob matched no existing
+		// folder, so the mount placed nothing. Re-compile against DERIVED sample
+		// anchors so the user always sees the nested expansion (rules + emissions),
+		// clearly labelled as sample paths.
+		if (hasMounts && !mountsResolved && registry) {
+			const sample = deriveComposedSamples(def, registry);
+			if (sample.anchors.length > 0) {
+				const samplePack = compileSystemDef(def, { registry, vaultFolders: sample.anchors });
+				this.renderCompiledRules(samplePack.rules);
+				this.renderComposedSamples(samplePack, sample.samplePaths);
+				return;
+			}
+		}
+
+		const precedence = hasMounts ? composedGroupPrecedence(pack) : this.groupPrecedence;
+		this.renderCompiledRules(pack.rules);
+		this.renderEmissions(def, pack.rules, precedence);
+	}
+
+	/** Build the registry of base systems that `extends` / `mounts` resolve against. */
+	private buildRegistry(): Map<string, SystemDef> {
+		const registry = new Map<string, SystemDef>();
+		for (const src of [JD_ORGSYS, PEOPLE_ORGSYS]) {
+			const baseDef = parseOrgsys(src);
+			registry.set(baseDef.system, baseDef);
+		}
+		return registry;
 	}
 
 	private renderError(message: string): void {
@@ -266,7 +375,7 @@ export class OrgsysPreviewModal extends Modal {
 	}
 
 	// ─── Sample emissions ───────────────────────────────────────────────────
-	private renderEmissions(def: SystemDef, rules: MappingRule[]): void {
+	private renderEmissions(def: SystemDef, rules: MappingRule[], precedence?: string[]): void {
 		const header = this.outputEl.createDiv({ text: 'Sample emissions' });
 		header.style.fontWeight = '600';
 		header.style.marginBottom = '0.35em';
@@ -277,7 +386,7 @@ export class OrgsysPreviewModal extends Modal {
 		}
 
 		const vaultFolders = this.collectVaultFolders();
-		const vaultEmissions = this.emitFor(vaultFolders, rules);
+		const vaultEmissions = this.emitFor(vaultFolders, rules, precedence);
 
 		if (vaultEmissions.length > 0) {
 			const note = this.outputEl.createDiv();
@@ -292,7 +401,7 @@ export class OrgsysPreviewModal extends Modal {
 		// Fallback — no real folder matches. Show illustrative sample paths so
 		// the user always sees the rules working on something concrete.
 		const samplePaths = deriveSamplePaths(def);
-		const sampleEmissions = this.emitFor(samplePaths, rules);
+		const sampleEmissions = this.emitFor(samplePaths, rules, precedence);
 		const label = this.outputEl.createDiv();
 		label.style.fontSize = '0.8em';
 		label.style.fontStyle = 'italic';
@@ -309,12 +418,43 @@ export class OrgsysPreviewModal extends Modal {
 	}
 
 	/**
+	 * Render sample emissions for a COMPOSED pack compiled against DERIVED sample
+	 * anchors (the user's vault has no folder the mount's glob matches yet). The
+	 * paths are labelled as samples, but the nested tags they emit are the real
+	 * output of the mount expansion — so the user always sees composition working.
+	 */
+	private renderComposedSamples(samplePack: RulePack, samplePaths: string[]): void {
+		const header = this.outputEl.createDiv({ text: 'Sample emissions' });
+		header.style.fontWeight = '600';
+		header.style.marginBottom = '0.35em';
+
+		const label = this.outputEl.createDiv();
+		label.style.fontSize = '0.8em';
+		label.style.fontStyle = 'italic';
+		label.style.color = 'var(--text-muted)';
+		label.style.marginBottom = '0.3em';
+		label.setText(
+			'(sample paths — your vault has no matching folders yet; composition shown on derived folders)',
+		);
+
+		const emissions = this.emitFor(samplePaths, samplePack.rules, composedGroupPrecedence(samplePack));
+		if (emissions.length === 0) {
+			this.outputEl.createDiv({
+				text: 'No emissions — the compiled rules did not match any sample path.',
+			}).style.color = 'var(--text-muted)';
+			return;
+		}
+		this.renderEmissionList(emissions, true);
+	}
+
+	/**
 	 * Run the compiled rules against a list of folder paths, returning the
 	 * folder → tag(s) emissions for every path that a rule matches. A path
 	 * "matches" when `findBestMatch` selects a rule for it (forward direction);
 	 * the emitted tags come from `applyRuleForward`.
 	 */
-	private emitFor(folders: string[], rules: MappingRule[]): Emission[] {
+	private emitFor(folders: string[], rules: MappingRule[], precedence?: string[]): Emission[] {
+		const groups = precedence ?? this.groupPrecedence;
 		const out: Emission[] = [];
 		for (const folder of folders) {
 			const context: RuleEvaluationContext = {
@@ -322,7 +462,7 @@ export class OrgsysPreviewModal extends Modal {
 				matchType: 'folder',
 				direction: 'folder-to-tag',
 			};
-			const match = findBestMatch(folder, rules, context, this.groupPrecedence);
+			const match = findBestMatch(folder, rules, context, groups);
 			if (!match) continue;
 			const { tags } = applyRuleForward(folder, match.rule);
 			out.push({ folder, tags });
@@ -403,6 +543,63 @@ export function deriveSamplePaths(def: SystemDef): string[] {
 		}
 	}
 	return paths;
+}
+
+/** Placeholder owner used to render a concrete sample of a glob-mounted system. */
+const SAMPLE_OWNER = 'SamplePerson';
+
+/**
+ * Derive concrete sample anchors + folder paths for a COMPOSED definition whose
+ * mounts matched no real vault folder. Each `*` in a mount's `at:` glob is filled
+ * with a placeholder owner, giving one sample anchor per mount (the glob
+ * `Entity/<star>/Output` becomes `Entity/SamplePerson/Output`). The sample paths
+ * exercise BOTH levels: the host portion the glob binds (`Entity/SamplePerson`,
+ * which emits the host tag) and a deeper child drawn from the snapped system
+ * (`Entity/SamplePerson/Output/01 - Name`, which emits the nested tag). Returns
+ * the anchors to compile against and the paths to emit.
+ */
+export function deriveComposedSamples(
+	def: SystemDef,
+	registry: Map<string, SystemDef>,
+): { anchors: string[]; samplePaths: string[] } {
+	const anchors = new Set<string>();
+	const samplePaths: string[] = [];
+	const pushPath = (p: string) => {
+		if (p && !samplePaths.includes(p)) samplePaths.push(p);
+	};
+
+	for (const mount of def.mounts ?? []) {
+		const segs = mount.at.split('/');
+		let lastStar = -1;
+		for (let i = 0; i < segs.length; i++) if (segs[i] === '*') lastStar = i;
+		const filled = segs.map((s) => (s === '*' ? SAMPLE_OWNER : s));
+		const anchor = filled.join('/');
+		anchors.add(anchor);
+
+		// Host-level sample: the portion the glob's `*` binds emits the host tag.
+		if (lastStar >= 0) pushPath(filled.slice(0, lastStar + 1).join('/'));
+
+		// Nested sample: a deeper child from the snapped system, placed under the
+		// anchor, emits the composed tag (host namespace + mounted body).
+		const snapDef = registry.get(mount.snap);
+		const deeper = snapDef ? firstSamplePath(snapDef) : undefined;
+		pushPath(deeper ? `${anchor}/${deeper}` : anchor);
+	}
+	return { anchors: [...anchors], samplePaths };
+}
+
+/** First illustrative sample path for a system (used as a mount's deeper child). */
+function firstSamplePath(def: SystemDef): string | undefined {
+	const paths = deriveSamplePaths(def);
+	return paths.length ? paths[0] : undefined;
+}
+
+/** Is this group a mount placement (`<system>@<path-anchor>`), not the host root? */
+function isMountGroup(group: string | undefined): boolean {
+	if (!group) return false;
+	const at = group.indexOf('@');
+	const anchor = at >= 0 ? group.slice(at + 1) : '';
+	return anchor !== '' && anchor !== 'root' && anchor !== 'any-segment' && !anchor.startsWith('under:');
 }
 
 /**

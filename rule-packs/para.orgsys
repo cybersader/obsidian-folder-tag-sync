@@ -1,0 +1,22 @@
+# PARA — Tiago Forte's four canonical Work buckets.
+# Source for the Taxonomy Workbench. Compiles (via compileSystemDef) to the
+# same four rules as rule-packs/para.json — from ONE parametric slot.
+system: para
+title: PARA
+version: 1.0.0
+axes: [work]
+anchor:
+  default: root
+  relocatable: false
+defaults:
+  direction: bidirectional
+  folderCase: Title Case
+  tagCase: kebab-case
+  emoji: keep
+slots:
+  - id: bucket
+    folder: "{bucket}"
+    tag: "#{bucket}"
+    transfer: identity
+    deepen: true
+    values: [Projects, Areas, Resources, Archive]

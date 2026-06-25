@@ -1,0 +1,20 @@
+# Johnny Decimal — numeric-prefixed areas (one or two digits).
+# Compiles (via compileSystemDef) to the same identity-preserving rule as
+# rule-packs/jd.json — from ONE Path-Lens pattern slot.
+system: jd
+title: Johnny Decimal
+version: 1.1.0
+axes: [work]
+anchor:
+  default: root
+  relocatable: true
+defaults:
+  direction: bidirectional
+  folderCase: Title Case
+  tagCase: kebab-case
+slots:
+  - id: area
+    folder: "{n:\\d{1,2}} - {name}"
+    tag: "#{n}-{name}"
+    transfer: identity
+    deepen: true

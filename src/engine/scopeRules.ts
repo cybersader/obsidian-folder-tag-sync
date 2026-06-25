@@ -30,28 +30,57 @@
 import type { MappingRule } from '../types/settings';
 
 /**
+ * Optional scoping controls. `tagScope` extends the folder-side scope to the
+ * tag face: it prepends a tag namespace (no leading `#`) to the rule's
+ * `tagTemplate` / `tagPattern` / `tagEntryPoint`. This is what makes `.orgsys`
+ * COMPOSITION express a nested system's full tag — e.g. JD mounted under
+ * `Entity/{owner}/Output` emits `#--owner/NN-area`, not the bare `#NN-area`.
+ * The host system's emitted tag at the anchor is the `tagScope`.
+ */
+export interface ScopeOptions {
+	/** Tag namespace prefix (no leading `#`) to prepend to the tag face. */
+	tagScope?: string;
+}
+
+/**
  * Apply a scope to a single rule. Returns a NEW rule object — never
  * mutates the input. Re-scoping an already-scoped rule should pass the
  * un-scoped version: this function does not detect prior scoping.
+ *
+ * `scopePath` scopes the FOLDER face (and id/name/entry). `opts.tagScope`, when
+ * present, additionally scopes the TAG face symmetrically.
  */
-export function scopeRule(rule: MappingRule, scopePath: string): MappingRule {
-	if (scopePath === '') return { ...rule }; // no-op clone preserves call-site immutability
-	const slug = pathToSlug(scopePath);
-	return {
+export function scopeRule(rule: MappingRule, scopePath: string, opts?: ScopeOptions): MappingRule {
+	const tagScope = opts?.tagScope ?? '';
+	if (scopePath === '' && tagScope === '') return { ...rule }; // no-op clone preserves call-site immutability
+
+	const slug = pathToSlug(scopePath || tagScope);
+	const out: MappingRule = {
 		...rule,
 		id: `${rule.id}__${slug}`,
-		name: `${rule.name} @ ${scopePath}`,
-		folderPattern: rule.folderPattern ? scopePattern(rule.folderPattern, scopePath) : rule.folderPattern,
-		folderTemplate: rule.folderTemplate ? scopeTemplate(rule.folderTemplate, scopePath) : rule.folderTemplate,
-		folderEntryPoint: scopePath,
+		name: scopePath ? `${rule.name} @ ${scopePath}` : rule.name,
 	};
+
+	if (scopePath !== '') {
+		out.folderPattern = rule.folderPattern ? scopePattern(rule.folderPattern, scopePath) : rule.folderPattern;
+		out.folderTemplate = rule.folderTemplate ? scopeTemplate(rule.folderTemplate, scopePath) : rule.folderTemplate;
+		out.folderEntryPoint = scopePath;
+	}
+
+	if (tagScope !== '') {
+		out.tagPattern = rule.tagPattern ? scopeTagPattern(rule.tagPattern, tagScope) : rule.tagPattern;
+		out.tagTemplate = rule.tagTemplate ? scopeTagTemplate(rule.tagTemplate, tagScope) : rule.tagTemplate;
+		if (rule.tagEntryPoint) out.tagEntryPoint = scopeTagEntry(rule.tagEntryPoint, tagScope);
+	}
+
+	return out;
 }
 
 /**
  * Apply a scope to many rules at once. Convenience for the apply path.
  */
-export function scopeRules(rules: MappingRule[], scopePath: string): MappingRule[] {
-	return rules.map((r) => scopeRule(r, scopePath));
+export function scopeRules(rules: MappingRule[], scopePath: string, opts?: ScopeOptions): MappingRule[] {
+	return rules.map((r) => scopeRule(r, scopePath, opts));
 }
 
 /**
@@ -78,6 +107,41 @@ function scopePattern(pattern: string, scopePath: string): string {
  */
 function scopeTemplate(template: string, scopePath: string): string {
 	return `${scopePath}/${template}`;
+}
+
+/**
+ * Prepend a tag namespace to a tag Path-Lens template. The template usually
+ * starts with `#`; the namespace slots in right after it so the `#` stays at
+ * the front: `#{n}-{name}` + `--owner` → `#--owner/{n}-{name}`.
+ */
+function scopeTagTemplate(template: string, tagScope: string): string {
+	if (template.startsWith('#')) return `#${tagScope}/${template.slice(1)}`;
+	return `${tagScope}/${template}`;
+}
+
+/**
+ * Prepend a tag namespace to a tag regex pattern. Tag patterns are typically
+ * `^#...`; the escaped namespace slots in after the `^#` so the anchor + hash
+ * stay at the front.
+ */
+function scopeTagPattern(pattern: string, tagScope: string): string {
+	const escaped = escapeRegex(tagScope);
+	if (pattern.startsWith('^#')) {
+		return `^#${escaped}/${pattern.slice(2)}`;
+	}
+	if (pattern.startsWith('^')) {
+		return `^${escaped}/${pattern.slice(1)}`;
+	}
+	return `(?:${escaped}/)${pattern}`;
+}
+
+/**
+ * Prepend a tag namespace to a typed rule's tag entry point. The result keeps
+ * a single leading `#`: entry `projects` + scope `--owner` → `#--owner/projects`.
+ */
+function scopeTagEntry(entry: string, tagScope: string): string {
+	const body = entry.startsWith('#') ? entry.slice(1) : entry;
+	return `#${tagScope}/${body}`;
 }
 
 /**

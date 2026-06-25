@@ -15,9 +15,10 @@ import { readFileSync } from 'fs';
 import { join } from 'path';
 
 import { parseOrgsys, parseYamlSubset, OrgsysParseError } from './orgsys';
-import { compileSystemDef } from './compileSystemDef';
+import type { SystemDef } from './orgsys';
+import { compileSystemDef, composedGroupPrecedence, resolveMountAnchors } from './compileSystemDef';
 import { loadRulePackFromJSON } from './rulePackLoader';
-import { findBestMatch } from './ruleMatcher';
+import { findBestMatch, calculateMatchConfidence } from './ruleMatcher';
 import { applyRuleForward } from './applyTransfer';
 import { isTemplateRule } from './applyTemplate';
 import type { MappingRule } from '../types/settings';
@@ -35,13 +36,16 @@ function loadJsonRules(basename: string): MappingRule[] {
 	return result.pack.rules;
 }
 
-/** Folder → emitted tags via the real matcher + forward runtime. */
-function forwardTags(folderPath: string, rules: MappingRule[]): string[] {
-	const match = findBestMatch(folderPath, rules, {
-		input: folderPath,
-		matchType: 'folder',
-		direction: 'folder-to-tag',
-	});
+/** Folder → emitted tags via the real matcher + forward runtime. `precedence`
+ * (optional) is the cross-group order — composed packs pass deeper-anchor groups
+ * first so nested mounts out-rank the host system. */
+function forwardTags(folderPath: string, rules: MappingRule[], precedence?: string[]): string[] {
+	const match = findBestMatch(
+		folderPath,
+		rules,
+		{ input: folderPath, matchType: 'folder', direction: 'folder-to-tag' },
+		precedence,
+	);
 	if (!match) return [];
 	return applyRuleForward(folderPath, match.rule).tags;
 }
@@ -277,5 +281,392 @@ slots:
 		// Any path under the marker folder emits the fixed marker tag.
 		expect(forwardTags('Inbox', pack.rules)).toEqual(['#-inbox']);
 		expect(forwardTags('Inbox/anything/deep', pack.rules)).toEqual(['#-inbox']);
+	});
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// Phase 1 — COMPOSITION (mounts / at-glob / extends / rebind / disable)
+// ════════════════════════════════════════════════════════════════════════════
+
+/** A registry with the atomic systems (jd, para) the composed defs snap in. */
+function buildRegistry(): Map<string, SystemDef> {
+	return new Map<string, SystemDef>([
+		['jd', parseOrgsys(readFileSync(join(PACKS, 'jd.orgsys'), 'utf-8'))],
+		['para', parseOrgsys(readFileSync(join(PACKS, 'para.orgsys'), 'utf-8'))],
+	]);
+}
+
+/**
+ * The composed def under test: an entity/namespace system (folder
+ * `Entity/{owner}`, tag `#--{owner}`, identity, deepen) with the JD system
+ * mounted under every per-entity Output folder. This is the composition the
+ * old format couldn't express — it has to GENERATE the hand-written
+ * `seacow-tpl-entity-output-jd` rule from the entity system plus a JD mount at
+ * the `Entity` / `*` / `Output` glob.
+ */
+const ENTITY_JD_COMPOSED = `
+system: seacow
+title: SEACOW
+axes: [entity]
+defaults:
+  direction: bidirectional
+  folderCase: Title Case
+  tagCase: kebab-case
+slots:
+  - id: owner
+    folder: "Entity/{owner}"
+    tag: "#--{owner}"
+    transfer: identity
+    deepen: true
+mounts:
+  - snap: jd
+    at: Entity/*/Output
+`;
+
+/** Synthetic vault folders: two per-entity Output folders (+ noise). */
+const SYNTH_VAULT = [
+	'Entity',
+	'Entity/Cybersader',
+	'Entity/Cybersader/Output',
+	'Entity/Cybersader/Input',
+	'Entity/Acme',
+	'Entity/Acme/Output',
+	'Capture/Inbox',
+];
+
+// ─── at-glob resolution ─────────────────────────────────────────────────────
+
+describe('resolveMountAnchors — at-glob resolution', () => {
+	test('`*` at the end matches one segment under the literal prefix', () => {
+		expect(
+			resolveMountAnchors('Entity/*', ['Entity/A', 'Entity/B', 'Other/C', 'Entity/A/Deep']),
+		).toEqual(['Entity/A', 'Entity/B']);
+	});
+
+	test('`*` in the middle (Entity/*/Output) collects every matching entity', () => {
+		expect(resolveMountAnchors('Entity/*/Output', SYNTH_VAULT)).toEqual([
+			'Entity/Acme/Output',
+			'Entity/Cybersader/Output',
+		]);
+	});
+
+	test('`*` at the start matches the leading segment', () => {
+		expect(resolveMountAnchors('*/Output', ['A/Output', 'B/Output', 'A/Input'])).toEqual([
+			'A/Output',
+			'B/Output',
+		]);
+	});
+
+	test('multiple `*` each bind exactly one segment', () => {
+		expect(
+			resolveMountAnchors('*/*/Output', ['A/B/Output', 'C/D/Output', 'A/Output', 'A/B/C/Output']),
+		).toEqual(['A/B/Output', 'C/D/Output']);
+	});
+
+	test('a glob that matches nothing yields zero anchors', () => {
+		expect(resolveMountAnchors('Entity/*/Nope', SYNTH_VAULT)).toEqual([]);
+	});
+
+	test('a glob with no vaultFolders resolves lazily to zero anchors', () => {
+		expect(resolveMountAnchors('Entity/*/Output')).toEqual([]);
+		expect(resolveMountAnchors('Entity/*/Output', [])).toEqual([]);
+	});
+
+	test('a literal path is always exactly one anchor (no vault needed)', () => {
+		expect(resolveMountAnchors('Knowledge/Output')).toEqual(['Knowledge/Output']);
+		// Literal anchors are explicit — not filtered by vault existence.
+		expect(resolveMountAnchors('Nonexistent/Path', ['Other'])).toEqual(['Nonexistent/Path']);
+	});
+});
+
+// ─── Golden behavioral equivalence — composed JD mount vs hand-written SEACOW ─
+
+describe('composition golden — entity + mount(jd at Entity/*/Output)', () => {
+	const pack = compileSystemDef(parseOrgsys(ENTITY_JD_COMPOSED), {
+		registry: buildRegistry(),
+		vaultFolders: SYNTH_VAULT,
+	});
+	const precedence = composedGroupPrecedence(pack);
+
+	// The hand-written rule the composition must reproduce. seacow-templates.json
+	// ships its rules DISABLED (review-before-enable); enable them so the matcher
+	// considers them, exactly as it would once the user turns the pack on.
+	const seacowLoad = loadRulePackFromJSON(readFileSync(join(PACKS, 'seacow-templates.json'), 'utf-8'));
+	if (!seacowLoad.ok) throw new Error('failed to load seacow-templates.json');
+	const handWritten = seacowLoad.pack.rules.map((r) => ({ ...r, enabled: true }));
+
+	const GOLDEN_PATH = 'Entity/Cybersader/Output/01 - Projects';
+
+	test('compiled composed rules emit the SAME tag the hand-written SEACOW rule emits', () => {
+		const fromComposed = forwardTags(GOLDEN_PATH, pack.rules, precedence);
+		const fromHandWritten = forwardTags(GOLDEN_PATH, handWritten);
+		// The hand-written `seacow-tpl-entity-output-jd` emits this nested tag.
+		expect(fromHandWritten).toEqual(['#--cybersader/01-projects']);
+		// The composed pack reproduces it exactly — entity namespace + JD body.
+		expect(fromComposed).toEqual(fromHandWritten);
+		expect(fromComposed).toEqual(['#--cybersader/01-projects']);
+	});
+
+	test('the second entity (Acme) gets its own namespaced nested emission', () => {
+		expect(forwardTags('Entity/Acme/Output/01 - Projects', pack.rules, precedence)).toEqual([
+			'#--acme/01-projects',
+		]);
+	});
+
+	test('one anchor per matching entity — 2 here (Cybersader, Acme)', () => {
+		const mountGroups = new Set(
+			pack.rules.map((r) => r.group).filter((g): g is string => !!g && g.includes('@Entity/')),
+		);
+		expect(mountGroups).toEqual(
+			new Set(['seacow@Entity/Cybersader/Output', 'seacow@Entity/Acme/Output']),
+		);
+		// JD compiles to one rule, so exactly one mounted rule per anchor.
+		expect(pack.rules.filter((r) => r.group?.includes('@Entity/'))).toHaveLength(2);
+	});
+
+	test('zero anchors when the vault has no Entity/*/Output folder', () => {
+		const noOutput = compileSystemDef(parseOrgsys(ENTITY_JD_COMPOSED), {
+			registry: buildRegistry(),
+			vaultFolders: ['Entity', 'Entity/Cybersader', 'Entity/Cybersader/Input'],
+		});
+		// Only the base entity rule survives — no mounts placed.
+		expect(noOutput.rules.every((r) => !r.group?.includes('@Entity/'))).toBe(true);
+		expect(noOutput.rules).toHaveLength(1);
+		expect(noOutput.rules[0].group).toBe('seacow@root');
+	});
+
+	test('a glob mount with no vaultFolders places nothing (lazy)', () => {
+		const noVault = compileSystemDef(parseOrgsys(ENTITY_JD_COMPOSED), { registry: buildRegistry() });
+		expect(noVault.rules).toHaveLength(1); // base entity rule only
+		expect(noVault.rules[0].group).toBe('seacow@root');
+	});
+
+	test('deeper nested rules out-rank shallower ones (matcher picks the mount)', () => {
+		// Both the base entity rule AND the JD mount match the golden path; the
+		// deeper mount must win.
+		const match = findBestMatch(
+			GOLDEN_PATH,
+			pack.rules,
+			{ input: GOLDEN_PATH, matchType: 'folder', direction: 'folder-to-tag' },
+			precedence,
+		);
+		expect(match?.rule.group).toBe('seacow@Entity/Cybersader/Output');
+
+		// …and the specificity matcher independently agrees: the deep mount's
+		// folder pattern scores higher than the shallow host rule's.
+		const deep = pack.rules.find((r) => r.group === 'seacow@Entity/Cybersader/Output')!;
+		const shallow = pack.rules.find((r) => r.group === 'seacow@root')!;
+		expect(calculateMatchConfidence(GOLDEN_PATH, deep.folderPattern!, deep.folderAnchor)).toBeGreaterThan(
+			calculateMatchConfidence(GOLDEN_PATH, shallow.folderPattern!, shallow.folderAnchor),
+		);
+
+		// Group precedence lists the deeper anchor ahead of the host root.
+		expect(precedence.indexOf('seacow@Entity/Cybersader/Output')).toBeLessThan(
+			precedence.indexOf('seacow@root'),
+		);
+	});
+
+	test('mounted rules carry the per-anchor group and depth-adjusted priority', () => {
+		const deep = pack.rules.find((r) => r.group === 'seacow@Entity/Cybersader/Output')!;
+		// JD base priority 10, anchor depth 3 → 10 - 3 = 7 (deeper ⇒ lower ⇒ wins ties).
+		expect(deep.priority).toBe(7);
+	});
+});
+
+// ─── Literal-path mount (folder-only scope, no inherited tag namespace) ──────
+
+describe('compileSystemDef — literal-path mount', () => {
+	const LITERAL_MOUNT = `
+system: lit
+mounts:
+  - snap: jd
+    at: Knowledge/Output
+`;
+	const pack = compileSystemDef(parseOrgsys(LITERAL_MOUNT), { registry: buildRegistry() });
+
+	test('a literal mount resolves to exactly one anchor', () => {
+		expect(pack.rules).toHaveLength(1);
+		expect(pack.rules[0].group).toBe('lit@Knowledge/Output');
+	});
+
+	test('the mounted folder template is scoped under the literal anchor', () => {
+		expect(pack.rules[0].folderTemplate).toBe('Knowledge/Output/{n:\\d{1,2}} - {name}/{deeper...}');
+	});
+
+	test('the tag face is unchanged — a literal mount inherits no namespace', () => {
+		// No host slot binds at a literal anchor, so the JD body emits bare.
+		expect(forwardTags('Knowledge/Output/01 - Projects', pack.rules)).toEqual(['#01-projects']);
+	});
+});
+
+// ─── rebind + disable (parametric slot-value surgery on the snapped system) ──
+
+describe('compileSystemDef — mount rebind + disable', () => {
+	const REBIND_DISABLE = `
+system: comp
+mounts:
+  - snap: para
+    at: Work
+    rebind:
+      Projects: Initiatives
+    disable:
+      - Archive
+`;
+	const pack = compileSystemDef(parseOrgsys(REBIND_DISABLE), { registry: buildRegistry() });
+
+	test('rebind renames a parametric value (Projects → Initiatives)', () => {
+		expect(pack.rules.some((r) => r.id.startsWith('para-initiatives'))).toBe(true);
+		expect(pack.rules.every((r) => !r.id.startsWith('para-projects'))).toBe(true);
+	});
+
+	test('disable drops a parametric value (Archive)', () => {
+		expect(pack.rules.every((r) => !r.id.startsWith('para-archive'))).toBe(true);
+		// PARA had 4 buckets; one renamed, one dropped → 3 mounted rules remain.
+		expect(pack.rules).toHaveLength(3);
+	});
+
+	test('every mounted rule is stamped the per-anchor composed group', () => {
+		expect(pack.rules.every((r) => r.group === 'comp@Work')).toBe(true);
+	});
+
+	test('disable can drop a whole slot by id', () => {
+		const dropSlot = `
+system: comp
+mounts:
+  - snap: para
+    at: Work
+    disable:
+      - bucket
+`;
+		const dropped = compileSystemDef(parseOrgsys(dropSlot), { registry: buildRegistry() });
+		// PARA's only slot is `bucket`; dropping it leaves no mounted rules.
+		expect(dropped.rules).toHaveLength(0);
+	});
+});
+
+// ─── extends (inherit axes + defaults from a base system) ───────────────────
+
+describe('compileSystemDef — extends inheritance', () => {
+	const BASE = `
+system: base
+axes: [entity]
+defaults:
+  direction: folder-to-tag
+  tagCase: snake_case
+slots:
+  - id: anchor
+    folder: Anchor
+    tag: "#anchor"
+`;
+
+	function registryWithBase(): Map<string, SystemDef> {
+		const reg = buildRegistry();
+		reg.set('base', parseOrgsys(BASE));
+		return reg;
+	}
+
+	test('child inherits axes + defaults when it declares none', () => {
+		const child = `
+system: child
+extends: base
+slots:
+  - id: x
+    folder: X
+    tag: "#x"
+`;
+		const pack = compileSystemDef(parseOrgsys(child), { registry: registryWithBase() });
+		expect(pack.axes).toEqual(['entity']); // inherited
+		expect(pack.rules[0].direction).toBe('folder-to-tag'); // inherited default
+	});
+
+	test('child fields override the inherited base', () => {
+		const child = `
+system: child
+extends: base
+axes: [output]
+defaults:
+  direction: bidirectional
+slots:
+  - id: x
+    folder: X
+    tag: "#x"
+`;
+		const pack = compileSystemDef(parseOrgsys(child), { registry: registryWithBase() });
+		expect(pack.axes).toEqual(['output']); // child wins
+		expect(pack.rules[0].direction).toBe('bidirectional'); // child wins
+	});
+
+	test('extends with no registry is a no-op (the child compiles on its own)', () => {
+		const child = `
+system: child
+extends: base
+slots:
+  - id: x
+    folder: X
+    tag: "#x"
+`;
+		const pack = compileSystemDef(parseOrgsys(child));
+		// No inheritance available; child keeps its own (defaulted) shape.
+		expect(pack.rules).toHaveLength(1);
+		expect(pack.axes).toBeUndefined();
+	});
+});
+
+// ─── Parser: mounts + extends ───────────────────────────────────────────────
+
+describe('parseOrgsys — mounts + extends', () => {
+	test('parses a mount with snap + at', () => {
+		const def = parseOrgsys(`
+system: c
+mounts:
+  - snap: jd
+    at: Entity/*/Output
+`);
+		expect(def.mounts).toEqual([{ snap: 'jd', at: 'Entity/*/Output' }]);
+	});
+
+	test('parses rebind (mapping) and disable (sequence)', () => {
+		const def = parseOrgsys(`
+system: c
+mounts:
+  - snap: para
+    at: Work
+    rebind:
+      Projects: Initiatives
+      Areas: Domains
+    disable:
+      - Archive
+      - Resources
+`);
+		expect(def.mounts).toEqual([
+			{
+				snap: 'para',
+				at: 'Work',
+				rebind: { Projects: 'Initiatives', Areas: 'Domains' },
+				disable: ['Archive', 'Resources'],
+			},
+		]);
+	});
+
+	test('parses extends and allows a mounts-only definition (no slots)', () => {
+		const def = parseOrgsys(`
+system: c
+extends: base
+mounts:
+  - snap: jd
+    at: Output
+`);
+		expect(def.extends).toBe('base');
+		expect(def.slots).toEqual([]);
+		expect(def.mounts).toHaveLength(1);
+	});
+
+	test('throws when neither slots nor mounts are present', () => {
+		expect(() => parseOrgsys('system: t')).toThrow(OrgsysParseError);
+	});
+
+	test('throws on a mount missing snap or at', () => {
+		expect(() => parseOrgsys('system: c\nmounts:\n  - at: Output')).toThrow(OrgsysParseError);
+		expect(() => parseOrgsys('system: c\nmounts:\n  - snap: jd')).toThrow(OrgsysParseError);
 	});
 });

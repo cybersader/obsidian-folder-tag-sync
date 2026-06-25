@@ -77,6 +77,23 @@ export interface OrgsysSlot {
 	values?: string[];
 }
 
+/**
+ * A COMPOSITION mount (Phase 1). Nests another system (`snap`) inside this one
+ * at a vault location (`at`). `at` is either a literal path (one anchor) or a
+ * glob whose `*` segments (e.g. `Entity` then `*` then `Output`) are resolved
+ * against the vault's folders — each existing folder that matches is an anchor.
+ */
+export interface OrgsysMount {
+	/** System id of the snapped-in system — looked up in the compile registry. */
+	snap: string;
+	/** Literal path or star-glob naming where the snapped system is placed. */
+	at: string;
+	/** Rename parametric slot VALUES of the mounted system (`{Old: New}`). */
+	rebind?: Record<string, string>;
+	/** Drop slot ids or parametric values from the mounted system. */
+	disable?: string[];
+}
+
 export interface SystemDef {
 	/** System id (`para`, `jd`). */
 	system: string;
@@ -86,12 +103,19 @@ export interface SystemDef {
 	version?: string;
 	/** SEACOW axes the system covers. */
 	axes?: string[];
+	/**
+	 * Base system id to inherit `axes` + `defaults` (+ anchor convention) from.
+	 * Resolved against the compile registry; child fields override inherited.
+	 */
+	extends?: string;
 	/** Where the system anchors in the vault tree. */
 	anchor?: OrgsysAnchor;
 	/** Defaults applied to every slot. */
 	defaults?: OrgsysDefaults;
 	/** The system's slots. */
 	slots: OrgsysSlot[];
+	/** Composed arrangement: systems nested inside this one (Phase 1). */
+	mounts?: OrgsysMount[];
 }
 
 export class OrgsysParseError extends Error {
@@ -128,11 +152,15 @@ export function parseOrgsys(text: string): SystemDef {
 	if (typeof system !== 'string' || system.trim() === '') {
 		throw new OrgsysParseError("'.orgsys' requires a non-empty string 'system'");
 	}
-	if (!Array.isArray(obj.slots)) {
-		throw new OrgsysParseError("'.orgsys' requires a 'slots' sequence");
+	const hasSlots = Array.isArray(obj.slots);
+	const hasMounts = Array.isArray(obj.mounts);
+	// A definition must carry at least slots (an ATOMIC system) OR mounts (a
+	// composed arrangement). Pure-mount defs are valid Phase-1 compositions.
+	if (!hasSlots && !hasMounts) {
+		throw new OrgsysParseError("'.orgsys' requires a 'slots' sequence or a 'mounts' sequence");
 	}
 
-	const slots: OrgsysSlot[] = obj.slots.map((raw, i) => {
+	const slots: OrgsysSlot[] = (hasSlots ? (obj.slots as YamlValue[]) : []).map((raw, i) => {
 		if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
 			throw new OrgsysParseError(`slot #${i} must be a mapping`);
 		}
@@ -158,6 +186,7 @@ export function parseOrgsys(text: string): SystemDef {
 	const def: SystemDef = { system, slots };
 	if (typeof obj.title === 'string') def.title = obj.title;
 	if (typeof obj.version === 'string') def.version = obj.version;
+	if (typeof obj.extends === 'string' && obj.extends.trim() !== '') def.extends = obj.extends;
 	if (Array.isArray(obj.axes)) def.axes = obj.axes.map((a) => String(a));
 	if (obj.anchor && typeof obj.anchor === 'object' && !Array.isArray(obj.anchor)) {
 		def.anchor = parseAnchor(obj.anchor as Record<string, YamlValue>);
@@ -165,7 +194,36 @@ export function parseOrgsys(text: string): SystemDef {
 	if (obj.defaults && typeof obj.defaults === 'object' && !Array.isArray(obj.defaults)) {
 		def.defaults = parseDefaults(obj.defaults as Record<string, YamlValue>);
 	}
+	if (Array.isArray(obj.mounts)) {
+		def.mounts = obj.mounts.map((raw, i) => parseMount(raw, i));
+	}
 	return def;
+}
+
+/** Parse one `mounts[]` entry into a validated `OrgsysMount`. */
+function parseMount(raw: YamlValue, i: number): OrgsysMount {
+	if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
+		throw new OrgsysParseError(`mount #${i} must be a mapping`);
+	}
+	const m = raw as Record<string, YamlValue>;
+	if (typeof m.snap !== 'string' || m.snap.trim() === '') {
+		throw new OrgsysParseError(`mount #${i} requires a string 'snap' (a system id)`);
+	}
+	if (typeof m.at !== 'string' || m.at.trim() === '') {
+		throw new OrgsysParseError(`mount #${i} requires a string 'at' (a path or glob)`);
+	}
+	const mount: OrgsysMount = { snap: m.snap, at: m.at };
+	if (m.rebind && typeof m.rebind === 'object' && !Array.isArray(m.rebind)) {
+		const rebind: Record<string, string> = {};
+		for (const [k, v] of Object.entries(m.rebind as Record<string, YamlValue>)) {
+			rebind[k] = String(v);
+		}
+		mount.rebind = rebind;
+	}
+	if (Array.isArray(m.disable)) {
+		mount.disable = m.disable.map((d) => String(d));
+	}
+	return mount;
 }
 
 function parseAnchor(obj: Record<string, YamlValue>): OrgsysAnchor {
@@ -300,10 +358,16 @@ function parseSequence(lines: Line[], idx: number, indent: number): [YamlValue, 
 				arr.push(null);
 				i++;
 			}
+		} else if (findKeyColon(rest) < 0) {
+			// Bare scalar (or flow) list item: `- Archive`, `- [a, b]`. No
+			// `key:` on the line, so it's a value, not the first key of an
+			// inline mapping. Parse it directly and advance one line.
+			arr.push(parseScalarOrFlow(rest));
+			i++;
 		} else {
-			// Inline item content. Re-home this line at the item indent so a
-			// mapping/scalar parse picks up the inline first key plus any
-			// following sibling keys aligned under it.
+			// Inline mapping item. Re-home this line at the item indent so the
+			// mapping parse picks up the inline first key plus any following
+			// sibling keys aligned under it.
 			lines[i] = { indent: itemIndent, content: rest };
 			const [val, next] = parseNode(lines, i, itemIndent);
 			arr.push(val);

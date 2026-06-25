@@ -18,18 +18,30 @@
 import type { MappingRule, RuleOptions, RuleDirection, CaseTransformType } from '../types/settings';
 import type { Axis, FolderAnchor, FolderClassifier, TagVocabulary, TransferOp, TypedRuleSpec } from '../types/typed';
 import type { RulePack, DetectionSignal, PackDetection, PackEstablish } from './rulePackLoader';
-import type { OrgsysAnchorMode, OrgsysSlot, SystemDef } from './orgsys';
+import type { OrgsysAnchorMode, OrgsysMount, OrgsysSlot, SystemDef } from './orgsys';
 import { deriveRule, escapeRegex } from './derive';
 import { compileTemplate } from './compileTemplate';
+import { scopeRule } from './scopeRules';
+import { findBestMatch } from './ruleMatcher';
+import { applyRuleForward } from './applyTransfer';
 import { applyCaseTransform } from '../transformers/caseTransformers';
 
 /**
- * Optional vault context. Reserved for later phases (host mounts / anchor
- * relocation). Phase 0 ignores it — accepted for API stability.
+ * Optional vault + registry context.
+ *
+ * Phase 0 (atomic systems) ignores it. Phase 1 (composition) uses it:
+ *   - `registry` resolves `mounts[].snap` and `extends` to their `SystemDef`.
+ *   - `vaultFolders` resolves glob `at:` mount anchors LAZILY — an `Entity`/`*`/
+ *     `Output` glob expands only to folders that actually exist, never an eager
+ *     cross-product. Absent `vaultFolders` ⇒ globs resolve to zero anchors.
  */
 export interface CompileContext {
 	/** Known folder paths in the vault (future: anchor relocation / detection). */
 	folders?: string[];
+	/** System registry — resolves composition `snap` ids and `extends` bases. */
+	registry?: Map<string, SystemDef>;
+	/** Existing vault folder paths — the universe glob `at:` anchors resolve against. */
+	vaultFolders?: string[];
 }
 
 /** Standard sync options stamped on every emitted rule. Behaviorally neutral
@@ -68,7 +80,10 @@ interface ResolvedDefaults {
  * folder faces + values (the author never restates them). Every emitted rule is
  * stamped `group: "<system>@<anchor>"`.
  */
-export function compileSystemDef(def: SystemDef, _ctx?: CompileContext): RulePack {
+export function compileSystemDef(rawDef: SystemDef, ctx?: CompileContext): RulePack {
+	// Phase 1: inherit axes + defaults (+ anchor convention) from a base system.
+	const def = resolveExtends(rawDef, ctx?.registry);
+
 	const anchor: OrgsysAnchorMode = def.anchor?.default ?? 'root';
 	const axis = (def.axes && def.axes.length ? def.axes[0] : 'work') as Axis;
 	const defaults: ResolvedDefaults = {
@@ -97,6 +112,14 @@ export function compileSystemDef(def: SystemDef, _ctx?: CompileContext): RulePac
 		}
 	}
 
+	// ─── Phase 1: COMPOSITION — nest mounted systems at resolved anchors ───────
+	// Snapshot the base (host) rules BEFORE mounts so each mount's tag-namespace
+	// derivation sees only the host, never a prior mount's emitted rules.
+	const baseRules = [...rules];
+	for (const mount of def.mounts ?? []) {
+		rules.push(...compileMount(def, mount, baseRules, ctx));
+	}
+
 	const detection: PackDetection | undefined = signals.length
 		? { anyOf: signals, minSignals: Math.min(2, signals.length) }
 		: undefined;
@@ -121,6 +144,163 @@ export function compileSystemDef(def: SystemDef, _ctx?: CompileContext): RulePac
 		detection,
 		establish,
 	};
+}
+
+// ─── Phase 1: composition (mounts / extends / at-glob) ─────────────────────
+
+/**
+ * Resolve `extends`: inherit `axes`, `defaults`, and the anchor convention from
+ * a base system in the registry. Child fields win; defaults merge field-wise.
+ * No-op when there's no `extends` or the base isn't in the registry.
+ */
+function resolveExtends(def: SystemDef, registry: Map<string, SystemDef> | undefined): SystemDef {
+	if (!def.extends || !registry) return def;
+	const base = registry.get(def.extends);
+	if (!base) return def;
+	return {
+		...def,
+		axes: def.axes ?? base.axes,
+		anchor: def.anchor ?? base.anchor,
+		defaults: { ...base.defaults, ...def.defaults },
+	};
+}
+
+/**
+ * Compile one mount: look up the snapped system in the registry, apply
+ * `rebind`/`disable`, compile it, then place a scoped copy of its rules at every
+ * resolved anchor. Returns the union of all anchor placements (possibly empty
+ * when the glob matches no existing folder — lazy resolution).
+ */
+function compileMount(
+	host: SystemDef,
+	mount: OrgsysMount,
+	baseRules: MappingRule[],
+	ctx: CompileContext | undefined,
+): MappingRule[] {
+	const snapDef = ctx?.registry?.get(mount.snap);
+	if (!snapDef) return []; // unknown system id — skip (lazy / forgiving)
+
+	const adjusted = applyRebindDisable(snapDef, mount.rebind, mount.disable);
+	const snapPack = compileSystemDef(adjusted, ctx);
+
+	const anchors = resolveMountAnchors(mount.at, ctx?.vaultFolders);
+	const out: MappingRule[] = [];
+	for (const anchor of anchors) {
+		const depth = anchor === '' ? 0 : anchor.split('/').length;
+		const tagScope = computeTagScope(mount.at, anchor, baseRules);
+		const group = `${host.system}@${anchor}`;
+		for (const r of snapPack.rules) {
+			const scoped = scopeRule(r, anchor, { tagScope });
+			scoped.group = group;
+			// Deeper anchors are more specific and should win at runtime; the
+			// specificity matcher already favors them, this sets the priority
+			// tiebreak so deeper anchors out-rank shallower ones on a tie too.
+			scoped.priority = Math.max(1, (r.priority ?? 10) - depth);
+			out.push(scoped);
+		}
+	}
+	return out;
+}
+
+/**
+ * Apply a mount's `rebind` (rename parametric slot VALUES) and `disable` (drop
+ * slot ids or parametric values) to a snapped system's def, BEFORE compilation.
+ * Returns the def unchanged when neither is present.
+ */
+function applyRebindDisable(
+	def: SystemDef,
+	rebind: Record<string, string> | undefined,
+	disable: string[] | undefined,
+): SystemDef {
+	const hasRebind = rebind && Object.keys(rebind).length > 0;
+	const hasDisable = disable && disable.length > 0;
+	if (!hasRebind && !hasDisable) return def;
+
+	const disableSet = new Set(disable ?? []);
+	const slots = def.slots
+		.filter((s) => !disableSet.has(s.id)) // disable a whole slot by id
+		.map((s) => {
+			if (!s.values) return s;
+			const values = s.values
+				.filter((v) => !disableSet.has(v)) // disable a parametric value
+				.map((v) => (rebind && rebind[v] !== undefined ? rebind[v] : v)); // rebind a value
+			return { ...s, values };
+		});
+	return { ...def, slots };
+}
+
+/**
+ * Resolve a mount `at:` into concrete anchors.
+ *
+ *   - A LITERAL path (no `*` segment) resolves to exactly one anchor — itself.
+ *   - A GLOB (one or more `*` segments) resolves against `vaultFolders`: each
+ *     `*` matches exactly one path segment, and every existing folder path that
+ *     matches becomes an anchor. With no `vaultFolders`, a glob resolves to zero
+ *     anchors (lazy — the caller may pass sample paths instead).
+ */
+export function resolveMountAnchors(at: string, vaultFolders?: string[]): string[] {
+	const segs = at.split('/');
+	const hasGlob = segs.some((s) => s === '*');
+	if (!hasGlob) return [at];
+	if (!vaultFolders || vaultFolders.length === 0) return [];
+	const body = segs.map((s) => (s === '*' ? '[^/]+' : escapeRegex(s))).join('/');
+	const re = new RegExp(`^${body}$`);
+	return vaultFolders.filter((f) => re.test(f)).sort();
+}
+
+/**
+ * Derive the tag namespace a mounted system inherits at an anchor. The host
+ * system's emitted tag for the `*`-bound portion of the glob IS the namespace:
+ * an `Entity`/`*`/`Output` glob matched at `Entity/Cybersader/Output` binds the
+ * host to `Entity/Cybersader` → host emits `#--cybersader` → namespace
+ * `--cybersader`. The literal segments AFTER the last `*` (`Output`) are
+ * structural — they place the mount but contribute no tag segment, exactly like
+ * the hand-written nested SEACOW rule. Literal mounts (no `*`) inherit no
+ * namespace (folder-only scope).
+ */
+function computeTagScope(at: string, anchor: string, baseRules: MappingRule[]): string {
+	const atSegs = at.split('/');
+	let lastStar = -1;
+	for (let i = 0; i < atSegs.length; i++) if (atSegs[i] === '*') lastStar = i;
+	if (lastStar < 0) return '';
+
+	const hostPath = anchor.split('/').slice(0, lastStar + 1).join('/');
+	if (!hostPath) return '';
+
+	const match = findBestMatch(hostPath, baseRules, {
+		input: hostPath,
+		matchType: 'folder',
+		direction: 'folder-to-tag',
+	});
+	if (!match) return '';
+
+	const fwd = applyRuleForward(hostPath, match.rule);
+	if (fwd.tags.length === 0) return '';
+	const tag = fwd.tags[0];
+	return tag.startsWith('#') ? tag.slice(1) : tag;
+}
+
+/**
+ * Group-precedence order for a COMPOSED pack: deeper anchors first. The matcher
+ * partitions matches by `group` and resolves the highest-precedence group
+ * outright, so listing deeper-anchor groups first makes nested mounts out-rank
+ * the shallower host system at runtime. Pass the result as `findBestMatch`'s
+ * `groupPrecedence` argument (or the vault's `groupPrecedence` setting).
+ */
+export function composedGroupPrecedence(pack: RulePack): string[] {
+	const groups = new Set<string>();
+	for (const r of pack.rules) if (r.group) groups.add(r.group);
+	return [...groups].sort((a, b) => anchorDepthOfGroup(b) - anchorDepthOfGroup(a) || a.localeCompare(b));
+}
+
+/** Path depth of a `system@anchor` group's anchor (root/any-segment/under = 0). */
+function anchorDepthOfGroup(group: string): number {
+	const at = group.indexOf('@');
+	const anchor = at >= 0 ? group.slice(at + 1) : group;
+	if (anchor === '' || anchor === 'root' || anchor === 'any-segment' || anchor.startsWith('under:')) {
+		return 0;
+	}
+	return anchor.split('/').length;
 }
 
 interface CompiledSlot {

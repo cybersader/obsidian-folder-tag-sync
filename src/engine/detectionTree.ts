@@ -21,11 +21,12 @@
  *
  * The matcher reuses the same emoji/JD-prefix normalization rules as
  * detectPacks.ts so a folder that detected as a hit there will detect
- * as a hit here too. The two files share a small `matchesNormalized`
- * helper exported from detectPacks.
+ * as a hit here too. Both files share the `matchesNormalized` helper
+ * from `./folderNormalize`.
  */
 
 import type { DetectionResult, DetectionSignalResult } from './detectPacks';
+import { matchesNormalized } from './folderNormalize';
 
 // ─── Cross-pack hierarchy view types ──────────────────────────────────
 //
@@ -109,46 +110,10 @@ export interface DetectionTree {
 	totalVaultFolders: number;
 }
 
-// ─── Normalization (mirrors detectPacks.ts) ─────────────────────────────
-// Re-implemented here rather than exported because detectPacks doesn't
-// expose them as public API. Kept in sync intentionally — tests in both
-// files cover the same edge cases (emoji + JD-prefix folders).
-
-function stripEmojiOnly(target: string): string {
-	return target
-		.replace(/[\u{1F600}-\u{1F64F}]/gu, '')
-		.replace(/[\u{1F300}-\u{1F5FF}]/gu, '')
-		.replace(/[\u{1F680}-\u{1F6FF}]/gu, '')
-		.replace(/[\u{1F1E0}-\u{1F1FF}]/gu, '')
-		.replace(/[\u{2600}-\u{26FF}]/gu, '')
-		.replace(/[\u{2700}-\u{27BF}]/gu, '')
-		.replace(/[\u{1F900}-\u{1F9FF}]/gu, '')
-		.replace(/[\u{2B00}-\u{2BFF}]/gu, '')
-		.replace(/[\u{FE00}-\u{FE0F}]/gu, '')
-		.replace(/\s+/g, ' ')
-		.trim();
-}
-
-function stripJDPrefix(segment: string): string {
-	const jdMatch = segment.match(/^\d+\s*-\s*(.+)$/);
-	if (jdMatch) return jdMatch[1].trim();
-	const simpleMatch = segment.match(/^\d+\.?\s+(.+)$/);
-	if (simpleMatch) return simpleMatch[1].trim();
-	return segment;
-}
-
-function stripEmojiAndJD(target: string): string {
-	return stripEmojiOnly(target).split('/').map(stripJDPrefix).join('/');
-}
-
-function matchesNormalized(regex: RegExp, target: string): boolean {
-	if (regex.test(target)) return true;
-	const emojiOnly = stripEmojiOnly(target);
-	if (emojiOnly !== target && regex.test(emojiOnly)) return true;
-	const fullNormalize = stripEmojiAndJD(target);
-	if (fullNormalize !== emojiOnly && regex.test(fullNormalize)) return true;
-	return false;
-}
+// ─── Normalization (shared) ─────────────────────────────────────────────
+// stripEmojiOnly / stripJDPrefix / stripEmojiAndJD / matchesNormalized now
+// live in `./folderNormalize` and are imported above — same source of truth
+// detectPacks.ts uses, so a folder that detects as a hit there detects here.
 
 function leafOf(path: string): string {
 	const idx = path.lastIndexOf('/');

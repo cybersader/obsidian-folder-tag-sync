@@ -34,6 +34,8 @@
  * that very obviously uses a known organizational system.
  */
 
+import { matchesNormalized } from './folderNormalize';
+
 export interface DetectionSignalResult {
 	/** The signal definition that matched. */
 	folderRegex: string;
@@ -78,70 +80,9 @@ export interface ManifestPackEntry {
 
 const MAX_EXAMPLES = 3;
 
-/**
- * Strip decorative emoji from a folder/path string. Per-segment for paths.
- *
- * Examples:
- *   "📁 01 - Projects" → "01 - Projects"   (emoji + leading space gone, JD intact)
- *   "⬇️ INBOX"        → "INBOX"
- *   "Projects"        → "Projects"          (no-op)
- */
-function stripEmojiOnly(target: string): string {
-	return target
-		.replace(/[\u{1F600}-\u{1F64F}]/gu, '')
-		.replace(/[\u{1F300}-\u{1F5FF}]/gu, '')
-		.replace(/[\u{1F680}-\u{1F6FF}]/gu, '')
-		.replace(/[\u{1F1E0}-\u{1F1FF}]/gu, '')
-		.replace(/[\u{2600}-\u{26FF}]/gu, '')
-		.replace(/[\u{2700}-\u{27BF}]/gu, '')
-		.replace(/[\u{1F900}-\u{1F9FF}]/gu, '')
-		.replace(/[\u{2B00}-\u{2BFF}]/gu, '')
-		.replace(/[\u{FE00}-\u{FE0F}]/gu, '')
-		.replace(/\s+/g, ' ')
-		.trim();
-}
-
-/**
- * Strip the Johnny-Decimal-style numeric prefix from a single segment.
- * "01 - Projects" → "Projects"; "1. Notes" → "Notes"; "Projects" → "Projects".
- */
-function stripJDPrefix(segment: string): string {
-	const jdMatch = segment.match(/^\d+\s*-\s*(.+)$/);
-	if (jdMatch) return jdMatch[1].trim();
-	const simpleMatch = segment.match(/^\d+\.?\s+(.+)$/);
-	if (simpleMatch) return simpleMatch[1].trim();
-	return segment;
-}
-
-/**
- * Strip emoji AND the JD numeric prefix per segment. Used for detecting
- * convention-blind systems (PARA on emoji+JD-prefixed folders) but NOT for
- * JD pack detection itself (which needs to MATCH the prefix).
- *
- * Examples:
- *   "📁 01 - Projects"           → "Projects"
- *   "Output/📁 01 - Projects/Web" → "Output/Projects/Web"
- */
-function stripEmojiAndJD(target: string): string {
-	return stripEmojiOnly(target).split('/').map(stripJDPrefix).join('/');
-}
-
-/**
- * Test a regex against three forms of the target — raw, emoji-only-stripped,
- * and emoji+JD-stripped. Any match counts. The middle form is essential for
- * detecting JD packs against emoji+JD folders (`📁 01 - Projects`): the JD
- * regex `^\d{2} - ...` matches the emoji-only form `01 - Projects` but not
- * the fully-normalized form `Projects`. Without this middle layer, JD
- * detection silently misses the very vaults it's designed to detect.
- */
-function matchesNormalized(regex: RegExp, target: string): boolean {
-	if (regex.test(target)) return true;
-	const emojiOnly = stripEmojiOnly(target);
-	if (emojiOnly !== target && regex.test(emojiOnly)) return true;
-	const fullNormalize = stripEmojiAndJD(target);
-	if (fullNormalize !== emojiOnly && regex.test(fullNormalize)) return true;
-	return false;
-}
+// Emoji / JD-prefix normalization (stripEmojiOnly, stripJDPrefix,
+// stripEmojiAndJD, matchesNormalized) lives in `./folderNormalize` and is
+// shared with detectionTree.ts — see that module for the rationale.
 
 /**
  * Score every pack in `manifest` against the vault's `folderPaths`.

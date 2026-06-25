@@ -43,6 +43,7 @@ import type {
 	TruncationTailHandling,
 } from '../types/typed';
 import { deriveRule } from '../engine/derive';
+import { AXIS_CONVENTIONS } from '../engine/axisConventions';
 import { previewRule } from '../engine/rulePreview';
 import {
 	type FormState,
@@ -58,19 +59,9 @@ import { EntryPathSuggest, collectFolderSources, collectTagSources } from './sug
 import { ConfirmModal } from './ConfirmModal';
 
 // ─── Library-science conventions ─────────────────────────────────────────
-
-/** SEACOW prefix-marker convention per docs/concepts/axes.md */
-const AXIS_CONVENTIONS: Record<
-	Axis,
-	{ label: string; marker: TagPrefixMarker; description: string }
-> = {
-	system: { label: 'System', marker: '/', description: 'Platform, config, templates' },
-	entity: { label: 'Entity', marker: '--', description: 'Workspace owner, authority' },
-	capture: { label: 'Capture', marker: '-', description: 'Ingestion, inbox, clippings' },
-	output: { label: 'Output', marker: '_', description: 'Publishable, external-facing' },
-	work: { label: 'Work', marker: null, description: 'Active processing (PARA, JD)' },
-	relation: { label: 'Relation', marker: null, description: 'Flat cross-link keywords' },
-};
+// AXIS_CONVENTIONS (the SEACOW axis → tag-prefix-marker table) now lives in
+// `../engine/axisConventions` and is imported above — shared with the
+// upcoming rule-authoring synthesizer.
 
 /** Per-op mini-diagram for the card grid. Sample input: `A/B/C/D` */
 const OP_DIAGRAMS: Record<TransferOp['op'], { gloss: string; output: string }> = {

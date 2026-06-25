@@ -213,7 +213,7 @@ function inferAuthority(rule: MappingRule): TagVocabulary['authority'] {
 	return 'mutual';
 }
 
-function inferFolderScheme(
+export function inferFolderScheme(
 	folderEntry?: string,
 	transfer?: TransferOp,
 ): FolderClassifier['scheme'] {
@@ -228,7 +228,7 @@ function inferFolderScheme(
 	return 'hierarchical';
 }
 
-function inferFolderNaming(folderEntry?: string): FolderClassifier['naming'] {
+export function inferFolderNaming(folderEntry?: string): FolderClassifier['naming'] {
 	if (!folderEntry) return 'word';
 	if (/^📁|^🗂️|^[\uD800-\uDFFF]/.test(folderEntry)) return 'emoji-prefixed';
 	if (/^\d{2}\s*[-_]/.test(folderEntry)) return 'ordinal';

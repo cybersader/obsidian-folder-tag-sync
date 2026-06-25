@@ -16,8 +16,10 @@
 
 import { describe, expect, test } from 'bun:test';
 import { deriveRule } from './derive';
+import { inferTypedModel } from './inferTyped';
 import { applyRuleForward, applyRuleInverse } from './applyTransfer';
 import type { TypedRuleSpec } from '../types/typed';
+import type { MappingRule } from '../types/settings';
 
 const baseOptions = {
 	createFolders: true,
@@ -195,5 +197,78 @@ describe('realistic — JD-style rule deployed under fixtures/', () => {
 		// '11 - Q4 Roadmap' → '11-q4-roadmap'.
 		const r = applyRuleForward('fixtures/10 - Projects/11 - Q4 Roadmap', rule);
 		expect(r.tags).toEqual(['#10-projects/11-q4-roadmap']);
+	});
+});
+
+// ─── derive → infer → derive: folderAnchor preservation ──────────────────
+//
+// Phase 0 seam guard for the rule-authoring synthesizer. The synthesizer
+// relies on anchors surviving a full round-trip (derive a typed spec to a
+// MappingRule, infer the typed model back, derive again). A prior analysis
+// found that `under: {...}` anchors are NOT recoverable from regex *shape*
+// alone — `^Output/Public(?:/|$)` is ambiguous between `under: 'Output'` +
+// entry `Public` and root + multi-segment entry `Output/Public`.
+//
+// The round-trip nonetheless works because `deriveRule` writes
+// `folderAnchor` explicitly onto the MappingRule, and `inferTypedModel`
+// reads `rule.folderAnchor` directly (preferring it over shape inference).
+// These tests pin that explicit-carry seam: if anyone stops propagating
+// `folderAnchor` on the rule, or stops reading it back, `under:` anchors
+// would silently degrade to `root` and the synthesizer would misplace
+// nested deployments.
+
+describe('derive → infer → derive preserves folderAnchor', () => {
+	test("under: anchor survives the round-trip", () => {
+		const spec = baseSpec({ folderAnchor: { under: 'fixtures' } });
+		const rule = deriveRule(spec);
+
+		// deriveRule must carry the anchor explicitly on the MappingRule.
+		expect(rule.folderAnchor).toEqual({ under: 'fixtures' });
+
+		// inferTypedModel must read it back (NOT try to recover from regex shape).
+		const inferred = inferTypedModel(rule);
+		expect(inferred.folderAnchor).toEqual({ under: 'fixtures' });
+
+		// Re-deriving from the inferred anchor yields the same pattern.
+		const reDerived = deriveRule(baseSpec({ folderAnchor: inferred.folderAnchor }));
+		expect(reDerived.folderPattern).toBe(rule.folderPattern);
+	});
+
+	test("any-segment anchor survives the round-trip", () => {
+		const rule = deriveRule(baseSpec({ folderAnchor: 'any-segment' }));
+		const inferred = inferTypedModel(rule);
+		expect(inferred.folderAnchor).toBe('any-segment');
+	});
+
+	test("root anchor stays implicit (omitted) through the round-trip", () => {
+		// 'root' is the default and is intentionally NOT serialized — neither
+		// deriveRule nor inferTypedModel should surface it.
+		const rule = deriveRule(baseSpec({ folderAnchor: 'root' }));
+		expect(rule.folderAnchor).toBeUndefined();
+		const inferred = inferTypedModel(rule);
+		expect(inferred.folderAnchor).toBeUndefined();
+	});
+
+	test("DOCUMENTED CONSTRAINT: regex shape alone cannot recover under: — explicit carry is required", () => {
+		// Build the SAME pattern an `under: 'fixtures'` rule produces, but
+		// strip the explicit folderAnchor field — simulating a hand-authored
+		// legacy rule that only has the regex. Inference then sees an ambiguous
+		// shape and CANNOT reconstruct `under:`; it reads it as a root-anchored
+		// rule with a multi-segment entry. This is the known design gap the
+		// explicit-carry seam exists to bridge — NOT a bug to force-fix.
+		const derivedFromUnder = deriveRule(baseSpec({ folderAnchor: { under: 'fixtures' } }));
+		const shapeOnlyRule: MappingRule = { ...derivedFromUnder, folderAnchor: undefined };
+
+		const inferred = inferTypedModel(shapeOnlyRule);
+		// Anchor is lost — inference falls back to root (anchor omitted). The
+		// `fixtures/` parent has vanished: the rule now reads as a root-anchored
+		// `Projects` rule that would only match at the vault root, NOT under
+		// fixtures/. This is exactly the degradation the explicit-carry seam
+		// prevents — a documented design constraint, not a fixable bug.
+		expect(inferred.folderAnchor).toBeUndefined();
+		// folderEntryPoint ('Projects') is also carried explicitly on the rule,
+		// so the entry is unchanged — but with the anchor gone it now points at
+		// the wrong layer (root, not under fixtures/).
+		expect(inferred.folderEntry).toBe('Projects');
 	});
 });

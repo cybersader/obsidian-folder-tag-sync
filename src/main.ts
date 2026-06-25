@@ -4,6 +4,7 @@ import { DynamicTagsFoldersSettings, DEFAULT_SETTINGS, MappingRule } from './typ
 import { SettingsTab } from './ui/SettingsTab';
 import { RulePackPickerModal } from './ui/RulePackPickerModal';
 import { DetectVaultModal } from './ui/DetectVaultModal';
+import { ScanAndSnapModal } from './ui/ScanAndSnapModal';
 import { DebugLogger } from './utils/debug';
 import { FolderToTagSync } from './sync/FolderToTagSync';
 import { TagToFolderSync } from './sync/TagToFolderSync';
@@ -78,6 +79,14 @@ export default class DynamicTagsFoldersPlugin extends Plugin {
 			name: 'Scan vault for organizational systems',
 			callback: () => {
 				void this.scanVaultForSystems();
+			}
+		});
+
+		this.addCommand({
+			id: 'scan-and-snap-draft-rules',
+			name: 'Scan & snap: draft rules from my vault',
+			callback: () => {
+				this.scanAndSnapDraftRules();
 			}
 		});
 
@@ -233,6 +242,31 @@ export default class DynamicTagsFoldersPlugin extends Plugin {
 				skippedDuplicates: newRules.length - toAdd.length,
 			});
 		});
+		modal.open();
+	}
+
+	/**
+	 * Open the Scan & Snap modal — drafts scoped candidate rules from the
+	 * organizational systems already detected in the vault, lets the user
+	 * triage them (coverage / bijectivity / conflicts), and commits the
+	 * selected ones into settings. Read-only on the vault: only rules change.
+	 */
+	scanAndSnapDraftRules(): void {
+		const modal = new ScanAndSnapModal(
+			this.app,
+			this.settings.rules,
+			this.settings.groupPrecedence,
+			async (newRules) => {
+				const existingIds = new Set(this.settings.rules.map((r) => r.id));
+				const toAdd = newRules.filter((r) => !existingIds.has(r.id));
+				this.settings.rules = [...this.settings.rules, ...toAdd];
+				await this.saveSettings();
+				await this.debugLogger.info('Scan & snap rules applied', {
+					rulesAdded: toAdd.length,
+					skippedDuplicates: newRules.length - toAdd.length,
+				});
+			},
+		);
 		modal.open();
 	}
 

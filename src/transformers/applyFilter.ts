@@ -75,7 +75,6 @@ export function applyFilter(value: string, filterName: string): string {
 			return value;
 
 		default:
-			// eslint-disable-next-line no-console
 			console.warn(`Unknown Path Lens filter: "${filterName}" — passing through unchanged`);
 			return value;
 	}
@@ -106,7 +105,6 @@ export function applyFilterChain(value: string, filterNames: string[]): string {
 export function applyFilterInverse(value: string, filterName: string): string {
 	const meta = TRANSFORM_METADATA[filterName];
 	if (!meta) {
-		// eslint-disable-next-line no-console
 		console.warn(`Unknown Path Lens filter (inverse): "${filterName}"`);
 		return value;
 	}

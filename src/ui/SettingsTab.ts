@@ -188,7 +188,7 @@ export class SettingsTab extends PluginSettingTab {
 
 		// Idiomatic Obsidian pattern: section heading above, then a Setting
 		// row with description on the left and the primary action on the
-		// right. F2 — second CTA "+ Template rule" opens the advanced editor
+		// right. F2 — second CTA "New template rule" opens the advanced editor
 		// directly in template mode for users who want the Path Lens
 		// authoring path without the guided detour.
 		new Setting(section)
@@ -196,7 +196,7 @@ export class SettingsTab extends PluginSettingTab {
 			.setDesc('Define rules for mapping between folders and tags. Lower priority numbers are evaluated first.')
 			.addButton(btn => {
 				btn
-					.setButtonText('+ Template rule')
+					.setButtonText('New template rule')
 					.setTooltip('Open the advanced editor in template mode — author with named slots like Projects/{topic} (Path Lens, F2)')
 					.onClick(() => this.openRuleEditor(null));
 				// Stable e2e hook (matches dtf-add-rule-button pattern).
@@ -444,11 +444,18 @@ export class SettingsTab extends PluginSettingTab {
 		}
 
 		if (groupCounts.size > 1) {
+			// Decorative pipe divider kept as its own span so the "Groups:"
+			// label remains a sentence-cased standalone word (parallels "Bulk:").
+			const groupDivider = bulkBar.createSpan();
+			groupDivider.setText(' | ');
+			groupDivider.style.fontSize = '0.85em';
+			groupDivider.style.color = 'var(--text-muted)';
+			groupDivider.style.marginLeft = '0.5em';
+
 			const groupSep = bulkBar.createSpan();
-			groupSep.setText(' | Groups:');
+			groupSep.setText('Groups:');
 			groupSep.style.fontSize = '0.85em';
 			groupSep.style.color = 'var(--text-muted)';
-			groupSep.style.marginLeft = '0.5em';
 			groupSep.style.marginRight = '0.2em';
 
 			for (const [groupName, counts] of [...groupCounts.entries()].sort((a, b) =>

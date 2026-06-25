@@ -442,7 +442,7 @@ export class RuleEditorModal extends Modal {
 				'Default is the rule\'s pack ID. Leave empty for ungrouped (lowest precedence).'
 			)
 			.addText(text => text
-				.setPlaceholder('e.g. para, jd, seacow-cyberbase')
+				.setPlaceholder('For example: para, jd, seacow-cyberbase')
 				.setValue(this.rule.group ?? '')
 				.onChange(value => {
 					const trimmed = value.trim();
@@ -1049,8 +1049,8 @@ export class RuleEditorModal extends Modal {
 				dd.addOption('', 'Auto (engine decides)');
 				dd.addOption('1:1', '1:1 — bijective');
 				dd.addOption('1:many', '1:many — one folder, many tags (post-coordination)');
-				dd.addOption('many:1', 'many:1 — many folders, one tag (collapse / aggregate)');
-				dd.addOption('many:many', 'many:many — fully cross-cutting (rare)');
+				dd.addOption('many:1', 'Many:1 — many folders, one tag (collapse / aggregate)');
+				dd.addOption('many:many', 'Many:many — fully cross-cutting (rare)');
 				dd.setValue(this.rule.cardinality ?? '');
 				dd.onChange(value => {
 					this.rule.cardinality = (value || undefined) as MappingRule['cardinality'];
@@ -1208,14 +1208,14 @@ export class RuleEditorModal extends Modal {
 			filtersTd.style.borderBottom = '1px solid var(--background-modifier-border)';
 
 			const folderFiltersInput = filtersTd.createEl('input', { type: 'text' });
-			folderFiltersInput.placeholder = 'folder-side filters';
+			folderFiltersInput.placeholder = 'Folder-side filters';
 			folderFiltersInput.value = (folderSlot?.filters ?? []).join(' | ');
 			folderFiltersInput.style.fontFamily = 'var(--font-monospace)';
 			folderFiltersInput.style.fontSize = '0.85em';
 			folderFiltersInput.style.width = 'calc(50% - 0.2em)';
 			folderFiltersInput.style.marginRight = '0.4em';
 			folderFiltersInput.style.padding = '0.15em 0.3em';
-			folderFiltersInput.title = 'Folder-side filters, pipe-separated. e.g. "kebab-case" or "strip-emoji | kebab-case"';
+			folderFiltersInput.title = 'Folder-side filters, pipe-separated. E.g. "kebab-case" or "strip-emoji | kebab-case"';
 			folderFiltersInput.addEventListener('change', () => {
 				const filters = folderFiltersInput.value.split('|').map(s => s.trim()).filter(s => s.length > 0);
 				this.updateSlotInTemplates(name, { folderFilters: filters }, 'folder');
@@ -1223,7 +1223,7 @@ export class RuleEditorModal extends Modal {
 			});
 
 			const tagFiltersInput = filtersTd.createEl('input', { type: 'text' });
-			tagFiltersInput.placeholder = 'tag-side filters';
+			tagFiltersInput.placeholder = 'Tag-side filters';
 			tagFiltersInput.value = (tagSlot?.filters ?? []).join(' | ');
 			tagFiltersInput.style.fontFamily = 'var(--font-monospace)';
 			tagFiltersInput.style.fontSize = '0.85em';

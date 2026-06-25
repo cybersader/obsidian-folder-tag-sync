@@ -28,18 +28,15 @@ The most recent campaign (v0.1.22 → 0.1.27) was one sustained push to solve th
 - **0.1.25** — [hierarchy-first detection view](/obsidian-folder-tag-sync/agent-context/glossary/): packs become invisible plumbing; you navigate *your* folder tree.
 - **0.1.27** — [auto-scope](/obsidian-folder-tag-sync/agent-context/glossary/) + [scope tint](/obsidian-folder-tag-sync/agent-context/glossary/): selecting a folder rewrites rules to fire only inside it, and the subtree visibly paints the reach before you apply.
 
-## The live open question (the actual wall)
+## The active workstream — authoring at scale ("Scan & Snap")
 
-**Visibility is solved end-to-end; rule _authoring_ at scale is not.** The plugin can show you where existing packs fire and auto-scope a detected pattern to an entry point. But a user facing a large, idiosyncratic vault that *doesn't* match a prebuilt pack still hand-crafts `folderPattern` regex and `folderTemplate` strings in the rule editor, one rule at a time.
+**Visibility is solved end-to-end; rule _authoring_ at scale is the wall** — and as of 2026-04-30 we've **decided the approach** and started building it. Full design + decisions: [Authoring-at-scale design](/obsidian-folder-tag-sync/agent-context/zz-log/2026-04-30-authoring-at-scale-scan-and-snap-design/).
 
-The 0.1.27 `scopeRules` / `minimalScopeCover` machinery proved the system can **synthesize correct rules from a structural selection**. The open question is how to generalize that into authoring *new* rules directly from the hierarchy-first tree — *"I can see exactly what my rules do; now how do I create the rules I need across a big vault without writing regex by hand?"*
+The design is **"Scan & Snap" (Vault Cartographer)** — a scan-first wizard that never opens blank: it walks your vault, narrates it back in SEACOW terms ("you're ~80% SEACOW-outer + JD; your Work axis is an open slot"), and hands you a populated, previewed, conflict-checked candidate-rule table composed from org-system Lego blocks snapped onto your real branches. It was the **unanimous** winner of a 3-judge design panel.
 
-**Likely next steps** (from the arc analysis — not yet committed):
+**Locked decisions:** ship the *safe* detection-driven path first (raw-structure synthesizer deferred to Phase 3); candidates **enabled by default** with junk sorted up; **read-only** (no folder creation in MVP); SEACOW axes presented as **labels**, not jargon dropdowns. A user insight to honor: an org-system block manifests two ways — *unfold at the current level* (map existing folders; MVP) or *create a container then unfold below* (Phase 4 `establish`).
 
-1. Generalize scope-from-selection into rule **synthesis** — select folders in the tree, generate brand-new rules (pattern + template inferred from the selected structure), reusing `scopeRules.ts`.
-2. An authoring-mode counterpart to the detection tree with a **live coverage preview** that updates as you define a rule (close the "what will this do" loop visually, not via the single-sample text preview in the current rule editor).
-3. Share one annotated tree between user-authored rules and pack rules so authors see conflicts/overlaps before saving.
-4. Stress-test the detection tree + scope tint on a **1000+ folder** vault for performance and legibility.
+**Build status:** **Phase 0 in progress** — pure internal refactors (export inference helpers, share the axis-conventions table + a slugify helper, dedupe the emoji/JD normalizer, add a folderAnchor round-trip test) so the builder reuses engine code. No user-facing change, no version bump. Phases 1→4 are laid out in the design doc, all on existing seams (`detectPacks`, `scopeRules`, `previewRule`, `computeConflicts`, `deriveRule`, `extractInstances`).
 
 ## Community-plugin submission status
 

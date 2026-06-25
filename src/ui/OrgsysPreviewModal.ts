@@ -307,6 +307,7 @@ export class OrgsysPreviewModal extends Modal {
 			const sample = deriveComposedSamples(def, registry);
 			if (sample.anchors.length > 0) {
 				const samplePack = compileSystemDef(def, { registry, vaultFolders: sample.anchors });
+				this.renderWarnings(samplePack.warnings);
 				this.renderCompiledRules(samplePack.rules);
 				this.renderComposedSamples(samplePack, sample.samplePaths);
 				return;
@@ -314,8 +315,34 @@ export class OrgsysPreviewModal extends Modal {
 		}
 
 		const precedence = hasMounts ? composedGroupPrecedence(pack) : this.groupPrecedence;
+		this.renderWarnings(pack.warnings);
 		this.renderCompiledRules(pack.rules);
 		this.renderEmissions(def, pack.rules, precedence);
+	}
+
+	/**
+	 * Surface non-fatal composition diagnostics (skipped mounts, cycles,
+	 * duplicate anchors, empty namespaces) in a muted panel above the rules,
+	 * so the user sees them in-app rather than only in compiled output.
+	 */
+	private renderWarnings(warnings: string[] | undefined): void {
+		if (!warnings || warnings.length === 0) return;
+		const panel = this.outputEl.createDiv();
+		panel.dataset.dtfOrgsysWarnings = '1';
+		panel.style.padding = '0.5em 0.7em';
+		panel.style.marginBottom = '0.7em';
+		panel.style.background = 'var(--background-modifier-error-hover, rgba(210, 150, 40, 0.10))';
+		panel.style.borderLeft = '3px solid var(--text-warning, rgb(200, 150, 40))';
+		panel.style.borderRadius = '4px';
+		panel.style.fontSize = '0.82em';
+		panel.style.color = 'var(--text-muted)';
+
+		const header = panel.createDiv({ text: `Warnings (${warnings.length})` });
+		header.style.fontWeight = '600';
+		header.style.marginBottom = '0.25em';
+		for (const w of warnings) {
+			panel.createDiv({ text: `• ${w}` });
+		}
 	}
 
 	/** Build the registry of base systems that `extends` / `mounts` resolve against. */
@@ -594,10 +621,13 @@ function firstSamplePath(def: SystemDef): string | undefined {
 	return paths.length ? paths[0] : undefined;
 }
 
-/** Is this group a mount placement (`<system>@<path-anchor>`), not the host root? */
+/**
+ * Is this group a mount placement, not the host root? Groups are `host@root`
+ * (host) or `host@snap@anchor` (a mount) — the anchor follows the LAST `@`.
+ */
 function isMountGroup(group: string | undefined): boolean {
 	if (!group) return false;
-	const at = group.indexOf('@');
+	const at = group.lastIndexOf('@');
 	const anchor = at >= 0 ? group.slice(at + 1) : '';
 	return anchor !== '' && anchor !== 'root' && anchor !== 'any-segment' && !anchor.startsWith('under:');
 }

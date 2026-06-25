@@ -64,6 +64,13 @@ export interface RulePack {
 	author: string;
 	rules: MappingRule[];
 	notes?: string[];
+	/**
+	 * Non-fatal compile diagnostics (composition). Populated by
+	 * `compileSystemDef` when a mount is skipped (unknown system, cycle,
+	 * duplicate anchor) or degrades (glob mount that derives an empty tag
+	 * namespace). Surfaced in the preview modal; never thrown.
+	 */
+	warnings?: string[];
 
 	// Phase 2C metadata (all optional)
 

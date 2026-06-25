@@ -13,6 +13,34 @@
  *   - Path-Lens pattern folder faces          → `compileTemplate` (template rule)
  *
  * NOT wired into the live rule-loading pipeline in this phase — pure engine.
+ *
+ * ════════════════════════════════════════════════════════════════════════════
+ * DEFERRED — KNOWN GAPS for the future "install composition into sync" phase.
+ * Phase 1 here is PREVIEW-ONLY: composed rules are shown in OrgsysPreviewModal
+ * but never installed into settings or run by the live sync engine. The items
+ * below are SAFE today precisely because of that scoping; they MUST be solved
+ * before composed rules are ever persisted or synced.
+ *
+ *   H1 (CRITICAL for install) — `composedGroupPrecedence` is NOT persisted with
+ *      the rules. A composed pack's "deeper anchor wins" runtime tiebreak relies
+ *      on the caller passing the precedence list to `findBestMatch`. The preview
+ *      modal does pass it; the live rule store does not carry it. When
+ *      composition is wired into actual install/sync this must be solved — bake
+ *      precedence into per-rule `priority`, or persist the group order alongside
+ *      the rules. Without it, deeper mounts silently lose to the host.
+ *
+ *   M1 — two entities that kebab to the SAME tag namespace (e.g. `Cybersader`
+ *      and `cyber sader`) collide on one namespace; not detected or warned.
+ *   M6 — a glob whose last `*` doesn't align with a host slot yields an EMPTY
+ *      namespace (mounted body emits bare). We now WARN on this case, but do not
+ *      otherwise repair it.
+ *   Parser footnote — `.orgsys` flow MAPPINGS (`{a: b}` inline) are silently
+ *      dropped by the minimal YAML reader; only block mappings are supported.
+ *   L2 — a `rebind` to `""` (empty string) is not validated; it produces an
+ *      empty value rather than being rejected.
+ *   L4 — a snapped system's tag face authored WITHOUT a leading `#` is accepted
+ *      as-is; the namespace join still works but the face is not normalized.
+ * ════════════════════════════════════════════════════════════════════════════
  */
 
 import type { MappingRule, RuleOptions, RuleDirection, CaseTransformType } from '../types/settings';
@@ -25,6 +53,7 @@ import { scopeRule } from './scopeRules';
 import { findBestMatch } from './ruleMatcher';
 import { applyRuleForward } from './applyTransfer';
 import { applyCaseTransform } from '../transformers/caseTransformers';
+import { normalizeSegments } from './folderNormalize';
 
 /**
  * Optional vault + registry context.
@@ -81,8 +110,29 @@ interface ResolvedDefaults {
  * stamped `group: "<system>@<anchor>"`.
  */
 export function compileSystemDef(rawDef: SystemDef, ctx?: CompileContext): RulePack {
+	const warnings: string[] = [];
+	const pack = compileSystemDefInner(rawDef, ctx, new Set<string>(), warnings);
+	// Dedupe identical diagnostics (the same anchor/namespace gripe can surface
+	// once per matched folder) and attach only when something is worth showing.
+	const unique = [...new Set(warnings)];
+	if (unique.length > 0) pack.warnings = unique;
+	return pack;
+}
+
+/**
+ * Recursive compile core. `visited` is the set of system ids on the current
+ * compile PATH (ancestors via mounts) — a COPY is taken per branch so two
+ * sibling mounts of the same base aren't mistaken for a cycle. `warnings`
+ * accumulates non-fatal diagnostics across the whole tree.
+ */
+function compileSystemDefInner(
+	rawDef: SystemDef,
+	ctx: CompileContext | undefined,
+	visited: Set<string>,
+	warnings: string[],
+): RulePack {
 	// Phase 1: inherit axes + defaults (+ anchor convention) from a base system.
-	const def = resolveExtends(rawDef, ctx?.registry);
+	const def = resolveExtends(rawDef, ctx?.registry, warnings);
 
 	const anchor: OrgsysAnchorMode = def.anchor?.default ?? 'root';
 	const axis = (def.axes && def.axes.length ? def.axes[0] : 'work') as Axis;
@@ -116,8 +166,22 @@ export function compileSystemDef(rawDef: SystemDef, ctx?: CompileContext): RuleP
 	// Snapshot the base (host) rules BEFORE mounts so each mount's tag-namespace
 	// derivation sees only the host, never a prior mount's emitted rules.
 	const baseRules = [...rules];
+	// The compile path including THIS system — passed to mounts for cycle
+	// detection. A fresh copy keeps sibling branches independent.
+	const pathWithSelf = new Set(visited);
+	pathWithSelf.add(def.system);
+	// M2: dedupe emitted rule ids across mounts so overlapping anchors don't
+	// produce two rules with the same id (which would collide on install).
+	const seenIds = new Set(baseRules.map((r) => r.id));
 	for (const mount of def.mounts ?? []) {
-		rules.push(...compileMount(def, mount, baseRules, ctx));
+		for (const scoped of compileMount(def, mount, baseRules, ctx, pathWithSelf, warnings)) {
+			if (seenIds.has(scoped.id)) {
+				warnings.push(`Skipped a duplicate mounted rule "${scoped.id}" from overlapping anchors.`);
+				continue;
+			}
+			seenIds.add(scoped.id);
+			rules.push(scoped);
+		}
 	}
 
 	const detection: PackDetection | undefined = signals.length
@@ -152,11 +216,29 @@ export function compileSystemDef(rawDef: SystemDef, ctx?: CompileContext): RuleP
  * Resolve `extends`: inherit `axes`, `defaults`, and the anchor convention from
  * a base system in the registry. Child fields win; defaults merge field-wise.
  * No-op when there's no `extends` or the base isn't in the registry.
+ *
+ * M4 — MULTI-LEVEL: the base may itself `extends` a further base, so we resolve
+ * the base recursively before merging (A→B→C inherits C's fields). A `seen` set
+ * (the systems already on the extends chain) guards against an extends cycle:
+ * on revisit, inheritance stops and a warning is recorded instead of recursing
+ * forever.
  */
-function resolveExtends(def: SystemDef, registry: Map<string, SystemDef> | undefined): SystemDef {
+function resolveExtends(
+	def: SystemDef,
+	registry: Map<string, SystemDef> | undefined,
+	warnings: string[],
+	seen: Set<string> = new Set<string>(),
+): SystemDef {
 	if (!def.extends || !registry) return def;
-	const base = registry.get(def.extends);
-	if (!base) return def;
+	if (def.extends === def.system || seen.has(def.extends)) {
+		warnings.push(`Stopped at an "extends" cycle on "${def.extends}".`);
+		return def;
+	}
+	const rawBase = registry.get(def.extends);
+	if (!rawBase) return def;
+	const nextSeen = new Set(seen);
+	nextSeen.add(def.system);
+	const base = resolveExtends(rawBase, registry, warnings, nextSeen);
 	return {
 		...def,
 		axes: def.axes ?? base.axes,
@@ -176,21 +258,47 @@ function compileMount(
 	mount: OrgsysMount,
 	baseRules: MappingRule[],
 	ctx: CompileContext | undefined,
+	visited: Set<string>,
+	warnings: string[],
 ): MappingRule[] {
 	const snapDef = ctx?.registry?.get(mount.snap);
-	if (!snapDef) return []; // unknown system id — skip (lazy / forgiving)
+	if (!snapDef) {
+		// L3: unknown system id — surface it instead of silently dropping.
+		warnings.push(`Mount references unknown system "${mount.snap}" — skipped.`);
+		return [];
+	}
+
+	// FIX 3 — cycle guard. `visited` already holds the host and all its
+	// ancestors; snapping a system already on that path would recurse forever.
+	if (visited.has(mount.snap)) {
+		warnings.push(`Mount cycle on "${mount.snap}" — skipped to avoid infinite recursion.`);
+		return [];
+	}
 
 	const adjusted = applyRebindDisable(snapDef, mount.rebind, mount.disable);
-	const snapPack = compileSystemDef(adjusted, ctx);
+	const snapPack = compileSystemDefInner(adjusted, ctx, visited, warnings);
 
 	const anchors = resolveMountAnchors(mount.at, ctx?.vaultFolders);
+	const isGlob = mount.at.split('/').includes('*');
 	const out: MappingRule[] = [];
 	for (const anchor of anchors) {
 		const depth = anchor === '' ? 0 : anchor.split('/').length;
 		const tagScope = computeTagScope(mount.at, anchor, baseRules);
-		const group = `${host.system}@${anchor}`;
+		// M6: a glob mount that derives no namespace means its last `*` didn't
+		// align with a host slot — the mounted body will emit a bare tag.
+		if (isGlob && tagScope === '') {
+			warnings.push(
+				`Mount "${mount.snap}" at "${mount.at}" derived an empty tag namespace — its tags emit without a host prefix.`,
+			);
+		}
+		// M3: stamp the snapped system into the group so two different snaps at
+		// the same anchor don't collapse into one group.
+		const group = `${host.system}@${mount.snap}@${anchor}`;
 		for (const r of snapPack.rules) {
-			const scoped = scopeRule(r, anchor, { tagScope });
+			// 'prepend' preserves a typed/literal rule's own bucket entry under
+			// the anchor so its tag isn't doubled (`#projects/projects`); for a
+			// template rule with no entry this is identical to 'replace'.
+			const scoped = scopeRule(r, anchor, { tagScope, entryPointMode: 'prepend' });
 			scoped.group = group;
 			// Deeper anchors are more specific and should win at runtime; the
 			// specificity matcher already favors them, this sets the priority
@@ -237,15 +345,38 @@ function applyRebindDisable(
  *     `*` matches exactly one path segment, and every existing folder path that
  *     matches becomes an anchor. With no `vaultFolders`, a glob resolves to zero
  *     anchors (lazy — the caller may pass sample paths instead).
+ *
+ * FIX 1 — segment matching is NORMALIZED (emoji + JD prefix stripped per
+ * segment), so a literal or star glob segment matches a DECORATED folder
+ * segment: the glob `Entity / star / Output` matches the vault folder
+ * `Entity/Cybersader/📁 01 - Output`. The match is normalized, but the RAW
+ * vault path is returned as the anchor — `scopeRule` needs the real on-disk
+ * path so the mounted rule fires on the actual folder. Anchors are deduped
+ * and sorted.
  */
 export function resolveMountAnchors(at: string, vaultFolders?: string[]): string[] {
 	const segs = at.split('/');
-	const hasGlob = segs.some((s) => s === '*');
+	const hasGlob = segs.includes('*');
 	if (!hasGlob) return [at];
 	if (!vaultFolders || vaultFolders.length === 0) return [];
-	const body = segs.map((s) => (s === '*' ? '[^/]+' : escapeRegex(s))).join('/');
-	const re = new RegExp(`^${body}$`);
-	return vaultFolders.filter((f) => re.test(f)).sort();
+	const matched = vaultFolders.filter((f) => globMatchesNormalized(segs, f));
+	return [...new Set(matched)].sort();
+}
+
+/**
+ * Does a star-glob (already split into segments) match a vault folder path?
+ * Same segment count; each `*` matches any one segment; each literal segment
+ * matches the folder's segment AFTER both are normalized (emoji + JD stripped),
+ * so a decorated folder still matches a semantic glob.
+ */
+function globMatchesNormalized(globSegs: string[], folder: string): boolean {
+	const folderSegs = folder.split('/');
+	if (folderSegs.length !== globSegs.length) return false;
+	for (let i = 0; i < globSegs.length; i++) {
+		if (globSegs[i] === '*') continue;
+		if (normalizeSegments(globSegs[i]) !== normalizeSegments(folderSegs[i])) return false;
+	}
+	return true;
 }
 
 /**
@@ -264,7 +395,11 @@ function computeTagScope(at: string, anchor: string, baseRules: MappingRule[]): 
 	for (let i = 0; i < atSegs.length; i++) if (atSegs[i] === '*') lastStar = i;
 	if (lastStar < 0) return '';
 
-	const hostPath = anchor.split('/').slice(0, lastStar + 1).join('/');
+	// FIX 2 — the anchor is the RAW (possibly decorated) vault path. Normalize
+	// per segment before deriving the namespace, else `Entity/📁 01 - Cybersader`
+	// would yield a garbled `#--📁-01-cybersader/…` instead of `#--cybersader/…`.
+	const rawHostPath = anchor.split('/').slice(0, lastStar + 1).join('/');
+	const hostPath = normalizeSegments(rawHostPath);
 	if (!hostPath) return '';
 
 	const match = findBestMatch(hostPath, baseRules, {
@@ -293,9 +428,14 @@ export function composedGroupPrecedence(pack: RulePack): string[] {
 	return [...groups].sort((a, b) => anchorDepthOfGroup(b) - anchorDepthOfGroup(a) || a.localeCompare(b));
 }
 
-/** Path depth of a `system@anchor` group's anchor (root/any-segment/under = 0). */
+/**
+ * Path depth of a group's anchor (root/any-segment/under = 0). Groups are
+ * `host@root` (the host system) or `host@snap@anchor` (a mount, M3) — the
+ * anchor is always after the LAST `@`, so a snap id embedded in the middle
+ * (which never contains `/`) doesn't distort the depth.
+ */
 function anchorDepthOfGroup(group: string): number {
-	const at = group.indexOf('@');
+	const at = group.lastIndexOf('@');
 	const anchor = at >= 0 ? group.slice(at + 1) : group;
 	if (anchor === '' || anchor === 'root' || anchor === 'any-segment' || anchor.startsWith('under:')) {
 		return 0;

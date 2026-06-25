@@ -40,6 +40,21 @@ import type { MappingRule } from '../types/settings';
 export interface ScopeOptions {
 	/** Tag namespace prefix (no leading `#`) to prepend to the tag face. */
 	tagScope?: string;
+	/**
+	 * How the scope path interacts with the rule's existing `folderEntryPoint`.
+	 *
+	 *   - `'replace'` (DEFAULT): `folderEntryPoint` becomes the scope path
+	 *     outright. Correct for the detection-tree auto-scope flow and for
+	 *     TEMPLATE rules (whose entry point is cosmetic — the template carries
+	 *     the full path), so existing behavior is unchanged.
+	 *   - `'prepend'`: the scope path is prepended to the rule's ORIGINAL entry,
+	 *     `scopePath + '/' + originalEntry`. Required when a TYPED/literal rule
+	 *     (e.g. PARA's `Projects` bucket) is mounted: its bucket segment must be
+	 *     preserved so the forward runtime strips `scope/Projects` and the tag
+	 *     entry isn't re-prepended into a doubled `#projects/projects`. With no
+	 *     original entry this collapses to `'replace'`.
+	 */
+	entryPointMode?: 'replace' | 'prepend';
 }
 
 /**
@@ -64,7 +79,12 @@ export function scopeRule(rule: MappingRule, scopePath: string, opts?: ScopeOpti
 	if (scopePath !== '') {
 		out.folderPattern = rule.folderPattern ? scopePattern(rule.folderPattern, scopePath) : rule.folderPattern;
 		out.folderTemplate = rule.folderTemplate ? scopeTemplate(rule.folderTemplate, scopePath) : rule.folderTemplate;
-		out.folderEntryPoint = scopePath;
+		// 'prepend' keeps a typed rule's bucket entry under the scope; 'replace'
+		// (default) overwrites it. With no original entry both are identical.
+		out.folderEntryPoint =
+			opts?.entryPointMode === 'prepend' && rule.folderEntryPoint
+				? `${scopePath}/${rule.folderEntryPoint}`
+				: scopePath;
 	}
 
 	if (tagScope !== '') {

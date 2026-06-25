@@ -70,6 +70,27 @@ export function stripEmojiAndJD(target: string): string {
 }
 
 /**
+ * Normalize a path by stripping emoji + JD prefix from EACH segment in
+ * isolation, then rejoining. Unlike `stripEmojiAndJD` — which runs
+ * `stripEmojiOnly` over the WHOLE string first and so leaves a stray leading
+ * space (and a surviving JD prefix) on an inner segment whose emoji abutted a
+ * `/` — this normalizes every segment on its own, so the inner-segment quirk
+ * never fires:
+ *
+ *   "Entity/📁 01 - Cybersader/Output" → "Entity/Cybersader/Output"
+ *
+ * This is the form `.orgsys` COMPOSITION needs: glob `at:` resolution must
+ * compare a literal/`*` segment against a decorated folder segment, and the
+ * tag-namespace derivation must read a CLEAN host path (not `#--📁-01-...`).
+ */
+export function normalizeSegments(path: string): string {
+	return path
+		.split('/')
+		.map((seg) => stripJDPrefix(stripEmojiOnly(seg)))
+		.join('/');
+}
+
+/**
  * Test a regex against three forms of the target — raw, emoji-only-stripped,
  * and emoji+JD-stripped. Any match counts. The middle form is essential for
  * detecting JD packs against emoji+JD folders (`📁 01 - Projects`): the JD

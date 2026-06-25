@@ -84,6 +84,23 @@ describe('scopeRule — single-rule scope rewrite', () => {
 		scopeRule(baseRule, 'A/B');
 		expect(baseRule).toEqual(original);
 	});
+
+	test('default (replace) overwrites folderEntryPoint with the scope path', () => {
+		const typed: MappingRule = { ...baseRule, folderEntryPoint: 'Projects' };
+		expect(scopeRule(typed, 'Work').folderEntryPoint).toBe('Work');
+	});
+
+	test("entryPointMode 'prepend' keeps the rule's own entry under the scope", () => {
+		const typed: MappingRule = { ...baseRule, folderEntryPoint: 'Projects' };
+		const out = scopeRule(typed, 'Work', { entryPointMode: 'prepend' });
+		expect(out.folderEntryPoint).toBe('Work/Projects');
+	});
+
+	test("entryPointMode 'prepend' collapses to replace when there's no original entry", () => {
+		const noEntry: MappingRule = { ...baseRule, folderEntryPoint: '' };
+		const out = scopeRule(noEntry, 'Work', { entryPointMode: 'prepend' });
+		expect(out.folderEntryPoint).toBe('Work');
+	});
 });
 
 describe('scopeRules — batch scope rewrite', () => {

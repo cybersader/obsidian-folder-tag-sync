@@ -19,7 +19,7 @@ import type { SystemDef } from './orgsys';
 import { compileSystemDef, composedGroupPrecedence, resolveMountAnchors } from './compileSystemDef';
 import { loadRulePackFromJSON } from './rulePackLoader';
 import { findBestMatch, calculateMatchConfidence } from './ruleMatcher';
-import { applyRuleForward } from './applyTransfer';
+import { applyRuleForward, applyRuleInverse } from './applyTransfer';
 import { isTemplateRule } from './applyTemplate';
 import type { MappingRule } from '../types/settings';
 
@@ -417,8 +417,9 @@ describe('composition golden — entity + mount(jd at Entity/*/Output)', () => {
 		const mountGroups = new Set(
 			pack.rules.map((r) => r.group).filter((g): g is string => !!g && g.includes('@Entity/')),
 		);
+		// M3: groups carry the snapped system (`host@snap@anchor`).
 		expect(mountGroups).toEqual(
-			new Set(['seacow@Entity/Cybersader/Output', 'seacow@Entity/Acme/Output']),
+			new Set(['seacow@jd@Entity/Cybersader/Output', 'seacow@jd@Entity/Acme/Output']),
 		);
 		// JD compiles to one rule, so exactly one mounted rule per anchor.
 		expect(pack.rules.filter((r) => r.group?.includes('@Entity/'))).toHaveLength(2);
@@ -450,24 +451,24 @@ describe('composition golden — entity + mount(jd at Entity/*/Output)', () => {
 			{ input: GOLDEN_PATH, matchType: 'folder', direction: 'folder-to-tag' },
 			precedence,
 		);
-		expect(match?.rule.group).toBe('seacow@Entity/Cybersader/Output');
+		expect(match?.rule.group).toBe('seacow@jd@Entity/Cybersader/Output');
 
 		// …and the specificity matcher independently agrees: the deep mount's
 		// folder pattern scores higher than the shallow host rule's.
-		const deep = pack.rules.find((r) => r.group === 'seacow@Entity/Cybersader/Output')!;
+		const deep = pack.rules.find((r) => r.group === 'seacow@jd@Entity/Cybersader/Output')!;
 		const shallow = pack.rules.find((r) => r.group === 'seacow@root')!;
 		expect(calculateMatchConfidence(GOLDEN_PATH, deep.folderPattern!, deep.folderAnchor)).toBeGreaterThan(
 			calculateMatchConfidence(GOLDEN_PATH, shallow.folderPattern!, shallow.folderAnchor),
 		);
 
 		// Group precedence lists the deeper anchor ahead of the host root.
-		expect(precedence.indexOf('seacow@Entity/Cybersader/Output')).toBeLessThan(
+		expect(precedence.indexOf('seacow@jd@Entity/Cybersader/Output')).toBeLessThan(
 			precedence.indexOf('seacow@root'),
 		);
 	});
 
 	test('mounted rules carry the per-anchor group and depth-adjusted priority', () => {
-		const deep = pack.rules.find((r) => r.group === 'seacow@Entity/Cybersader/Output')!;
+		const deep = pack.rules.find((r) => r.group === 'seacow@jd@Entity/Cybersader/Output')!;
 		// JD base priority 10, anchor depth 3 → 10 - 3 = 7 (deeper ⇒ lower ⇒ wins ties).
 		expect(deep.priority).toBe(7);
 	});
@@ -486,7 +487,7 @@ mounts:
 
 	test('a literal mount resolves to exactly one anchor', () => {
 		expect(pack.rules).toHaveLength(1);
-		expect(pack.rules[0].group).toBe('lit@Knowledge/Output');
+		expect(pack.rules[0].group).toBe('lit@jd@Knowledge/Output');
 	});
 
 	test('the mounted folder template is scoped under the literal anchor', () => {
@@ -526,7 +527,7 @@ mounts:
 	});
 
 	test('every mounted rule is stamped the per-anchor composed group', () => {
-		expect(pack.rules.every((r) => r.group === 'comp@Work')).toBe(true);
+		expect(pack.rules.every((r) => r.group === 'comp@para@Work')).toBe(true);
 	});
 
 	test('disable can drop a whole slot by id', () => {
@@ -668,5 +669,274 @@ mounts:
 	test('throws on a mount missing snap or at', () => {
 		expect(() => parseOrgsys('system: c\nmounts:\n  - at: Output')).toThrow(OrgsysParseError);
 		expect(() => parseOrgsys('system: c\nmounts:\n  - snap: jd')).toThrow(OrgsysParseError);
+	});
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// Phase 1 — adversarial-review holes (glob normalization, tag-scope on a
+// decorated path, mount cycles, literal-mount entry point, anchor/group dedup,
+// multi-level extends, missing-snap warning).
+// ════════════════════════════════════════════════════════════════════════════
+
+/** Folder → emitted tag(s), choosing the rule via the composed precedence. */
+function composedForward(path: string, pack: { rules: MappingRule[] }): string[] {
+	const precedence = composedGroupPrecedence(pack as RulePack);
+	return forwardTags(path, pack.rules, precedence);
+}
+
+// ─── FIX 1 — glob resolver normalizes emoji/JD per segment, returns raw ──────
+
+describe('resolveMountAnchors — emoji/JD-decorated folders (FIX 1)', () => {
+	test('a literal glob segment matches a decorated folder segment; raw path returned', () => {
+		const anchors = resolveMountAnchors('Entity/*/Output', [
+			'Entity/Cybersader/📁 01 - Output',
+			'Entity/Acme/Output',
+		]);
+		// BOTH match (decorated + plain), each returned as its RAW on-disk path.
+		expect(anchors).toContain('Entity/Cybersader/📁 01 - Output');
+		expect(anchors).toContain('Entity/Acme/Output');
+		expect(anchors).toHaveLength(2);
+	});
+
+	test('a JD-prefixed `*`-bound segment still matches the literal tail', () => {
+		expect(resolveMountAnchors('Entity/*/Output', ['Entity/📁 01 - Cybersader/Output'])).toEqual([
+			'Entity/📁 01 - Cybersader/Output',
+		]);
+	});
+});
+
+// ─── FIX 2 — tag namespace derived from the NORMALIZED host path ─────────────
+
+describe('composition — decorated entity host (FIX 2)', () => {
+	const DECORATED = `
+system: seacow
+axes: [entity]
+defaults:
+  direction: bidirectional
+  folderCase: Title Case
+  tagCase: kebab-case
+slots:
+  - id: owner
+    folder: "Entity/{owner}"
+    tag: "#--{owner}"
+    transfer: identity
+    deepen: true
+mounts:
+  - snap: jd
+    at: Entity/*/Output
+`;
+	const decoratedVault = [
+		'Entity',
+		'Entity/📁 01 - Cybersader',
+		'Entity/📁 01 - Cybersader/Output',
+	];
+	const pack = compileSystemDef(parseOrgsys(DECORATED), {
+		registry: buildRegistry(),
+		vaultFolders: decoratedVault,
+	});
+
+	test('the namespace is clean (#--cybersader), not the garbled decorated form', () => {
+		expect(composedForward('Entity/📁 01 - Cybersader/Output/01 - Projects', pack)).toEqual([
+			'#--cybersader/01-projects',
+		]);
+	});
+
+	test('the mount still resolved against the decorated vault folder', () => {
+		expect(pack.rules.some((r) => r.group?.includes('@Entity/📁 01 - Cybersader/Output'))).toBe(true);
+	});
+});
+
+// ─── FIX 3 — mount cycles compile (warn) instead of stack-overflowing ───────
+
+describe('composition — mount cycle guard (FIX 3)', () => {
+	test('a self-snap compiles without throwing and records a warning', () => {
+		const SELF = `
+system: a
+slots:
+  - id: x
+    folder: X
+    tag: "#x"
+mounts:
+  - snap: a
+    at: Self
+`;
+		const reg = new Map<string, SystemDef>();
+		reg.set('a', parseOrgsys(SELF));
+		let pack!: RulePack;
+		expect(() => {
+			pack = compileSystemDef(parseOrgsys(SELF), { registry: reg });
+		}).not.toThrow();
+		// Only the base slot rule survives; the self-mount is skipped + warned.
+		expect(pack.rules).toHaveLength(1);
+		expect(pack.warnings?.some((w) => w.toLowerCase().includes('cycle'))).toBe(true);
+	});
+
+	test('an A↔B cycle compiles without throwing', () => {
+		const A = `
+system: a
+slots:
+  - id: x
+    folder: X
+    tag: "#x"
+mounts:
+  - snap: b
+    at: ToB
+`;
+		const B = `
+system: b
+slots:
+  - id: y
+    folder: Y
+    tag: "#y"
+mounts:
+  - snap: a
+    at: ToA
+`;
+		const reg = new Map<string, SystemDef>();
+		reg.set('a', parseOrgsys(A));
+		reg.set('b', parseOrgsys(B));
+		let pack!: RulePack;
+		expect(() => {
+			pack = compileSystemDef(parseOrgsys(A), { registry: reg });
+		}).not.toThrow();
+		// A's base rule + B's base rule (mounted at ToB); B's re-mount of A is the
+		// cycle and is skipped.
+		expect(pack.warnings?.some((w) => w.toLowerCase().includes('cycle'))).toBe(true);
+	});
+});
+
+// ─── FIX 4 — literal/typed mount preserves the bucket entry (no doubling) ────
+
+describe('composition — literal PARA mount entry point (FIX 4)', () => {
+	const PARA_AT_WORK = `
+system: comp
+mounts:
+  - snap: para
+    at: Work
+`;
+	const pack = compileSystemDef(parseOrgsys(PARA_AT_WORK), { registry: buildRegistry() });
+
+	test('forward: Work/Projects/Sub emits #projects/sub, not #projects/projects/sub', () => {
+		expect(composedForward('Work/Projects/Sub', pack)).toEqual(['#projects/sub']);
+	});
+
+	test('inverse: #projects/sub round-trips back to Work/Projects/Sub', () => {
+		// The matcher gates the tag side on `^projects/` (no `#`); select that
+		// rule and confirm its inverse recovers the full folder path.
+		const m = findBestMatch(
+			'projects/sub',
+			pack.rules,
+			{ input: 'projects/sub', matchType: 'tag', direction: 'tag-to-folder' },
+			composedGroupPrecedence(pack),
+		);
+		expect(m).not.toBeNull();
+		expect(applyRuleInverse('#projects/sub', m!.rule).folder).toBe('Work/Projects/Sub');
+	});
+});
+
+// ─── M2 — anchor / rule-id dedup across overlapping mounts ───────────────────
+
+describe('composition — anchor + rule-id dedup (M2)', () => {
+	test('two identical mounts of the same snap at the same anchor do not duplicate ids', () => {
+		const DOUBLE = `
+system: comp
+mounts:
+  - snap: jd
+    at: Work
+  - snap: jd
+    at: Work
+`;
+		const pack = compileSystemDef(parseOrgsys(DOUBLE), { registry: buildRegistry() });
+		const ids = pack.rules.map((r) => r.id);
+		expect(new Set(ids).size).toBe(ids.length); // no duplicate ids
+		expect(pack.rules).toHaveLength(1); // jd → 1 rule, the second mount is deduped
+	});
+});
+
+// ─── M3 — group includes the snap id (two snaps at one anchor stay distinct) ──
+
+describe('composition — group carries the snap id (M3)', () => {
+	test('two different snaps at the same anchor get distinct groups', () => {
+		const TWO_SNAPS = `
+system: comp
+mounts:
+  - snap: jd
+    at: Work
+  - snap: para
+    at: Work
+`;
+		const pack = compileSystemDef(parseOrgsys(TWO_SNAPS), { registry: buildRegistry() });
+		const groups = new Set(pack.rules.map((r) => r.group));
+		expect(groups.has('comp@jd@Work')).toBe(true);
+		expect(groups.has('comp@para@Work')).toBe(true);
+	});
+});
+
+// ─── M4 — multi-level extends (A → B → C inherits C's fields) ────────────────
+
+describe('compileSystemDef — multi-level extends (M4)', () => {
+	test('A extends B extends C inherits C axes + defaults', () => {
+		const C = `
+system: cbase
+axes: [entity]
+defaults:
+  direction: folder-to-tag
+  tagCase: snake_case
+slots:
+  - id: c
+    folder: C
+    tag: "#c"
+`;
+		const B = `
+system: bmid
+extends: cbase
+slots:
+  - id: b
+    folder: B
+    tag: "#b"
+`;
+		const A = `
+system: atop
+extends: bmid
+slots:
+  - id: a
+    folder: A
+    tag: "#a"
+`;
+		const reg = new Map<string, SystemDef>();
+		reg.set('cbase', parseOrgsys(C));
+		reg.set('bmid', parseOrgsys(B));
+		const pack = compileSystemDef(parseOrgsys(A), { registry: reg });
+		expect(pack.axes).toEqual(['entity']); // inherited two levels up from C
+		expect(pack.rules[0].direction).toBe('folder-to-tag'); // inherited C default
+	});
+
+	test('an extends cycle (A → B → A) compiles without throwing and warns', () => {
+		const A = `system: a\nextends: b\nslots:\n  - id: x\n    folder: X\n    tag: "#x"`;
+		const B = `system: b\nextends: a\nslots:\n  - id: y\n    folder: Y\n    tag: "#y"`;
+		const reg = new Map<string, SystemDef>();
+		reg.set('a', parseOrgsys(A));
+		reg.set('b', parseOrgsys(B));
+		let pack!: RulePack;
+		expect(() => {
+			pack = compileSystemDef(parseOrgsys(A), { registry: reg });
+		}).not.toThrow();
+		expect(pack.warnings?.some((w) => w.toLowerCase().includes('extends'))).toBe(true);
+	});
+});
+
+// ─── L3 — a mount referencing an unknown snap surfaces a warning ─────────────
+
+describe('composition — missing snap warning (L3)', () => {
+	test('an unknown snap id is skipped with a warning, not silently dropped', () => {
+		const UNKNOWN = `
+system: comp
+mounts:
+  - snap: doesnotexist
+    at: Work
+`;
+		const pack = compileSystemDef(parseOrgsys(UNKNOWN), { registry: buildRegistry() });
+		expect(pack.rules).toHaveLength(0);
+		expect(pack.warnings?.some((w) => w.includes('doesnotexist'))).toBe(true);
 	});
 });

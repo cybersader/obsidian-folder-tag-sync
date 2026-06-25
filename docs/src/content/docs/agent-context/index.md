@@ -13,6 +13,8 @@ Unlike the rest of the docs, this section is written for **contributors and AI a
 
 | Page | Purpose |
 |---|---|
+| [Current state](/obsidian-folder-tag-sync/agent-context/current-state/) | **Start here.** Where the project is right now, the live direction, the open wall |
+| [Glossary](/obsidian-folder-tag-sync/agent-context/glossary/) | Plain-language definitions of every project term, with code locations |
 | [Vision](/obsidian-folder-tag-sync/agent-context/vision/) | Short- and long-term goals; the problem this plugin solves |
 | [Decisions](/obsidian-folder-tag-sync/agent-context/decisions/) | Key technical decisions and their rationale |
 | [Tradeoffs](/obsidian-folder-tag-sync/agent-context/tradeoffs/) | Known tradeoffs and their justifications |
@@ -27,7 +29,9 @@ If you're an AI coding assistant working on this project, start here to understa
 
 Key reading order for a fresh session:
 
-1. [Vision](/obsidian-folder-tag-sync/agent-context/vision/) — what problem this solves
-2. [Decisions](/obsidian-folder-tag-sync/agent-context/decisions/) — what's already been decided and why
-3. [Open questions](/obsidian-folder-tag-sync/agent-context/open-questions/) — what's still up for debate
-4. [Exploration log](/obsidian-folder-tag-sync/agent-context/zz-log/) — recent session history
+1. [Current state](/obsidian-folder-tag-sync/agent-context/current-state/) — where the project is *right now* and the live direction (orients you in two minutes)
+2. [Glossary](/obsidian-folder-tag-sync/agent-context/glossary/) — every project term, plain-language; consult the moment a word is unfamiliar
+3. [Vision](/obsidian-folder-tag-sync/agent-context/vision/) — what problem this solves
+4. [Decisions](/obsidian-folder-tag-sync/agent-context/decisions/) — what's already been decided and why
+5. [Open questions](/obsidian-folder-tag-sync/agent-context/open-questions/) — what's still up for debate
+6. [Exploration log](/obsidian-folder-tag-sync/agent-context/zz-log/) — recent session history (newest first)

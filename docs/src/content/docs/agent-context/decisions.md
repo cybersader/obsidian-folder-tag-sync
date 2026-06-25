@@ -36,16 +36,16 @@ This is a running log of technical decisions. Each entry states **what** was dec
 
 ---
 
-### Rule priority is a number, first-match wins
+### Specificity-aware matching is primary; priority is the manual override (F1)
 
-**Decided:** Rules have a `priority: number` field. Lower = higher precedence. First matching rule resolves the sync.
+**Decided:** When several rules match, a deterministic **specificity score** (`calculateMatchConfidence`) is the primary sort key — literal-character count, path-depth slashes, and an anchor-aware bonus, with greedy wildcards penalized heaviest. The user-set `priority: number` is demoted to a within-group tiebreak (the manual "override"). Across packs, [group precedence](/obsidian-folder-tag-sync/agent-context/glossary/) partitions rules first (CSS `@layer`-style).
 
 **Why:**
-- Simple mental model. Users understand "more specific rules get lower numbers."
-- Makes conflict resolution explicit via ordering.
-- Matches Auto Note Mover's pattern, which users are already familiar with.
+- A more literal/anchored pattern is *genuinely* more specific; a raw priority number couldn't express that and forced users to hand-tune numbers.
+- Still fully deterministic — same input → same winner, every time — so it satisfies the "no non-determinism" constraint that originally argued against score-based matching.
+- Group precedence lets independently-authored packs coexist predictably.
 
-**Rejected:** Score-based best-match. Non-deterministic in corner cases and hard to debug.
+**History:** This supersedes the original "rule priority is a number, first-match wins" decision. The earlier rejection of "score-based best-match" was about *non-deterministic* scoring; a deterministic specificity score is a different thing and is now the primary resolver. Shipped in F1 (`src/engine/ruleMatcher.ts`).
 
 ---
 
@@ -74,16 +74,68 @@ This is a running log of technical decisions. Each entry states **what** was dec
 
 ---
 
-### No automatic sync on file events (yet)
+### Auto-sync is forward-only; the inverse direction stays manual
 
-**Decided:** Phase 1 ships with manual sync commands only. No event handlers on create/modify/rename.
+**Decided:** Folder→tag sync auto-fires on vault `create`/`rename` events (per each rule's `syncOnFileCreate`/`syncOnFileRename`/`syncOnFileMove` flags). Tag→folder sync — which *moves files* — never auto-fires; it requires explicit command invocation.
 
 **Why:**
-- Safer. Users can preview and undo manually before committing to automatic behavior.
-- Debouncing file events is non-trivial (external sync, bulk operations).
-- Gives time to validate rule correctness before unleashing it on vault events.
+- Forward sync is purely additive: worst case is extra frontmatter tags the user can delete. Safe to automate.
+- The inverse direction moves files and is potentially destructive — [lossy](/obsidian-folder-tag-sync/agent-context/glossary/) rules can't recover original folder names, so auto-firing moves on every file event is unsafe.
+- Keeps the dangerous direction behind a deliberate, previewable action.
 
-**Planned:** Phase 2 adds opt-in `syncOnFileCreate`, `syncOnFileMove`, `syncOnFileRename` per rule.
+**History:** Supersedes the original "no automatic sync on file events (yet)" decision. Auto-sync shipped in 0.1.18 (`src/main.ts` registers `vault.on('create'/'rename')` → `autoSyncOnEvent`), but deliberately forward-only.
+
+## Detection & application UX (the 0.1.22–0.1.27 arc)
+
+These decisions came out of making the plugin usable on real, large vaults. Full narrative in the [2026-04-30 log](/obsidian-folder-tag-sync/agent-context/zz-log/2026-04-30-detection-ux-and-auto-scope/); terms in the [Glossary](/obsidian-folder-tag-sync/agent-context/glossary/).
+
+### Packs are invisible plumbing — the detect modal is hierarchy-first
+
+**Decided:** The detect-vault modal renders the user's own folder tree with per-folder detection chips, not a list of "packs found." Pack identity surfaces only as a chip tooltip / secondary notice.
+
+**Why:** Users think in terms of their vault's folder tree, not which pack (PARA/JD/SEACOW) detected what. Surfacing packs as the primary level forced users to reverse-map pack names onto their own structure. Hierarchy-first makes the user's structure the navigation surface and lets the plugin handle pack plumbing underneath.
+
+**Rejected:** Both per-pack cards and per-anchor cards — they still organize around packs. Shipped 0.1.25 (`src/ui/DetectVaultModal.ts`).
+
+---
+
+### Detection is anchored to instances, not just pack-presence
+
+**Decided:** A vault scan groups a pack's hits into [anchored instances](/obsidian-folder-tag-sync/agent-context/glossary/) (clusters sharing a common parent), so the UI shows "JD at root AND at `Projects/Cybersader/`" rather than one ambiguous "JD detected."
+
+**Why:** The same pattern recurs at multiple nesting points in real vaults (e.g. entity-scoped JD sub-hierarchies). Reporting only "pattern X detected" loses the *where*, which is exactly what the user needs to decide where to scope rules. Shipped 0.1.24 (`extractInstances`).
+
+---
+
+### Auto-scope rewrites rule entry-points instead of installing vault-wide
+
+**Decided:** Selecting a branch in the detection tree rewrites the applied rules so they only fire inside that branch — `folderPattern`/`folderTemplate`/`folderEntryPoint` get the scope path anchored in, and the rule `id` gets a scope-slug suffix so multiple scoped instances of the same pack don't collide. `minimalScopeCover` drops descendant selections so overlapping scopes don't double-fire.
+
+**Why:** The hierarchy-first view *promises* that selecting a folder makes rules local to it. Without rewriting entry-points, a pack's rules would fire wherever their original pattern matched anywhere in the vault, defeating the selection. Shipped 0.1.27 (`src/engine/scopeRules.ts`).
+
+---
+
+### Vault-wide sync ships as an interactive hierarchical preview, not a flat dry-run list
+
+**Decided:** Pending folder→tag changes render as a collapsible folder tree with a per-rule colour legend that doubles as a filter; the user checks/unchecks subtrees ([tri-state](/obsidian-folder-tag-sync/agent-context/glossary/)) and commits only the selected paths.
+
+**Why:** A flat list of thousands of pending changes is unreviewable. A folder tree mirrors how users think about their vault and lets them approve/reject by branch; the legend makes "which rule is doing this" visible at a glance. Shipped 0.1.23 (`VaultSyncPreviewModal`).
+
+---
+
+### `removeOrphanedTags` (A6) is implemented using the F3 witness as the ownership discriminator
+
+**Decided:** On forward sync, FTS-owned tags recorded in a file's `fts:` witness that are no longer emitted get removed; tags FTS never wrote are left alone.
+
+**Why:** Naive orphan cleanup risks deleting user-authored tags that happen to match a rule's shape. The [frontmatter witness](/obsidian-folder-tag-sync/agent-context/glossary/) records exactly which tags FTS wrote, so cleanup removes only previously-FTS-written tags no rule still emits. This resolved the "A6 depends on F3" gap by shipping both together (0.1.18, `src/sync/FolderToTagSync.ts`).
+
+---
+
+### Normalize emoji/JD prefixes before matching, rather than forcing pack authors to enumerate variants
+
+**Decided:** The detection scan and rule preview apply the same emoji-strip + whitespace + JD-prefix normalization the runtime pipeline does, *before* matching folder names against detection regexes / rule patterns.
+
+**Why:** Real vaults use decorated folders (`📁 10 - Projects`). Pack regexes like `^\d{2} - ` failed to match these even though the runtime would strip the emoji. Per the principle "detect things without creating yet more schemas on the import side," the engine normalizes input before matching rather than making pack authors enumerate emoji variants. (`src/engine/detectPacks.ts` `matchesNormalized`.)
 
 ## Tooling
 

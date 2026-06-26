@@ -31,6 +31,18 @@ export class SettingsTab extends PluginSettingTab {
 
 		// Main heading is provided by Obsidian settings tab
 
+		// Settings → Map round-trip — jump straight to the visual map of what
+		// the installed rules do per folder (coverage + conflicts).
+		new Setting(containerEl)
+			.setName('Taxonomy Workbench map')
+			.setDesc('Open the map to see what your installed rules do per folder — coverage and conflicts.')
+			.addButton(btn => btn
+				.setButtonText('Open the map')
+				.onClick(() => {
+					void this.plugin.activateWorkbenchMap();
+				}),
+			);
+
 		// General Options
 		this.displayGeneralOptions(containerEl);
 
@@ -42,6 +54,35 @@ export class SettingsTab extends PluginSettingTab {
 
 		// Import/Export
 		this.displayImportExportSection(containerEl);
+
+		// Map → Settings round-trip — if the map handed us a rule id, scroll to
+		// and briefly highlight that rule. Consumed once.
+		this.consumeFocusRule();
+	}
+
+	/**
+	 * Consume `plugin.focusRuleId` (set by the Taxonomy Workbench map before it
+	 * opens this tab): scroll the matching rule into view and pulse a highlight.
+	 * Cleared immediately so a later re-render doesn't re-trigger. Best-effort —
+	 * if the rule isn't in the DOM (filtered, removed) it silently no-ops.
+	 */
+	private consumeFocusRule(): void {
+		const id = this.plugin.focusRuleId;
+		if (!id) return;
+		this.plugin.focusRuleId = undefined; // consume once
+		// Defer so the freshly-built rule rows are laid out before we scroll.
+		window.setTimeout(() => {
+			const selector = `[data-dtf-rule-id="${(window.CSS?.escape ? window.CSS.escape(id) : id)}"]`;
+			const el = this.containerEl.querySelector<HTMLElement>(selector);
+			if (!el) return;
+			el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+			el.style.outline = '2px solid var(--interactive-accent)';
+			el.style.outlineOffset = '2px';
+			window.setTimeout(() => {
+				el.style.outline = '';
+				el.style.outlineOffset = '';
+			}, 2200);
+		}, 50);
 	}
 
 	/**
@@ -485,6 +526,8 @@ export class SettingsTab extends PluginSettingTab {
 			const ruleItem = containerEl.createDiv({
 				cls: `dtf-rule-item ${rule.enabled ? '' : 'disabled'}`
 			});
+			// Stable hook for the Map → Settings "focus this rule" scroll-to.
+			ruleItem.dataset.dtfRuleId = rule.id;
 
 			// Rule header
 			const ruleHeader = ruleItem.createDiv({ cls: 'dtf-rule-header' });

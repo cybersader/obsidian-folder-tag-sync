@@ -33,6 +33,14 @@ export default class DynamicTagsFoldersPlugin extends Plugin {
 	debugLogger!: DebugLogger;
 
 	/**
+	 * Map → Settings hand-off. The Taxonomy Workbench map sets this to a rule
+	 * id before opening the settings tab; `SettingsTab.display()` consumes it
+	 * ONCE to scroll to + briefly highlight that rule, then clears it. Undefined
+	 * when settings is opened without a focus target.
+	 */
+	focusRuleId?: string;
+
+	/**
 	 * Per-path trailing-edge debounce timers for event-driven auto-sync. Keyed
 	 * by file path; each new event for a path clears and reschedules the prior
 	 * timer. Cleared en masse in `onunload`.

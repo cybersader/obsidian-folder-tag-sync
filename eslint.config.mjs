@@ -12,7 +12,9 @@ import { DEFAULT_BRANDS } from "eslint-plugin-obsidianmd/dist/lib/rules/ui/brand
 // "Taxonomy Workbench" is the in-app feature name; "Johnny Decimal" is a named
 // organizational system surfaced verbatim in the workbench presets. These are
 // multi-word phrases, safe to match case-insensitively (no lowercase clashes).
-const PROJECT_BRANDS = ["Path Lens", "Taxonomy Workbench", "Johnny Decimal"];
+// "Folder Tag Sync" is the plugin's own product name (manifest `name`), surfaced
+// verbatim in the right-click "Open Folder Tag Sync settings" menu item.
+const PROJECT_BRANDS = ["Path Lens", "Taxonomy Workbench", "Johnny Decimal", "Folder Tag Sync"];
 
 // All-caps proper nouns matched case-SENSITIVELY (exact token), so they don't
 // force unrelated lowercase usages (e.g. the lowercase group id "para" in a

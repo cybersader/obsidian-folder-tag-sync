@@ -120,6 +120,32 @@ describe('Taxonomy Workbench map — dockable annotated hierarchy pane', functio
 		expect(info.folderCount).toBeGreaterThanOrEqual(1);
 	});
 
+	it('paints detected systems as colored swimlane rails (not stacked chips)', async function () {
+		// The JD-numbered + PARA-named fixture detects multiple systems, so the
+		// map draws one rail per applicable system in each row's left gutter,
+		// outer→inner. `01 - Projects` matches BOTH JD and PARA → its row stacks
+		// two rails (the "nesting" the rails encode). The old per-signal chips
+		// are gone; rails replace them.
+		const info = await browser.executeObsidian(() => {
+			const map = document.querySelector<HTMLElement>('[data-dtf-workbench-map="1"]');
+			if (!map) return { hasMap: false, railCount: 0, hasPackId: false, maxRailsInARow: 0 };
+			const rails = Array.from(map.querySelectorAll<HTMLElement>('[data-dtf-system-rail]'));
+			const hasPackId = rails.some((r) => (r.dataset.packId ?? '') !== '');
+			let maxRailsInARow = 0;
+			map.querySelectorAll<HTMLElement>('[data-dtf-folder-path]').forEach((row) => {
+				const n = row.querySelectorAll('[data-dtf-system-rail]').length;
+				if (n > maxRailsInARow) maxRailsInARow = n;
+			});
+			return { hasMap: true, railCount: rails.length, hasPackId, maxRailsInARow };
+		});
+		expect(info.hasMap).toBe(true);
+		// At least one detected-system rail rendered, carrying a pack id.
+		expect(info.railCount).toBeGreaterThanOrEqual(1);
+		expect(info.hasPackId).toBe(true);
+		// Nesting proof: at least one row carries 2+ rails (JD + PARA).
+		expect(info.maxRailsInARow).toBeGreaterThanOrEqual(2);
+	});
+
 	it('detaching the leaf cleans up', async function () {
 		await browser.executeObsidian(({ app }) => {
 			app.workspace.detachLeavesOfType('taxonomy-workbench-map');

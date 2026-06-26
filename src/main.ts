@@ -6,6 +6,7 @@ import { RulePackPickerModal } from './ui/RulePackPickerModal';
 import { DetectVaultModal } from './ui/DetectVaultModal';
 import { ScanAndSnapModal } from './ui/ScanAndSnapModal';
 import { OrgsysPreviewModal } from './ui/OrgsysPreviewModal';
+import { TaxonomyWorkbenchView, TAXONOMY_WORKBENCH_VIEW } from './ui/TaxonomyWorkbenchView';
 import { DebugLogger } from './utils/debug';
 import { FolderToTagSync } from './sync/FolderToTagSync';
 import { TagToFolderSync } from './sync/TagToFolderSync';
@@ -61,6 +62,16 @@ export default class DynamicTagsFoldersPlugin extends Plugin {
 		// Add settings tab
 		this.addSettingTab(new SettingsTab(this.app, this));
 
+		// Register the Taxonomy Workbench map — a large dockable pane that
+		// renders the full annotated vault hierarchy (read-only display).
+		this.registerView(
+			TAXONOMY_WORKBENCH_VIEW,
+			(leaf) => new TaxonomyWorkbenchView(leaf, this),
+		);
+		this.addRibbonIcon('layers', 'Open the Taxonomy Workbench map', () => {
+			void this.activateWorkbenchMap();
+		});
+
 		// Add commands
 		this.addCommand({
 			id: 'sync-folder-to-tags',
@@ -113,6 +124,14 @@ export default class DynamicTagsFoldersPlugin extends Plugin {
 			name: 'Taxonomy Workbench: preview a system definition',
 			callback: () => {
 				this.previewOrgsysDefinition();
+			}
+		});
+
+		this.addCommand({
+			id: 'taxonomy-workbench-open-map',
+			name: 'Taxonomy Workbench: open the map',
+			callback: () => {
+				void this.activateWorkbenchMap();
 			}
 		});
 
@@ -341,6 +360,24 @@ export default class DynamicTagsFoldersPlugin extends Plugin {
 	previewOrgsysDefinition(): void {
 		const modal = new OrgsysPreviewModal(this.app, this.settings.groupPrecedence);
 		modal.open();
+	}
+
+	/**
+	 * Open the Taxonomy Workbench map — a large dockable pane (ItemView) that
+	 * renders the full annotated vault hierarchy. Detaches any existing leaves
+	 * of this type first so re-invoking focuses one pane rather than stacking
+	 * duplicates. Opens in a main-area tab (roomy — the whole point vs. the
+	 * cramped detect modal) and reveals it.
+	 */
+	async activateWorkbenchMap(): Promise<void> {
+		const { workspace } = this.app;
+		// Detach existing leaves of this type to avoid duplicates.
+		workspace.detachLeavesOfType(TAXONOMY_WORKBENCH_VIEW);
+
+		// Open in a main-area tab so the hierarchy gets the full editor width.
+		const leaf = workspace.getLeaf('tab');
+		await leaf.setViewState({ type: TAXONOMY_WORKBENCH_VIEW, active: true });
+		workspace.revealLeaf(leaf);
 	}
 
 	/**

@@ -190,8 +190,8 @@ export class SupportBundleModal extends Modal {
 		this.addStat('Markdown files', this.snapshot.vault.markdownFileCount.toLocaleString());
 		const ruleSummary = this.snapshot.diagnostics.installedRules.summary;
 		this.addStat(
-			'Rule detail rows',
-			`${ruleSummary.folderDetailsIncluded.toLocaleString()} of ${this.snapshot.vault.folderPaths.length.toLocaleString()}`,
+			'Rule-covered folders',
+			`${ruleSummary.coveredFolderCount.toLocaleString()} (${ruleSummary.folderDetailsIncluded.toLocaleString()} detailed)`,
 		);
 		this.addStat('Mode', this.mode === 'readable' ? 'Readable' : 'Anonymized');
 

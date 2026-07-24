@@ -145,7 +145,7 @@ These decisions came out of making the plugin usable on real, large vaults. Full
 
 **Why:** Folder Tag Sync behavior depends heavily on hierarchy and rule configuration, so a folder tree is useful evidence. Note-level data is rarely needed to diagnose the mapping engine and would create substantially more privacy risk. The user can test from a BRAT-installed production vault without granting filesystem access or uploading anything automatically.
 
-**Scale boundary:** Aggregate detection/rule counts are computed across the complete folder inventory, but retained per-folder diagnostic rows are capped at 2,000. The complete folder tree is not capped. The modal's rule scan yields between chunks and cancels superseded/closed collection generations so a large production vault does not monopolize the UI or publish stale results.
+**Scale boundary:** Aggregate detection/rule counts are computed across the complete folder inventory, but retained per-folder diagnostic rows are emitted only for rule-matched folders and capped at 2,000. Uncovered folders are reported through `uncoveredFolderCount` rather than one null row each — the first real production bundle (1,700 folders, no rules installed) was 70% empty rows, and dropping them cut it from 544 KB to 95 KB with no information lost. The complete folder tree is not capped. The modal's rule scan yields between chunks and cancels superseded/closed collection generations so a large production vault does not monopolize the UI or publish stale results.
 
 **Rejected:** Automatic telemetry/upload, note-content sampling, a zip of the vault or plugin directory, and retaining unbounded per-folder rule-match arrays in memory.
 

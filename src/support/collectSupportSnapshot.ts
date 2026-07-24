@@ -73,7 +73,10 @@ export interface InstalledRuleSummary {
 	uncoveredFolderCount: number;
 	conflictFolderCount: number;
 	folderDetailsIncluded: number;
-	folderDetailsOmitted: number;
+	/** Rows dropped because no enabled forward rule touches the folder. */
+	folderDetailsOmittedUncovered: number;
+	/** Rows dropped after the detail cap was reached. */
+	folderDetailsOmittedByLimit: number;
 }
 
 export interface FolderRuleDetail extends FolderRuleEntry {
@@ -268,6 +271,7 @@ interface InstalledRuleAccumulator {
 	coveredFolderCount: number;
 	conflictFolderCount: number;
 	folders: FolderRuleDetail[];
+	droppedByLimit: number;
 	winningCounts: Map<string, number>;
 	matchingCounts: Map<string, number>;
 	conflictCounts: Map<string, number>;
@@ -326,6 +330,7 @@ function createInstalledRuleAccumulator(): InstalledRuleAccumulator {
 		coveredFolderCount: 0,
 		conflictFolderCount: 0,
 		folders: [],
+		droppedByLimit: 0,
 		winningCounts: new Map(),
 		matchingCounts: new Map(),
 		conflictCounts: new Map(),
@@ -359,9 +364,16 @@ function accumulateFolderRule(
 		}
 	}
 
-	if (accumulator.folders.length < MAX_DETAILED_FOLDER_DIAGNOSTICS) {
-		accumulator.folders.push({ folderPath, ...cloneJsonish(entry) });
+	// Folders no rule touches carry no information beyond the summary's
+	// `uncoveredFolderCount`. On a rule-free vault that was one identical
+	// null row per folder, which dominated the bundle.
+	if (entry.winnerRuleId === null && entry.matchingRuleIds.length === 0) return;
+
+	if (accumulator.folders.length >= MAX_DETAILED_FOLDER_DIAGNOSTICS) {
+		accumulator.droppedByLimit++;
+		return;
 	}
+	accumulator.folders.push({ folderPath, ...cloneJsonish(entry) });
 }
 
 function finishInstalledRuleDiagnostics(
@@ -390,7 +402,10 @@ function finishInstalledRuleDiagnostics(
 			uncoveredFolderCount: folderCount - accumulator.coveredFolderCount,
 			conflictFolderCount: accumulator.conflictFolderCount,
 			folderDetailsIncluded: accumulator.folders.length,
-			folderDetailsOmitted: folderCount - accumulator.folders.length,
+			folderDetailsOmittedUncovered: folderCount
+				- accumulator.folders.length
+				- accumulator.droppedByLimit,
+			folderDetailsOmittedByLimit: accumulator.droppedByLimit,
 		},
 		details: {
 			folders: accumulator.folders,

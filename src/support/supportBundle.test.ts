@@ -196,8 +196,48 @@ describe('collectSupportSnapshot', () => {
 			.filter((entry) => entry.conflict).length;
 		expect(collected.diagnostics.installedRules.summary.coveredFolderCount).toBe(directCovered);
 		expect(collected.diagnostics.installedRules.summary.conflictFolderCount).toBe(directConflicts);
-		expect(collected.diagnostics.installedRules.summary.folderDetailsIncluded).toBe(4);
-		expect(collected.diagnostics.installedRules.summary.folderDetailsOmitted).toBe(0);
+		const ruleSummary = collected.diagnostics.installedRules.summary;
+		expect(ruleSummary.folderDetailsIncluded).toBe(ruleSummary.coveredFolderCount);
+		expect(ruleSummary.folderDetailsOmittedByLimit).toBe(0);
+		expect(ruleSummary.folderDetailsOmittedUncovered)
+			.toBe(4 - ruleSummary.coveredFolderCount);
+		expect(collected.diagnostics.installedRules.details.folders
+			.every((folder) => folder.winnerRuleId !== null || folder.matchingRuleIds.length > 0))
+			.toBe(true);
+	});
+
+	test('emits no per-folder rule rows for a vault with no installed rules', () => {
+		const ruleFreeSettings = settings();
+		ruleFreeSettings.rules = [];
+		const root = folder('', Array.from(
+			{ length: 1_700 },
+			(_, index) => folder(`Branch-${String(index).padStart(4, '0')}`),
+		));
+
+		const collected = collectSupportSnapshot({
+			app: { vault: { getRoot: () => root, getMarkdownFiles: () => [] } },
+			settings: ruleFreeSettings,
+			pluginManifest: { version: '1.0.0' },
+			platform: { kind: 'unknown' },
+			packManifest: [],
+		});
+		const diagnostics = collected.diagnostics.installedRules;
+
+		expect(collected.vault.folderPaths).toHaveLength(1_700);
+		expect(diagnostics.details.folders).toEqual([]);
+		expect(diagnostics.summary).toMatchObject({
+			installedRuleCount: 0,
+			coveredFolderCount: 0,
+			uncoveredFolderCount: 1_700,
+			folderDetailsIncluded: 0,
+			folderDetailsOmittedUncovered: 1_700,
+			folderDetailsOmittedByLimit: 0,
+		});
+
+		// The rule-free bundle must stay dominated by the tree, not by null rows.
+		const built = buildSupportBundle(collected, { generatedAt: '2026-07-24T00:00:00.000Z' });
+		expect(built.ok).toBe(true);
+		if (built.ok) expect(built.byteLength).toBeLessThan(120_000);
 	});
 
 	test('keeps exact aggregates while capping detail for a 10,000-folder, many-rule vault', () => {
@@ -240,7 +280,8 @@ describe('collectSupportSnapshot', () => {
 		expect(diagnostics.summary.conflictFolderCount).toBe(10_000);
 		expect(diagnostics.summary.enabledForwardRuleCount).toBe(25);
 		expect(diagnostics.summary.folderDetailsIncluded).toBe(2_000);
-		expect(diagnostics.summary.folderDetailsOmitted).toBe(8_000);
+		expect(diagnostics.summary.folderDetailsOmittedByLimit).toBe(8_000);
+		expect(diagnostics.summary.folderDetailsOmittedUncovered).toBe(0);
 		expect(diagnostics.details.folders).toHaveLength(2_000);
 		expect(diagnostics.details.folders[0].matchingRuleIds).toHaveLength(25);
 		expect(diagnostics.details.folders.at(-1)?.folderPath).toBe('Branch-01999');
@@ -270,7 +311,7 @@ describe('collectSupportSnapshot', () => {
 		const originalSettings = settings();
 		const root = folder('', Array.from(
 			{ length: 450 },
-			(_, index) => folder(`Folder-${String(index).padStart(3, '0')}`),
+			(_, index) => folder(`Secret Projects/Client-${String(index).padStart(3, '0')}`),
 		));
 		let yieldCount = 0;
 
@@ -290,6 +331,7 @@ describe('collectSupportSnapshot', () => {
 
 		expect(yieldCount).toBe(4);
 		expect(collected.configuration.rules[0].name).toBe('Secret client rule');
+		expect(collected.diagnostics.installedRules.summary.coveredFolderCount).toBe(450);
 		expect(collected.diagnostics.installedRules.summary.folderDetailsIncluded).toBe(450);
 	});
 

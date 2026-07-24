@@ -90,6 +90,6 @@ A practical troubleshooting sequence is:
 
 ## Size limits
 
-The support bundle prioritizes the complete configuration and full folder tree. Aggregate detection and rule counts are exact, while retained per-folder diagnostic rows are bounded to 2,000 so collection remains usable on large vaults. Rule evaluation yields back to Obsidian's UI between chunks rather than holding one long uninterrupted scan.
+The support bundle prioritizes the complete configuration and full folder tree. Aggregate detection and rule counts are always exact, but per-folder diagnostic rows are only emitted for folders an installed rule actually matches, and are bounded to 2,000 rows. Folders no rule touches are represented by the summary's `uncoveredFolderCount` instead of one empty row each — on a vault with no rules installed, the per-folder section is empty. Rule evaluation yields back to Obsidian's UI between chunks rather than holding one long uninterrupted scan.
 
 If the serialized payload is still large, it omits the debug-log section first and detailed diagnostics second. The folder tree is never silently truncated while described as complete. If the configuration and complete tree still exceed the copy limit, copying is disabled and the preview explains the required size.

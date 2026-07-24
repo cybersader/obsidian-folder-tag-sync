@@ -93,6 +93,19 @@ The final gate after all independent-review fixes is green:
 - Privacy regressions cover note filename/body/frontmatter, vault name, absolute paths, realistic note-derived debug tag fields, and transfer separators.
 - Screenshots were inspected at 1024×768; an initial layout issue that hid action buttons below the viewport was corrected by allowing the preview area to shrink inside a bounded flex modal.
 
+## 0.1.37 — the first production bundle found the flaw
+
+The first bundle from the user's real vault (1,700 folders, 3,212 notes, **zero installed rules**) was 544 KB, of which **379 KB was 1,700 byte-identical null rows** — one per uncovered folder:
+
+```json
+{ "conflict": false, "emittedTags": [], "folderPath": "…",
+  "matchingRuleIds": [], "winnerRuleId": null, "winnerRuleName": null }
+```
+
+Every test had exercised vaults where rules *matched*, so the all-null path was never scrutinized. `accumulateFolderRule` now skips folders with no winner and no matches, and the summary splits the old single `folderDetailsOmitted` counter into `folderDetailsOmittedUncovered` and `folderDetailsOmittedByLimit` so a reader can tell "nothing applies here" from "the cap truncated this".
+
+Replaying the user's own tree through the fixed collector: **544,252 → 94,578 bytes (83% smaller)**, tree intact. A regression test now asserts a 1,700-folder rule-free vault emits zero rule rows and stays under 120 KB.
+
 ## Delivery state
 
 The implementation was fully verified locally and released through GitHub/BRAT as `0.1.36`, with `main.js`, `manifest.json`, and `styles.css` attached to the release.

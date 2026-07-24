@@ -6,6 +6,7 @@ import { DetectVaultModal } from './DetectVaultModal';
 import { ConfirmModal } from './ConfirmModal';
 import { MappingRule } from '../types/settings';
 import { previewRule, RulePreview } from '../engine/rulePreview';
+import { copyTextToClipboard } from '../utils/clipboard';
 
 /**
  * Settings tab for the plugin
@@ -910,12 +911,21 @@ export class SettingsTab extends PluginSettingTab {
 			.setDesc('Copy all settings as JSON')
 			.addButton(btn => btn
 				.setButtonText('Export')
-				.onClick(() => {
+				.onClick(async () => {
 					const json = JSON.stringify(this.plugin.settings, null, 2);
-					void navigator.clipboard.writeText(json);
-					new Notice('Copied to clipboard');
+					const result = await copyTextToClipboard(json);
+					new Notice(result.ok ? 'Copied to clipboard' : `Could not copy settings: ${result.error}`);
 				})
 			);
+
+		const supportSetting = new Setting(section)
+			.setName('Create support bundle')
+			.setDesc('Preview and copy folder-only diagnostics, configuration, and a sanitized debug-log tail for troubleshooting.')
+			.addButton(btn => btn
+				.setButtonText('Preview')
+				.onClick(() => this.plugin.openSupportBundle()),
+			);
+		supportSetting.settingEl.dataset.dtfSupportBundleSetting = '1';
 
 		// Import — heading row + full-width textarea + right-aligned button
 		// row. Setting() places name+desc on the left and controls on the

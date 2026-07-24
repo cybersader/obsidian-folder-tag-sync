@@ -6,6 +6,7 @@ import {
 	evaluateRule,
 	findMatchingRules,
 	findBestMatch,
+	selectBestMatch,
 	findConflicts,
 	isRuleApplicable,
 	getFolderToTagRules,
@@ -201,6 +202,25 @@ describe('findMatchingRules', () => {
 		});
 
 		expect(matches).toHaveLength(0);
+	});
+});
+
+describe('selectBestMatch', () => {
+	test('matches findBestMatch when reusing an evaluated match list without reordering it', () => {
+		const rules = [
+			createRule({ id: 'low-group', folderPattern: 'Projects/*', group: 'low', priority: 1 }),
+			createRule({ id: 'high-group', folderPattern: 'Projects/*', group: 'high', priority: 100 }),
+		];
+		const context = { input: 'Projects/Test', matchType: 'folder' as const };
+		const matches = findMatchingRules('Projects/Test', rules, context);
+		const originalOrder = matches.map((match) => match.rule.id);
+
+		const selected = selectBestMatch(matches, ['high', 'low']);
+		const direct = findBestMatch('Projects/Test', rules, context, ['high', 'low']);
+
+		expect(selected?.rule.id).toBe('high-group');
+		expect(selected).toEqual(direct);
+		expect(matches.map((match) => match.rule.id)).toEqual(originalOrder);
 	});
 });
 

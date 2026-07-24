@@ -7,6 +7,7 @@ import { DetectVaultModal } from './ui/DetectVaultModal';
 import { ScanAndSnapModal } from './ui/ScanAndSnapModal';
 import { OrgsysPreviewModal } from './ui/OrgsysPreviewModal';
 import { TaxonomyWorkbenchView, TAXONOMY_WORKBENCH_VIEW } from './ui/TaxonomyWorkbenchView';
+import { SupportBundleModal } from './ui/SupportBundleModal';
 import { DebugLogger } from './utils/debug';
 import { FolderToTagSync } from './sync/FolderToTagSync';
 import { TagToFolderSync } from './sync/TagToFolderSync';
@@ -48,19 +49,16 @@ export default class DynamicTagsFoldersPlugin extends Plugin {
 	private pendingAutoSyncs = new Map<string, ReturnType<typeof setTimeout>>();
 
 	async onload() {
-		console.debug('Loading Dynamic Tags & Folders plugin');
-
 		// Load settings
 		await this.loadSettings();
 
 		// Initialize debug logger
 		this.debugLogger = new DebugLogger(
 			this.app,
+			this.manifest,
 			this.settings.options.debugMode
 		);
 
-		// Clear previous debug log and start fresh
-		await this.debugLogger.clear();
 		await this.debugLogger.info('Plugin loaded', {
 			version: this.manifest.version,
 			rulesCount: this.settings.rules.length,
@@ -169,6 +167,12 @@ export default class DynamicTagsFoldersPlugin extends Plugin {
 			}
 		});
 
+		this.addCommand({
+			id: 'open-support-bundle',
+			name: 'Open support bundle preview',
+			callback: () => this.openSupportBundle(),
+		});
+
 		// Auto-sync on file events — wired 2026-04-28 in 0.1.18.
 		// SAFETY-FIRST DESIGN: only the FORWARD direction (folder → tag) auto-fires.
 		// The inverse direction (tag → folder, which moves files) stays manual-command-
@@ -257,7 +261,6 @@ export default class DynamicTagsFoldersPlugin extends Plugin {
 	}
 
 	onunload(): void {
-		console.debug('Unloading Dynamic Tags & Folders plugin');
 		// Clear any pending debounced syncs so a timer can't fire against a
 		// torn-down plugin instance.
 		for (const handle of this.pendingAutoSyncs.values()) clearTimeout(handle);
@@ -270,14 +273,20 @@ export default class DynamicTagsFoldersPlugin extends Plugin {
 	}
 
 	async saveSettings() {
+		if (this.debugLogger) {
+			this.debugLogger.setEnabled(this.settings.options.debugMode);
+		}
 		await this.saveData(this.settings);
+	}
+
+	openSupportBundle(): void {
+		new SupportBundleModal(this.app, this).open();
 	}
 
 	/**
 	 * Sync folder path to tags for a file
 	 */
 	async syncFolderToTags(file: TFile) {
-		console.debug('Syncing folder to tags:', file.path);
 		await this.debugLogger.info('Sync folder to tags started', {
 			file: file.path,
 			folder: file.parent?.path
@@ -498,7 +507,6 @@ export default class DynamicTagsFoldersPlugin extends Plugin {
 	}
 
 	async syncTagsToFolder(file: TFile) {
-		console.debug('Syncing tags to folder:', file.path);
 		await this.debugLogger.info('Sync tags to folder started', {
 			file: file.path
 		});

@@ -134,7 +134,7 @@ bun test src/transformers/caseTransformers.test.ts
 bun test --test-name-pattern "snake"
 ```
 
-**Important**: UI testing (settings, modals, context menus) requires manual testing in Obsidian. Automated tests cover transformations and rule matching logic only.
+**Important**: Settings, modals, context menus, clipboard behavior, and visual rendering are automated in real Obsidian with WebdriverIO + `wdio-obsidian-service`. Run focused specs with `DISPLAY=:0 bun run test:e2e --spec ./test/specs/<name>.e2e.ts`, then run the full serial suite before release. Use screenshots for visual verification; reserve manual testing for mobile-only behavior or interactions the harness cannot reproduce.
 
 ## Linting for Community Plugin Submission
 
@@ -179,9 +179,9 @@ Input Folder: "📁 01 - Projects/My Cool Thing"
 
 ## Current Status
 
-**v0.1.27** (distributed via BRAT; not yet in the Obsidian community catalog). The engine is mature — both sync directions, the typed model, Path Lens templates, specificity-aware matching, frontmatter witness, bulk sync, and detection of known systems all ship. Forward auto-sync, bulk vault operations, and the "where do my rules apply" coverage report (all once listed as upcoming) have shipped.
+**v0.1.36** is the current BRAT release; the plugin is not yet in the Obsidian community catalog. The engine is mature — both sync directions, the typed model, Path Lens templates, specificity-aware matching, frontmatter witness, bulk sync, detection of known systems, `.orgsys` preview/composition, the Taxonomy Workbench Map, and preview-first production support bundles all ship.
 
-The current centre of gravity is **rule authoring at scale** — visibility is solved end-to-end (detection tree, hierarchy-first view, scope tint), but authoring new rules for an idiosyncratic vault still means hand-writing regex/templates.
+Support bundles include complete configuration, derived rule diagnostics, a full folder-only tree, bounded structured logs, and optional deterministic anonymization. The centre of gravity now returns to **rule authoring at scale** — snap-a-system gestures on the Map and installable composition.
 
 ### Knowledge base — read this first
 

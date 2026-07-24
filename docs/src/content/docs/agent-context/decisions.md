@@ -137,6 +137,38 @@ These decisions came out of making the plugin usable on real, large vaults. Full
 
 **Why:** Real vaults use decorated folders (`📁 10 - Projects`). Pack regexes like `^\d{2} - ` failed to match these even though the runtime would strip the emoji. Per the principle "detect things without creating yet more schemas on the import side," the engine normalizes input before matching rather than making pack authors enumerate emoji variants. (`src/engine/detectPacks.ts` `matchesNormalized`.)
 
+## Support and diagnostics
+
+### Support bundles are preview-first, folders-only, and local
+
+**Decided:** Production troubleshooting uses an explicit in-app preview that copies one local support bundle only after the user selects **Copy**. The default inventory includes the complete relative folder hierarchy but no note filenames, note contents, frontmatter values, vault name, absolute paths, or note-derived tag inventory.
+
+**Why:** Folder Tag Sync behavior depends heavily on hierarchy and rule configuration, so a folder tree is useful evidence. Note-level data is rarely needed to diagnose the mapping engine and would create substantially more privacy risk. The user can test from a BRAT-installed production vault without granting filesystem access or uploading anything automatically.
+
+**Scale boundary:** Aggregate detection/rule counts are computed across the complete folder inventory, but retained per-folder diagnostic rows are capped at 2,000. The complete folder tree is not capped. The modal's rule scan yields between chunks and cancels superseded/closed collection generations so a large production vault does not monopolize the UI or publish stale results.
+
+**Rejected:** Automatic telemetry/upload, note-content sampling, a zip of the vault or plugin directory, and retaining unbounded per-folder rule-match arrays in memory.
+
+---
+
+### Readable names by default, deterministic anonymization on demand
+
+**Decided:** The support modal opens in readable mode so relative folders and configuration can reproduce real behavior, but it displays the exact payload before copy and offers an **Anonymize names** toggle. Anonymization uses stable category aliases for folders, rules, groups, tags, patterns, templates, and custom literals while preserving hierarchy, repeated identity, enabled states, transforms, coverage, and conflicts.
+
+**Why:** Always-raw output is easy to overshare; always-anonymized output can make concrete support examples harder to understand. Preview plus an optional structural anonymizer lets the user choose based on the sensitivity of the vault without rescanning or changing the underlying snapshot.
+
+**Rejected:** Reversible alias maps and persistent cross-bundle aliases. Both would create a new sensitive artifact.
+
+---
+
+### Debug logs are structured, bounded, retained, and sanitized at export
+
+**Decided:** Debug logging writes versioned JSONL under `.obsidian/plugins/folder-tag-sync/debug.log`, appends through a serialized queue, rotates at a fixed size with one backup, and is no longer cleared at startup. Support bundles include only a bounded recent tail and sanitize it again at the final serialization boundary.
+
+**Why:** A persistent bounded timeline is much more useful for reproducing production failures than a log erased on every reload. Final-boundary sanitization prevents a new or overlooked log field from bypassing the bundle's privacy policy.
+
+**Rejected:** Unbounded logs, read-and-rewrite appends, and copying the raw log file directly.
+
 ## Tooling
 
 ### Bun over npm

@@ -21,7 +21,7 @@
  * shared with the modal via the engine and the `renderAnnotatedTree` helper.
  */
 
-import { ItemView, Menu, Notice, TFolder, WorkspaceLeaf } from 'obsidian';
+import { ItemView, Menu, Notice, WorkspaceLeaf } from 'obsidian';
 import { detectPacks, type ManifestPackEntry } from '../engine/detectPacks';
 import {
 	buildAnnotatedTree,
@@ -31,6 +31,7 @@ import {
 } from '../engine/detectionTree';
 import { computeFolderRuleView, type FolderRuleEntry } from '../engine/folderRuleView';
 import { renderAnnotatedTree, type AnnotationMode } from './annotatedTreeRender';
+import { collectVaultFolderPaths } from '../utils/vaultFolders';
 import bundledManifest from '../../rule-packs/manifest.json';
 import type DynamicTagsFoldersPlugin from '../main';
 
@@ -101,7 +102,7 @@ export class TaxonomyWorkbenchView extends ItemView {
 
 		// ─── Scan: detection pass + "my rules" pass ───────────────────────
 		const manifest = bundledManifest as ManifestFile;
-		const folderPaths = this.collectVaultFolders();
+		const folderPaths = collectVaultFolderPaths(this.app.vault.getRoot());
 		const results = detectPacks(folderPaths, manifest.packs);
 		const packNamesById = new Map(manifest.packs.map((p) => [p.id, p.name]));
 		const hitMap: CrossPackHitMap = collectCrossPackHits(folderPaths, results, packNamesById);
@@ -463,18 +464,4 @@ export class TaxonomyWorkbenchView extends ItemView {
 		l.style.color = 'var(--text-muted)';
 	}
 
-	/** Collect every folder path (relative to vault root) for detection. */
-	private collectVaultFolders(): string[] {
-		const out: string[] = [];
-		const walk = (folder: TFolder): void => {
-			for (const child of folder.children) {
-				if (child instanceof TFolder) {
-					out.push(child.path);
-					walk(child);
-				}
-			}
-		};
-		walk(this.app.vault.getRoot());
-		return out;
-	}
 }

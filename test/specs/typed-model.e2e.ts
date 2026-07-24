@@ -1221,10 +1221,12 @@ describe('folder-tag-sync — Phase 2 typed model E2E', function () {
               },
             };
           }
-          const cards = Array.from(modalAny.querySelectorAll('.dtf-detect-result strong'));
+          const signalChips = Array.from(
+            modalAny.querySelectorAll<HTMLElement>('[data-dtf-signal-pack-id]'),
+          );
           return {
             hasModal: true,
-            packs: cards.map((c) => c.textContent ?? ''),
+            packs: signalChips.map((chip) => chip.dataset.dtfSignalPackId ?? ''),
             diagnostic: {
               modalCount: allModals.length,
               modalClasses: allModals.map((m) => m.className).slice(0, 3),

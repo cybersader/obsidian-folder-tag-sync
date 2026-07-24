@@ -6,7 +6,7 @@
  */
 
 import { describe, expect, test } from 'bun:test';
-import { computeFolderRuleView } from './folderRuleView';
+import { computeFolderRuleEntry, computeFolderRuleView } from './folderRuleView';
 import { compileTemplate } from './compileTemplate';
 import type { MappingRule } from '../types/settings';
 
@@ -94,6 +94,13 @@ describe('folderRuleView — matched by two rules (conflict + precedence)', () =
 		const web = view.get('Projects/Web')!;
 		expect(web.winnerRuleId).toBe('rule-a');
 		expect(web.emittedTags[0]).toMatch(/^#a/);
+	});
+
+	test('single-entry evaluation is identical to the corresponding Map entry', () => {
+		const [a, b] = pair();
+		const entry = computeFolderRuleEntry('Projects/Web', [a, b], ['high', 'low']);
+		const view = computeFolderRuleView(['Projects/Web'], [a, b], ['high', 'low']);
+		expect(entry).toEqual(view.get('Projects/Web'));
 	});
 
 	test('flipping precedence flips the winner', () => {

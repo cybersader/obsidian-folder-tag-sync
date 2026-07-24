@@ -39,7 +39,7 @@ All refer to this same plugin for **bidirectional folder-tag synchronization**.
 
 ## 🚧 Development Status
 
-This plugin is currently in **active development** (v0.1.0 beta). Core features are working, with advanced features in progress.
+This plugin is in **active beta development**, distributed through GitHub Releases and BRAT. Core synchronization, rule authoring, detection, previews, and the Taxonomy Workbench are working, with advanced authoring features still in progress.
 
 ### 🤖 AI-Assisted Development
 
@@ -48,7 +48,7 @@ This plugin is currently in **active development** (v0.1.0 beta). Core features 
 **What this means:**
 - ✅ Rapid development with comprehensive testing
 - ✅ Well-documented, modern codebase (Astro + Starlight docs site at [cybersader.github.io/obsidian-folder-tag-sync](https://cybersader.github.io/obsidian-folder-tag-sync/))
-- ✅ 416+ automated tests across the engine, transformers, sync, and UI plumbing
+- ✅ 1000+ automated tests across the engine, transformers, sync, UI plumbing, privacy boundaries, and real-Obsidian workflows
 - ✅ Substantive in-flight research artifacts in the docs site (see [Documentation](#-documentation) below)
 - ⚠️ Ongoing learning curve for traditional plugin patterns
 - 💡 Committed to maintenance and user feedback
@@ -74,7 +74,7 @@ If you find issues or have suggestions, please [open an issue](https://github.co
 - ✅ **Settings UI** — Visual rule editor with drag-to-reorder, guided modal, and advanced regex modal
 - ✅ **Rule packs** — Import shipped packs (PARA, Johnny Decimal, SEACOW-cyberbase, Zettelkasten); detect organizational systems via vault scan
 - ✅ **Manual Sync Commands** — Sync on demand via command palette
-- ✅ **Debug Logging** — Comprehensive logging for troubleshooting
+- ✅ **Support bundles and debug logging** — Preview and copy configuration, rule diagnostics, a complete folder-only tree, and a sanitized bounded log tail; optionally anonymize user-authored names before sharing
 
 ### Active research / next phases
 
@@ -138,6 +138,12 @@ Install via the [BRAT plugin](https://github.com/TfTHacker/obsidian42-brat):
 2. Open BRAT settings
 3. Add `cybersader/obsidian-folder-tag-sync`
 4. Enable "Folder Tag Sync"
+
+### Production troubleshooting
+
+From any BRAT-installed vault, run **Folder Tag Sync: Open support bundle preview** to inspect and copy a local troubleshooting snapshot. It contains the plugin configuration, derived rule diagnostics, a concise complete folder-only tree, and a sanitized debug-log tail. Note filenames, note contents, frontmatter, the vault name, and absolute paths are excluded; an anonymized mode replaces user-authored folder/rule/tag/pattern names with stable aliases.
+
+See [Create a support bundle](https://cybersader.github.io/obsidian-folder-tag-sync/guides/creating-a-support-bundle/) for the complete privacy boundary and workflow.
 
 ### Method 3: Community Plugins (Coming Soon)
 

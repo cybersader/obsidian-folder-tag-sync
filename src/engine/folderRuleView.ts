@@ -12,7 +12,7 @@
  * detection layer answers "what organizational systems live here", this layer
  * answers "what will my rules emit here".
  *
- * It reuses the production matcher (`findBestMatch` / `findMatchingRules`) and
+ * It reuses the production matcher (`findMatchingRules` / `selectBestMatch`) and
  * the forward engine (`applyRuleForward`), so the map reflects the SAME
  * resolution the sync engine performs — group precedence first, then
  * specificity, then priority as the tiebreak — and the same recoordinated
@@ -21,7 +21,7 @@
  */
 
 import type { MappingRule } from '../types/settings';
-import { findBestMatch, findMatchingRules, type RuleEvaluationContext } from './ruleMatcher';
+import { findMatchingRules, selectBestMatch, type RuleEvaluationContext } from './ruleMatcher';
 import { applyRuleForward } from './applyTransfer';
 
 export interface FolderRuleEntry {
@@ -50,46 +50,49 @@ export interface FolderRuleEntry {
  * conflict here. Folders no forward rule matches get a null-winner entry so
  * the caller can render "no rule covers this folder" without a second lookup.
  */
+export function computeFolderRuleEntry(
+	folderPath: string,
+	rules: MappingRule[],
+	groupPrecedence?: string[],
+): FolderRuleEntry {
+	// `direction: 'folder-to-tag'` includes bidirectional rules and excludes
+	// pure tag-to-folder rules (see evaluateRule's direction gate).
+	const context: RuleEvaluationContext = {
+		input: folderPath,
+		matchType: 'folder',
+		direction: 'folder-to-tag',
+	};
+	const matches = findMatchingRules(folderPath, rules, context);
+	const matchingRuleIds = matches.map((match) => match.rule.id);
+	const best = selectBestMatch(matches, groupPrecedence);
+
+	let emittedTags: string[] = [];
+	if (best) {
+		try {
+			emittedTags = applyRuleForward(folderPath, best.rule).tags;
+		} catch {
+			// A misconfigured rule shouldn't crash diagnostics for the whole vault.
+			emittedTags = [];
+		}
+	}
+
+	return {
+		winnerRuleId: best ? best.rule.id : null,
+		winnerRuleName: best ? best.rule.name : null,
+		emittedTags,
+		matchingRuleIds,
+		conflict: matchingRuleIds.length >= 2,
+	};
+}
+
 export function computeFolderRuleView(
 	folderPaths: string[],
 	rules: MappingRule[],
 	groupPrecedence?: string[],
 ): Map<string, FolderRuleEntry> {
 	const view = new Map<string, FolderRuleEntry>();
-
 	for (const folderPath of folderPaths) {
-		// `direction: 'folder-to-tag'` includes bidirectional rules and excludes
-		// pure tag-to-folder rules (see evaluateRule's direction gate).
-		const context: RuleEvaluationContext = {
-			input: folderPath,
-			matchType: 'folder',
-			direction: 'folder-to-tag',
-		};
-
-		const matches = findMatchingRules(folderPath, rules, context);
-		const matchingRuleIds = matches.map((m) => m.rule.id);
-
-		const best = findBestMatch(folderPath, rules, context, groupPrecedence);
-
-		let emittedTags: string[] = [];
-		if (best) {
-			try {
-				emittedTags = applyRuleForward(folderPath, best.rule).tags;
-			} catch {
-				// A misconfigured rule (bad regex in entry stripping, etc.) shouldn't
-				// crash the whole view — treat it as "winner found, emits nothing".
-				emittedTags = [];
-			}
-		}
-
-		view.set(folderPath, {
-			winnerRuleId: best ? best.rule.id : null,
-			winnerRuleName: best ? best.rule.name : null,
-			emittedTags,
-			matchingRuleIds,
-			conflict: matchingRuleIds.length >= 2,
-		});
+		view.set(folderPath, computeFolderRuleEntry(folderPath, rules, groupPrecedence));
 	}
-
 	return view;
 }

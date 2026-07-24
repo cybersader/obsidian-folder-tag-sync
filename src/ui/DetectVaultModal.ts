@@ -278,8 +278,10 @@ export class DetectVaultModal extends Modal {
 		countSpan.style.marginLeft = '0.15em';
 
 		// Pack name as tooltip — invisible at primary level but available
-		// for users who care to know the source.
+		// for users who care to know the source. The data attribute is a stable
+		// test/integration hook for the hierarchy-first detection surface.
 		if (packName) chip.title = `From ${packName}`;
+		if (signal) chip.dataset.dtfSignalPackId = signal.packId;
 		return chip;
 	}
 

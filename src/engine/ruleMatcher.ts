@@ -125,54 +125,56 @@ export function findBestMatch(
 	context: RuleEvaluationContext,
 	groupPrecedence?: string[]
 ): RuleMatch | null {
-	const matches = findMatchingRules(input, rules, context);
+	return selectBestMatch(findMatchingRules(input, rules, context), groupPrecedence);
+}
 
-	if (matches.length === 0) {
-		return null;
+/**
+ * Resolve a winner from matches that have already been evaluated. Consumers
+ * that also need the complete match list can avoid evaluating every rule twice.
+ */
+export function selectBestMatch(
+	matches: RuleMatch[],
+	groupPrecedence?: string[]
+): RuleMatch | null {
+	if (matches.length === 0) return null;
+
+	// Groups in groupPrecedence get rank by their list position (lower index =
+	// higher precedence). Unlisted groups share the lowest rank and use an
+	// alphabetical tiebreak, preserving the previous stable behavior.
+	const explicitGroupRanks = new Map<string, number>();
+	for (const [index, group] of (groupPrecedence ?? []).entries()) {
+		if (!explicitGroupRanks.has(group)) explicitGroupRanks.set(group, index);
 	}
-
-	// === F1 Step 3 — Partition matches by group ===
-	const byGroup = new Map<string, RuleMatch[]>();
-	for (const match of matches) {
-		const groupKey = match.rule.group ?? '__default__';
-		if (!byGroup.has(groupKey)) {
-			byGroup.set(groupKey, []);
-		}
-		byGroup.get(groupKey)!.push(match);
-	}
-
-	// === Sort groups by precedence ===
-	// Groups in groupPrecedence get rank by their list position (lower index = higher precedence).
-	// Groups not listed fall to lowest precedence with alphabetical tiebreak among themselves.
-	const groupRank = (g: string): number => {
-		if (groupPrecedence) {
-			const idx = groupPrecedence.indexOf(g);
-			if (idx !== -1) return idx;
-		}
-		// Unlisted: rank after all listed groups; sub-rank by alphabetical position
-		const listedCount = groupPrecedence?.length ?? 0;
-		return listedCount + 1; // shared "after-all-listed" bucket; alphabetical sort below distinguishes them
+	const groupRank = (group: string): number => {
+		return explicitGroupRanks.get(group) ?? (groupPrecedence?.length ?? 0) + 1;
+	};
+	const compareGroups = (a: string, b: string): number => {
+		const rankDiff = groupRank(a) - groupRank(b);
+		return rankDiff !== 0 ? rankDiff : a.localeCompare(b);
 	};
 
-	const groupsInOrder = Array.from(byGroup.keys()).sort((a, b) => {
-		const rankDiff = groupRank(a) - groupRank(b);
-		if (rankDiff !== 0) return rankDiff;
-		// Tiebreak: alphabetical (deterministic and stable for ungrouped/unlisted rules)
-		return a.localeCompare(b);
-	});
+	let winningGroup = matches[0].rule.group ?? '__default__';
+	for (let index = 1; index < matches.length; index++) {
+		const candidateGroup = matches[index].rule.group ?? '__default__';
+		if (compareGroups(candidateGroup, winningGroup) < 0) winningGroup = candidateGroup;
+	}
 
-	// === Within the winning group, apply the Step 1+2 specificity sort ===
-	const winningGroup = groupsInOrder[0];
-	const groupMatches = byGroup.get(winningGroup)!;
-
-	groupMatches.sort((a, b) => {
-		if (a.confidence !== b.confidence) {
-			return b.confidence - a.confidence;
+	let best: RuleMatch | null = null;
+	for (const match of matches) {
+		if ((match.rule.group ?? '__default__') !== winningGroup) continue;
+		if (
+			best === null
+			|| match.confidence > best.confidence
+			|| (
+				match.confidence === best.confidence
+				&& match.rule.priority < best.rule.priority
+			)
+		) {
+			best = match;
 		}
-		return a.rule.priority - b.rule.priority;
-	});
+	}
 
-	return groupMatches[0];
+	return best;
 }
 
 /**

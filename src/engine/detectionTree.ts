@@ -25,7 +25,16 @@
  * from `./folderNormalize`.
  */
 
-import type { DetectionResult, DetectionSignalResult } from './detectPacks';
+import {
+	detectionOccurrenceKey,
+	isSurfacedDetection,
+	type DetectionEvidenceRelation,
+	type DetectionOccurrence,
+	type DetectionOccurrenceEvidence,
+	type DetectionOccurrenceStatus,
+	type DetectionResult,
+	type DetectionSignalResult,
+} from './detectPacks';
 import { matchesNormalized } from './folderNormalize';
 
 // ─── Cross-pack hierarchy view types ──────────────────────────────────
@@ -41,7 +50,9 @@ export interface AnnotatedSignal {
 	/** Source pack — used at apply time to load the right rule set. */
 	packId: string;
 	packName: string;
-	/** Position of this signal inside its pack's matchedSignals list. */
+	/** Stable signal-definition identity inside the pack. */
+	signalId?: string;
+	/** Position of this signal inside its pack's detection.anyOf list. */
 	signalIndex: number;
 	/** Globally unique index across all detected packs. Drives the colour
 	 * scheme so every signal has a stable hue regardless of pack ordering. */
@@ -49,19 +60,34 @@ export interface AnnotatedSignal {
 	label: string;
 	regex: string;
 	scope: 'name' | 'path' | 'leafName';
+	role?: string;
+	relation?: DetectionEvidenceRelation;
 }
 
 export interface AnnotatedHit {
 	folderPath: string;
 	signal: AnnotatedSignal;
+	/** Occurrence identity is present for attached native evidence and legacy adapters. */
+	occurrenceKey?: string;
+	occurrenceAnchorPath?: string;
+	occurrenceStatus?: DetectionOccurrenceStatus;
+	/** Member evidence establishes/scores an occurrence; support only explains it. */
+	relation?: DetectionEvidenceRelation;
 }
 
 export interface CrossPackHitMap {
-	/** All signals from all detected packs, with deterministic globalIndex. */
+	/** Legacy alias for actionableSignals. */
 	allSignals: AnnotatedSignal[];
-	/** Hits keyed by folder path — each list contains every (pack, signal)
-	 * pair that matched that folder. */
+	/** Legacy alias for actionableHitsByPath. */
 	hitsByPath: Map<string, AnnotatedHit[]>;
+	/** Every signal definition with any raw evidence, including diagnostic-only evidence. */
+	allEvidenceSignals: AnnotatedSignal[];
+	/** Signal definitions represented by actionable occurrences only. */
+	actionableSignals: AnnotatedSignal[];
+	/** All raw evidence, including incomplete, suppressed, and unattached support evidence. */
+	allEvidenceHitsByPath: Map<string, AnnotatedHit[]>;
+	/** Evidence attached to actionable occurrences only. */
+	actionableHitsByPath: Map<string, AnnotatedHit[]>;
 }
 
 export interface AnnotatedTreeNode {
@@ -83,9 +109,11 @@ export interface DetectionHit {
 	signalLabel: string;
 	signalRegex: string;
 	scope: 'name' | 'path' | 'leafName';
-	/** Stable index across the parent DetectionResult's matchedSignals — used
-	 * for deterministic colour coding in the renderer. */
+	/** Stable index across the pack's detection.anyOf definitions when native. */
 	signalIndex: number;
+	signalId?: string;
+	role?: string;
+	relation?: DetectionEvidenceRelation;
 }
 
 export interface DetectionTreeNode {
@@ -118,6 +146,15 @@ export interface DetectionTree {
 function leafOf(path: string): string {
 	const idx = path.lastIndexOf('/');
 	return idx === -1 ? path : path.slice(idx + 1);
+}
+
+function parentOf(path: string): string {
+	const idx = path.lastIndexOf('/');
+	return idx === -1 ? '' : path.slice(0, idx);
+}
+
+function compareCodePoints(a: string, b: string): number {
+	return a < b ? -1 : a > b ? 1 : 0;
 }
 
 // ─── Tree construction ─────────────────────────────────────────────────
@@ -291,8 +328,12 @@ export interface InstanceHit {
 }
 
 export interface DetectionInstance {
+	/** Stable native occurrence identity; synthesized for legacy results. */
+	occurrenceKey: string;
 	/** Common parent of this instance's hit folders. Empty string for vault root. */
 	anchorPath: string;
+	/** Native occurrence status; legacy extraction preserves its historical actionable assumption. */
+	status: DetectionOccurrenceStatus;
 	/** Hit folders sitting directly under this anchor. */
 	hits: InstanceHit[];
 	/** Distinct signal indices represented in this instance. Used for stats. */
@@ -320,6 +361,10 @@ export function extractInstances(
 	folderPaths: string[],
 	result: DetectionResult,
 ): DetectionInstance[] {
+	if (result.occurrences !== undefined) {
+		return result.occurrences.map((occurrence) => detectionInstanceFromOccurrence(occurrence));
+	}
+
 	const hitsByPath = collectAllHits(folderPaths, result.matchedSignals);
 	const instancesByAnchor = new Map<string, DetectionInstance>();
 
@@ -328,7 +373,9 @@ export function extractInstances(
 		const anchor = idx === -1 ? '' : path.slice(0, idx);
 		if (!instancesByAnchor.has(anchor)) {
 			instancesByAnchor.set(anchor, {
+				occurrenceKey: detectionOccurrenceKey(result.packId, anchor),
 				anchorPath: anchor,
+				status: 'actionable',
 				hits: [],
 				signalIndices: [],
 			});
@@ -345,14 +392,43 @@ export function extractInstances(
 		inst.hits.sort((a, b) => a.folderPath.localeCompare(b.folderPath));
 	}
 
-	const instances = [...instancesByAnchor.values()];
-	instances.sort((a, b) => {
-		const da = a.anchorPath ? a.anchorPath.split('/').length : 0;
-		const db = b.anchorPath ? b.anchorPath.split('/').length : 0;
-		if (da !== db) return da - db;
-		return a.anchorPath.localeCompare(b.anchorPath);
-	});
-	return instances;
+	return [...instancesByAnchor.values()].sort(compareDetectionInstances);
+}
+
+function detectionInstanceFromOccurrence(occurrence: DetectionOccurrence): DetectionInstance {
+	const hitsByPath = new Map<string, DetectionHit[]>();
+	for (const evidence of occurrence.evidence) {
+		const hit: DetectionHit = {
+			signalLabel: evidence.label ?? evidence.folderRegex,
+			signalRegex: evidence.folderRegex,
+			scope: evidence.scope,
+			signalIndex: evidence.signalIndex,
+			signalId: evidence.signalId,
+			role: evidence.role,
+			relation: evidence.relation,
+		};
+		const existing = hitsByPath.get(evidence.folderPath);
+		if (existing) existing.push(hit);
+		else hitsByPath.set(evidence.folderPath, [hit]);
+	}
+
+	return {
+		occurrenceKey: occurrence.key,
+		anchorPath: occurrence.anchorPath,
+		status: occurrence.status,
+		hits: [...hitsByPath.entries()]
+			.map(([folderPath, signals]) => ({ folderPath, signals }))
+			.sort((a, b) => compareCodePoints(a.folderPath, b.folderPath)),
+		signalIndices: [...new Set(occurrence.evidence.map((evidence) => evidence.signalIndex))]
+			.sort((a, b) => a - b),
+	};
+}
+
+function compareDetectionInstances(a: DetectionInstance, b: DetectionInstance): number {
+	const da = a.anchorPath ? a.anchorPath.split('/').length : 0;
+	const db = b.anchorPath ? b.anchorPath.split('/').length : 0;
+	if (da !== db) return da - db;
+	return compareCodePoints(a.anchorPath, b.anchorPath);
 }
 
 /**
@@ -417,56 +493,218 @@ function isAnchorPrefix(prefix: string, target: string): boolean {
 // renders as folder-row chips, with packs invisible to the user.
 
 /**
- * Collect hits from every detection result into one cross-pack map. Each
- * signal across all packs gets a globally unique `globalIndex` so the UI
- * can assign deterministic colours. The hit map enumerates per-folder
- * which (pack, signal) pairs fired.
+ * Collect occurrence-native evidence from every detection result.
  *
- * `packNamesById` is a lookup from pack ID to display name — passed in
- * rather than resolved internally so the engine stays decoupled from the
- * manifest shape.
+ * `allEvidenceHitsByPath` is diagnostic and deliberately retains incomplete,
+ * suppressed, and unattached support evidence. `actionableHitsByPath` is the
+ * action boundary consumed by Scope/Map: it contains only evidence attached to
+ * actionable occurrences. `hitsByPath` and `allSignals` remain legacy aliases
+ * for the actionable-only view.
  *
- * Suppressed packs (parent missing) are intentionally excluded. They're
- * surfaced separately by the modal as a notice; including their signals
- * in the hierarchy view would mislead the user into thinking those
- * patterns are confidently detected.
+ * Hand-built results without occurrence data keep the previous re-evaluation
+ * behavior through a synthesized occurrence adapter.
  */
 export function collectCrossPackHits(
 	folderPaths: string[],
 	results: DetectionResult[],
 	packNamesById: Map<string, string>,
 ): CrossPackHitMap {
-	const allSignals: AnnotatedSignal[] = [];
-	const hitsByPath = new Map<string, AnnotatedHit[]>();
-	let globalIdx = 0;
+	const allEvidenceHitsByPath = new Map<string, AnnotatedHit[]>();
+	const actionableHitsByPath = new Map<string, AnnotatedHit[]>();
+	const signalsByIdentity = new Map<string, AnnotatedSignal>();
+	const actionableSignalIdentities = new Set<string>();
+	let globalIndex = 0;
+
+	const ensureSignal = (
+		result: DetectionResult,
+		evidence: DetectionOccurrenceEvidence,
+		packName: string,
+	): AnnotatedSignal => {
+		const identity = annotatedSignalIdentity(result.packId, evidence.signalId);
+		let signal = signalsByIdentity.get(identity);
+		if (!signal) {
+			signal = {
+				packId: result.packId,
+				packName,
+				signalId: evidence.signalId,
+				signalIndex: evidence.signalIndex,
+				globalIndex: globalIndex++,
+				label: evidence.label ?? evidence.folderRegex,
+				regex: evidence.folderRegex,
+				scope: evidence.scope,
+				role: evidence.role,
+				relation: evidence.relation,
+			};
+			signalsByIdentity.set(identity, signal);
+		}
+		return signal;
+	};
 
 	for (const result of results) {
-		if (result.suppressedByMissingParent) continue;
-		const packName = packNamesById.get(result.packId) ?? result.packId;
-		const annotatedForPack: AnnotatedSignal[] = result.matchedSignals.map((sig, i) => ({
-			packId: result.packId,
-			packName,
-			signalIndex: i,
-			globalIndex: globalIdx++,
-			label: sig.label ?? sig.folderRegex,
-			regex: sig.folderRegex,
-			scope: sig.scope,
-		}));
-		allSignals.push(...annotatedForPack);
+		if (result.occurrences !== undefined) {
+			const occurrenceByEvidence = indexOccurrenceEvidence(result.occurrences);
+			const nativeEvidence = result.rawEvidence
+				?? uniqueOccurrenceEvidence(result.occurrences);
+			const fallbackPackName = result.occurrences[0]?.packName
+				?? packNamesById.get(result.packId)
+				?? result.packId;
 
-		const packHits = collectAllHits(folderPaths, result.matchedSignals);
-		for (const [path, hits] of packHits) {
-			const enriched: AnnotatedHit[] = hits.map((h) => ({
-				folderPath: path,
-				signal: annotatedForPack[h.signalIndex],
-			}));
-			const existing = hitsByPath.get(path);
-			if (existing) existing.push(...enriched);
-			else hitsByPath.set(path, enriched);
+			for (const evidence of nativeEvidence) {
+				const occurrence = occurrenceByEvidence.get(nativeEvidenceIdentity(evidence));
+				const signal = ensureSignal(result, evidence, fallbackPackName);
+				appendAnnotatedHit(allEvidenceHitsByPath, {
+					folderPath: evidence.folderPath,
+					signal,
+					occurrenceKey: occurrence?.key,
+					occurrenceAnchorPath: occurrence?.anchorPath,
+					occurrenceStatus: occurrence?.status,
+					relation: evidence.relation,
+				});
+			}
+
+			for (const occurrence of result.occurrences) {
+				if (occurrence.status !== 'actionable') continue;
+				for (const evidence of occurrence.evidence) {
+					const signal = ensureSignal(result, evidence, occurrence.packName);
+					actionableSignalIdentities.add(
+						annotatedSignalIdentity(result.packId, evidence.signalId),
+					);
+					appendAnnotatedHit(actionableHitsByPath, {
+						folderPath: evidence.folderPath,
+						signal,
+						occurrenceKey: occurrence.key,
+						occurrenceAnchorPath: occurrence.anchorPath,
+						occurrenceStatus: occurrence.status,
+						relation: evidence.relation,
+					});
+				}
+			}
+			continue;
 		}
+
+		collectLegacyCrossPackHits(
+			folderPaths,
+			result,
+			packNamesById.get(result.packId) ?? result.packId,
+			allEvidenceHitsByPath,
+			actionableHitsByPath,
+			signalsByIdentity,
+			actionableSignalIdentities,
+			() => globalIndex++,
+		);
 	}
 
-	return { allSignals, hitsByPath };
+	const allEvidenceSignals = [...signalsByIdentity.values()];
+	const actionableSignals = allEvidenceSignals.filter((signal) =>
+		actionableSignalIdentities.has(
+			annotatedSignalIdentity(signal.packId, signal.signalId ?? `legacy:${signal.signalIndex}`),
+		),
+	);
+
+	return {
+		allSignals: actionableSignals,
+		hitsByPath: actionableHitsByPath,
+		allEvidenceSignals,
+		actionableSignals,
+		allEvidenceHitsByPath,
+		actionableHitsByPath,
+	};
+}
+
+function collectLegacyCrossPackHits(
+	folderPaths: string[],
+	result: DetectionResult,
+	packName: string,
+	allEvidenceHitsByPath: Map<string, AnnotatedHit[]>,
+	actionableHitsByPath: Map<string, AnnotatedHit[]>,
+	signalsByIdentity: Map<string, AnnotatedSignal>,
+	actionableSignalIdentities: Set<string>,
+	nextGlobalIndex: () => number,
+): void {
+	const actionable = isSurfacedDetection(result);
+	const status: DetectionOccurrenceStatus = actionable
+		? 'actionable'
+		: result.suppressedByMissingParent
+			? 'suppressed'
+			: 'incomplete';
+	const annotatedForPack: AnnotatedSignal[] = result.matchedSignals.map((signal, signalIndex) => {
+		const signalId = `legacy:${signalIndex}`;
+		const identity = annotatedSignalIdentity(result.packId, signalId);
+		const annotated: AnnotatedSignal = {
+			packId: result.packId,
+			packName,
+			signalId,
+			signalIndex,
+			globalIndex: nextGlobalIndex(),
+			label: signal.label ?? signal.folderRegex,
+			regex: signal.folderRegex,
+			scope: signal.scope,
+			role: signal.role ?? signalId,
+			relation: signal.relation ?? 'member',
+		};
+		signalsByIdentity.set(identity, annotated);
+		if (actionable) actionableSignalIdentities.add(identity);
+		return annotated;
+	});
+
+	for (const [folderPath, hits] of collectAllHits(folderPaths, result.matchedSignals)) {
+		const anchorPath = parentOf(folderPath);
+		const occurrenceKey = detectionOccurrenceKey(result.packId, anchorPath);
+		for (const hit of hits) {
+			const signal = annotatedForPack[hit.signalIndex];
+			const annotatedHit: AnnotatedHit = {
+				folderPath,
+				signal,
+				occurrenceKey,
+				occurrenceAnchorPath: anchorPath,
+				occurrenceStatus: status,
+				relation: signal.relation ?? 'member',
+			};
+			appendAnnotatedHit(allEvidenceHitsByPath, annotatedHit);
+			if (actionable) appendAnnotatedHit(actionableHitsByPath, annotatedHit);
+		}
+	}
+}
+
+function indexOccurrenceEvidence(
+	occurrences: DetectionOccurrence[],
+): Map<string, DetectionOccurrence> {
+	const indexed = new Map<string, DetectionOccurrence>();
+	for (const occurrence of occurrences) {
+		for (const evidence of occurrence.evidence) {
+			indexed.set(nativeEvidenceIdentity(evidence), occurrence);
+		}
+	}
+	return indexed;
+}
+
+function uniqueOccurrenceEvidence(
+	occurrences: DetectionOccurrence[],
+): DetectionOccurrenceEvidence[] {
+	const evidenceByIdentity = new Map<string, DetectionOccurrenceEvidence>();
+	for (const occurrence of occurrences) {
+		for (const evidence of occurrence.evidence) {
+			evidenceByIdentity.set(nativeEvidenceIdentity(evidence), evidence);
+		}
+	}
+	return [...evidenceByIdentity.values()];
+}
+
+function annotatedSignalIdentity(packId: string, signalId: string): string {
+	return `${packId.length}:${packId}:${signalId.length}:${signalId}`;
+}
+
+function nativeEvidenceIdentity(evidence: DetectionOccurrenceEvidence): string {
+	return `${evidence.signalId.length}:${evidence.signalId}:${evidence.folderPath}`;
+}
+
+function appendAnnotatedHit(
+	hitsByPath: Map<string, AnnotatedHit[]>,
+	hit: AnnotatedHit,
+): void {
+	const existing = hitsByPath.get(hit.folderPath);
+	if (existing) existing.push(hit);
+	else hitsByPath.set(hit.folderPath, [hit]);
 }
 
 /**

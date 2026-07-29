@@ -1,5 +1,14 @@
 import { describe, expect, test } from 'bun:test';
-import { detectPacks, findExclusivityConflicts, type ManifestPackEntry } from './detectPacks';
+import {
+	detectPacks,
+	detectionOccurrenceKey,
+	findExclusivityConflicts,
+	isSurfacedDetection,
+	partitionDetectionOccurrences,
+	partitionDetectionResults,
+	type DetectionResult,
+	type ManifestPackEntry,
+} from './detectPacks';
 
 // ─── Test manifest fixtures ──────────────────────────────────────────────
 
@@ -22,8 +31,9 @@ const JD: ManifestPackEntry = {
 	id: 'jd',
 	name: 'JD',
 	detection: {
-		anyOf: [{ folderRegex: '^\\d{2} - [A-Za-z]', scope: 'name' }],
+		anyOf: [{ folderRegex: '^\\d{2} - [A-Za-z]', scope: 'name', role: 'numbered-folder' }],
 		minSignals: 2,
+		occurrence: { countBy: 'folders', minEvidence: 2 },
 	},
 };
 
@@ -98,6 +108,43 @@ describe('detectPacks — basic matching', () => {
 		const results = detectPacks(folders, [PARA]);
 		const areasMatch = results[0].matchedSignals.find((s) => s.label === 'Areas/');
 		expect(areasMatch?.exampleMatches.length).toBeLessThanOrEqual(3);
+	});
+});
+
+// ─── Explicit result partitioning ────────────────────────────────────────
+
+describe('partitionDetectionResults', () => {
+	test('partitions surfaced, below-threshold, and suppressed results explicitly', () => {
+		const folders = ['Projects', 'Work/Projects', 'Work/Areas'];
+		const partialPara: ManifestPackEntry = {
+			...PARA,
+			detection: {
+				anyOf: [
+					{ folderRegex: '^Projects$', scope: 'name' },
+					{ folderRegex: '^Resources$', scope: 'name' },
+				],
+				minSignals: 2,
+			},
+		};
+		const results = detectPacks(folders, [partialPara, PARA_SCOPED_UNDER_SEACOW]);
+		const partition = partitionDetectionResults(results);
+
+		expect(partition.surfaced).toEqual([]);
+		expect(partition.belowThreshold.map((r) => r.packId)).toEqual(['para']);
+		expect(partition.suppressed.map((r) => r.packId)).toEqual(['para-in-seacow']);
+		expect(partition.actionable).toEqual(partition.surfaced);
+	});
+
+	test('occurrence status is authoritative for detected values', () => {
+		const surfaced = detectPacks(['Projects', 'Areas'], [PARA])[0];
+		const suppressed = detectPacks(
+			['Work/Projects', 'Work/Areas'],
+			[PARA_SCOPED_UNDER_SEACOW],
+		)[0];
+
+		expect(isSurfacedDetection(surfaced)).toBe(true);
+		expect(isSurfacedDetection({ ...surfaced, score: 0.999 })).toBe(true);
+		expect(isSurfacedDetection(suppressed)).toBe(false);
 	});
 });
 
@@ -199,6 +246,45 @@ describe('findExclusivityConflicts', () => {
 		const conflicts = findExclusivityConflicts(results, [para_excl, GTD_EXCLUSIVE]);
 		expect(conflicts.length).toBe(1);
 	});
+
+	test('reports native exclusivity only for co-located actionable occurrences', () => {
+		const para: ManifestPackEntry & { exclusiveWith?: string[] } = {
+			...PARA,
+			exclusiveWith: ['gtd'],
+			detection: {
+				...PARA.detection!,
+				occurrence: { countBy: 'roles', minEvidence: 2 },
+			},
+		};
+		const gtd: ManifestPackEntry & { exclusiveWith?: string[] } = {
+			...GTD_EXCLUSIVE,
+			detection: {
+				...GTD_EXCLUSIVE.detection!,
+				minSignals: 2,
+				occurrence: { countBy: 'roles', minEvidence: 2 },
+			},
+		};
+		const folders = [
+			'Teams/Acme/Projects',
+			'Teams/Acme/Areas',
+			'Teams/Acme/Inbox',
+			'Teams/Acme/Next Actions',
+			'Teams/Beta/Projects',
+			'Teams/Beta/Areas',
+			'Teams/Gamma/Inbox',
+			'Teams/Gamma/Next Actions',
+		];
+		const results = detectPacks(folders, [para, gtd]);
+		const conflicts = findExclusivityConflicts(results, [para, gtd]);
+
+		expect(conflicts).toEqual([{
+			packA: 'para',
+			packB: 'gtd',
+			anchorPath: 'Teams/Acme',
+			occurrenceAKey: detectionOccurrenceKey('para', 'Teams/Acme'),
+			occurrenceBKey: detectionOccurrenceKey('gtd', 'Teams/Acme'),
+		}]);
+	});
 });
 
 // ─── Real anchor packs against a synthesized SEACOW vault ────────────────
@@ -250,6 +336,7 @@ describe('detectPacks — against the actual rule-packs/manifest entries', () =>
 import paraJson from '../../rule-packs/para.json';
 import jdJson from '../../rule-packs/jd.json';
 import seacowOuterJson from '../../rule-packs/seacow-outer.json';
+import enterpriseJdJson from '../../rule-packs/enterprise-jd-vault.json';
 import {
 	PARA_VAULT,
 	PARA_VAULT_LOWERCASE,
@@ -257,6 +344,7 @@ import {
 	SEACOW_VAULT,
 	CYBERBASE_VAULT,
 	MULTI_SYSTEM_VAULT,
+	ENTERPRISE_JD_DEEP_VAULT,
 	EMPTY_VAULT,
 	NOISE_VAULT,
 } from './__fixtures__/vaultFolderLists';
@@ -286,6 +374,13 @@ const SEACOW_REAL: ManifestPackEntry = {
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
 	detection: seacowOuterJson.detection as any,
 };
+const ENTERPRISE_JD_REAL: ManifestPackEntry = {
+	id: enterpriseJdJson.id,
+	name: enterpriseJdJson.name,
+	axes: enterpriseJdJson.axes,
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
+	detection: enterpriseJdJson.detection as any,
+};
 const ALL_REAL_PACKS = [PARA_REAL, JD_REAL, SEACOW_REAL];
 
 describe('detectPacks — fixture vaults × real pack metadata', () => {
@@ -314,41 +409,63 @@ describe('detectPacks — fixture vaults × real pack metadata', () => {
 		expect(para!.score).toBeGreaterThanOrEqual(1);
 	});
 
-	test('JD vault (Title Case only) → JD partially matches; will NOT surface as high-confidence', () => {
-		// Known limitation: JD pack defines minSignals=2 with two signal
-		// variants — `\d{2} - X` (Title Case, spaced) and `\d{2}-x`
-		// (lowercase, compact). A real vault uses one convention, so only
-		// one signal hits → score 0.5, below the surfacing threshold.
-		// Either lower minSignals to 1 in jd.json, or add more variant
-		// signals; tracked as a follow-up. Test pins the current behavior.
+	test('JD vault counts repeated sibling folders even when one regex variant hits', () => {
 		const results = detectPacks(JD_VAULT, [JD_REAL]);
 		const jd = results.find((r) => r.packId === 'jd');
 		expect(jd).toBeDefined();
-		expect(jd!.signalsHit).toBe(1);
-		expect(jd!.score).toBe(0.5);
+		expect(jd!.signalsHit).toBe(1); // compatibility summary still counts signal definitions
+		expect(jd!.score).toBe(2); // 4 numbered sibling folders / minEvidence 2
+		expect(jd!.occurrences?.[0].countBy).toBe('folders');
+		expect(jd!.occurrences?.[0].evidenceCount).toBe(4);
+		expect(jd!.occurrences?.[0].status).toBe('actionable');
 	});
 
-	test('JD vault with both naming variants → JD surfaces with full confidence', () => {
-		// Confirms the test above is testing the right limitation: when
-		// a vault has both naming variants present, JD detection works.
+	test('JD vault with both naming variants counts unique folders, not overlapping evidence', () => {
 		const mixedJD = [...JD_VAULT, '50-archive', '60-references'];
 		const results = detectPacks(mixedJD, [JD_REAL]);
 		const jd = results.find((r) => r.packId === 'jd');
 		expect(jd).toBeDefined();
 		expect(jd!.signalsHit).toBe(2);
-		expect(jd!.score).toBeGreaterThanOrEqual(1);
+		expect(jd!.occurrences?.[0].evidenceCount).toBe(6);
+		expect(jd!.score).toBe(3);
 	});
 
-	test('SEACOW vault → seacow-outer surfaces; PARA/JD do not', () => {
+	test('SEACOW vault → roots seed while detail paths attach as support', () => {
 		const results = detectPacks(SEACOW_VAULT, ALL_REAL_PACKS);
 		const seacow = results.find((r) => r.packId === 'seacow-outer');
 		expect(seacow).toBeDefined();
-		expect(seacow!.score).toBeGreaterThanOrEqual(1);
-		// All 6 SEACOW signals should hit on this fixture
-		expect(seacow!.signalsHit).toBe(6);
+		expect(seacow!.score).toBe(3); // 4 member roles + 2 attached support roles / minEvidence 2
+		expect(seacow!.signalsHit).toBe(6); // compatibility summary includes support signals
+		expect(seacow!.occurrences).toHaveLength(1);
+		expect(seacow!.occurrences?.[0].evidenceCount).toBe(6);
+		expect(seacow!.occurrences?.[0].supportPaths).toEqual([
+			'Capture/Clips',
+			'Capture/Inbox',
+			'Output/Main',
+			'Output/Public',
+		]);
 
 		expect(results.find((r) => r.packId === 'para')).toBeUndefined();
 		expect(results.find((r) => r.packId === 'jd')).toBeUndefined();
+	});
+
+	test('SEACOW detail paths alone remain diagnostic and do not seed an occurrence', () => {
+		const [seacow] = detectPacks(['Capture/Inbox', 'Output/Public'], [SEACOW_REAL]);
+		expect(seacow).toBeDefined();
+		expect(seacow.signalsHit).toBe(2);
+		expect(seacow.rawEvidence?.every((evidence) => evidence.relation === 'support')).toBe(true);
+		expect(seacow.occurrences).toEqual([]);
+		expect(isSurfacedDetection(seacow)).toBe(false);
+	});
+
+	test('enterprise JD metadata requires four local root roles', () => {
+		const [enterprise] = detectPacks(ENTERPRISE_JD_DEEP_VAULT, [ENTERPRISE_JD_REAL]);
+		expect(enterprise.packId).toBe('enterprise-jd-vault');
+		expect(enterprise.occurrences).toHaveLength(1);
+		expect(enterprise.occurrences?.[0].countBy).toBe('roles');
+		expect(enterprise.occurrences?.[0].minEvidence).toBe(4);
+		expect(enterprise.occurrences?.[0].evidenceCount).toBe(9);
+		expect(enterprise.occurrences?.[0].status).toBe('actionable');
 	});
 
 	test('Multi-system vault (PARA + JD coexisting) → both surface, no exclusivity declared', () => {
@@ -357,8 +474,8 @@ describe('detectPacks — fixture vaults × real pack metadata', () => {
 		const jd = results.find((r) => r.packId === 'jd');
 		expect(para).toBeDefined();
 		expect(para!.score).toBeGreaterThanOrEqual(1);
-		// JD will be at score 0.5 here (Title Case only) — see JD limitation above
 		expect(jd).toBeDefined();
+		expect(jd!.score).toBeGreaterThanOrEqual(1);
 
 		// Confirm PARA and JD don't declare exclusivity against each other
 		const conflicts = findExclusivityConflicts(results, ALL_REAL_PACKS);
@@ -466,5 +583,390 @@ describe('detectPacks — emoji + JD-prefix tolerance', () => {
 		const folders = ['📁 Notes', '📁 Daily'];
 		const results = detectPacks(folders, [PARA_PACK]);
 		expect(results).toEqual([]);
+	});
+});
+
+// ─── Occurrence-local detection foundation ──────────────────────────────
+
+describe('detectPacks — occurrence-local evidence and scoring', () => {
+	const ROLE_LOCAL_PACK: ManifestPackEntry = {
+		id: 'role-local',
+		name: 'Role local',
+		detection: {
+			anyOf: [
+				{ folderRegex: '^Projects$', role: 'projects' },
+				{ folderRegex: '^Areas$', role: 'areas' },
+				{ folderRegex: '^Resources$', role: 'resources' },
+			],
+			minSignals: 2,
+			occurrence: { countBy: 'roles', minEvidence: 2 },
+		},
+	};
+
+	test('does not combine incomplete role evidence from unrelated anchors', () => {
+		const [result] = detectPacks(
+			['Clients/Acme/Projects', 'Clients/Beta/Areas'],
+			[ROLE_LOCAL_PACK],
+		);
+
+		expect(result.score).toBe(0.5);
+		expect(result.signalsHit).toBe(2); // compatibility summary: two definitions hit globally
+		expect(result.occurrences?.map((occurrence) => ({
+			anchor: occurrence.anchorPath,
+			status: occurrence.status,
+			evidenceCount: occurrence.evidenceCount,
+			missingRoles: occurrence.missingRoles,
+		}))).toEqual([
+			{
+				anchor: 'Clients/Acme',
+				status: 'incomplete',
+				evidenceCount: 1,
+				missingRoles: ['areas', 'resources'],
+			},
+			{
+				anchor: 'Clients/Beta',
+				status: 'incomplete',
+				evidenceCount: 1,
+				missingRoles: ['projects', 'resources'],
+			},
+		]);
+		expect(isSurfacedDetection(result)).toBe(false);
+	});
+
+	test('real PARA evidence split across parents never combines into an actionable pack', () => {
+		const [result] = detectPacks(
+			['Clients/Acme/Projects', 'Clients/Beta/Areas'],
+			[PARA_REAL],
+		);
+
+		expect(result.signalsHit).toBe(2);
+		expect(result.occurrences?.map((occurrence) => [
+			occurrence.anchorPath,
+			occurrence.status,
+			occurrence.evidenceCount,
+		])).toEqual([
+			['Clients/Acme', 'incomplete', 1],
+			['Clients/Beta', 'incomplete', 1],
+		]);
+		expect(isSurfacedDetection(result)).toBe(false);
+	});
+
+	test('keeps complete root and nested occurrences separate from an incomplete sibling', () => {
+		const [result] = detectPacks([
+			'Projects',
+			'Areas',
+			'Teams/Acme/Projects',
+			'Teams/Acme/Areas',
+			'Teams/Beta/Projects',
+		], [ROLE_LOCAL_PACK]);
+
+		expect(result.occurrences?.map((occurrence) => ({
+			anchorPath: occurrence.anchorPath,
+			status: occurrence.status,
+			evidenceCount: occurrence.evidenceCount,
+		}))).toEqual([
+			{ anchorPath: '', status: 'actionable', evidenceCount: 2 },
+			{ anchorPath: 'Teams/Acme', status: 'actionable', evidenceCount: 2 },
+			{ anchorPath: 'Teams/Beta', status: 'incomplete', evidenceCount: 1 },
+		]);
+	});
+
+	test('deduplicates alternative signal definitions that represent one semantic role', () => {
+		const alternativeRoles: ManifestPackEntry = {
+			id: 'alternative-roles',
+			name: 'Alternative roles',
+			detection: {
+				anyOf: [
+					{ folderRegex: '^Projects$', role: 'projects' },
+					{ folderRegex: '^(Projects|Project Work)$', role: 'projects' },
+					{ folderRegex: '^Areas$', role: 'areas' },
+				],
+				occurrence: { countBy: 'roles', minEvidence: 2 },
+			},
+		};
+		const [result] = detectPacks(['Projects', 'Areas'], [alternativeRoles]);
+		const [occurrence] = result.occurrences!;
+
+		expect(occurrence.evidence).toHaveLength(3);
+		expect(occurrence.evidenceCount).toBe(2);
+		expect(occurrence.score).toBe(1);
+		expect(occurrence.status).toBe('actionable');
+	});
+
+	test('counts repeated member folders when occurrence policy is folders', () => {
+		const folderCounted: ManifestPackEntry = {
+			id: 'folder-counted',
+			name: 'Folder counted',
+			detection: {
+				anyOf: [
+					{ folderRegex: '^\\d{2} - [A-Za-z]', role: 'numbered-folder' },
+					{ folderRegex: '^\\d{2} - Projects$', role: 'numbered-folder' },
+				],
+				minSignals: 2,
+				occurrence: { countBy: 'folders', minEvidence: 2 },
+			},
+		};
+		const [result] = detectPacks(['10 - Projects', '20 - Areas'], [folderCounted]);
+		const [occurrence] = result.occurrences!;
+
+		expect(occurrence.status).toBe('actionable');
+		expect(occurrence.evidenceCount).toBe(2);
+		expect(occurrence.score).toBe(1);
+		expect(occurrence.evidence).toHaveLength(3); // Projects matches both alternatives
+		expect(occurrence.memberPaths).toEqual(['10 - Projects', '20 - Areas']);
+	});
+
+	test('retains all raw evidence while summary examples stay capped', () => {
+		const fullEvidencePack: ManifestPackEntry = {
+			id: 'full-evidence',
+			name: 'Full evidence',
+			detection: {
+				anyOf: [{ folderRegex: '^Item-', role: 'item' }],
+				occurrence: { countBy: 'folders', minEvidence: 2 },
+			},
+		};
+		const folders = ['Item-1', 'Item-2', 'Item-3', 'Item-4', 'Item-5'];
+		const [result] = detectPacks(folders, [fullEvidencePack]);
+
+		expect(result.matchedSignals[0].exampleMatches).toEqual(folders.slice(0, 3));
+		expect(result.rawEvidence?.map((evidence) => evidence.folderPath)).toEqual(folders);
+		expect(result.occurrences?.[0].evidence).toHaveLength(5);
+	});
+
+	test('uses collision-safe occurrence keys that remain stable as evidence grows', () => {
+		expect(detectionOccurrenceKey('a:b', 'c')).not.toBe(
+			detectionOccurrenceKey('a', 'b:c'),
+		);
+		expect(detectionOccurrenceKey('pack', '/Clients//Acme/')).toBe(
+			detectionOccurrenceKey('pack', 'Clients/Acme'),
+		);
+
+		const first = detectPacks(['Projects'], [ROLE_LOCAL_PACK])[0].occurrences![0];
+		const grown = detectPacks(['Projects', 'Areas'], [ROLE_LOCAL_PACK])[0].occurrences![0];
+		expect(first.key).toBe(grown.key);
+	});
+});
+
+describe('detectPacks — member-seeded and support-attached occurrences', () => {
+	const SUPPORTED_PACK: ManifestPackEntry = {
+		id: 'supported',
+		name: 'Supported system',
+		detection: {
+			anyOf: [
+				{ folderRegex: '(?:^|/)Capture$', scope: 'path', role: 'capture' },
+				{ folderRegex: '(?:^|/)Output$', scope: 'path', role: 'output' },
+				{
+					folderRegex: '(?:^|/)Capture/Inbox$',
+					scope: 'path',
+					role: 'inbox-support',
+					relation: 'support',
+				},
+			],
+			occurrence: { countBy: 'roles', minEvidence: 2 },
+		},
+	};
+
+	test('support evidence attaches to the nearest member-seeded occurrence and contributes locally', () => {
+		const [result] = detectPacks([
+			'Capture',
+			'Output',
+			'Capture/Inbox',
+			'Clients/Acme/Capture',
+			'Clients/Acme/Output',
+			'Clients/Acme/Capture/Inbox',
+		], [SUPPORTED_PACK]);
+
+		expect(result.occurrences).toHaveLength(2);
+		const root = result.occurrences!.find((occurrence) => occurrence.anchorPath === '')!;
+		const nested = result.occurrences!.find(
+			(occurrence) => occurrence.anchorPath === 'Clients/Acme',
+		)!;
+		expect(root.status).toBe('actionable');
+		expect(root.evidenceCount).toBe(3);
+		expect(root.supportPaths).toEqual(['Capture/Inbox']);
+		expect(nested.status).toBe('actionable');
+		expect(nested.evidenceCount).toBe(3);
+		expect(nested.supportPaths).toEqual(['Clients/Acme/Capture/Inbox']);
+	});
+
+	test('attached support can satisfy a local threshold but cannot seed an occurrence alone', () => {
+		const [result] = detectPacks(['Capture', 'Capture/Inbox'], [SUPPORTED_PACK]);
+		expect(result.occurrences).toHaveLength(1);
+		expect(result.occurrences?.[0]).toMatchObject({
+			anchorPath: '',
+			status: 'actionable',
+			evidenceCount: 2,
+			memberPaths: ['Capture'],
+			supportPaths: ['Capture/Inbox'],
+		});
+	});
+
+	test('support-only evidence is retained diagnostically but never seeds an occurrence', () => {
+		const [result] = detectPacks(['Capture/Inbox'], [SUPPORTED_PACK]);
+		expect(result.occurrences).toEqual([]);
+		expect(result.rawEvidence).toHaveLength(1);
+		expect(result.rawEvidence?.[0].relation).toBe('support');
+		expect(isSurfacedDetection(result)).toBe(false);
+	});
+});
+
+describe('detectPacks — occurrence-local scopedUnder', () => {
+	const PARENT: ManifestPackEntry = {
+		id: 'parent',
+		name: 'Parent',
+		detection: {
+			anyOf: [
+				{ folderRegex: '^System$', role: 'system' },
+				{ folderRegex: '^Output$', role: 'output' },
+			],
+			occurrence: { countBy: 'roles', minEvidence: 2 },
+		},
+	};
+	const CHILD: ManifestPackEntry = {
+		id: 'child',
+		name: 'Child',
+		detection: {
+			anyOf: [
+				{ folderRegex: '^Projects$', role: 'projects' },
+				{ folderRegex: '^Areas$', role: 'areas' },
+			],
+			occurrence: { countBy: 'roles', minEvidence: 2 },
+			scopedUnder: 'parent',
+		},
+	};
+
+	test('authorizes a child only from the nearest actionable local parent occurrence', () => {
+		const results = detectPacks([
+			'Teams/Acme/System',
+			'Teams/Acme/Output',
+			'Teams/Acme/Work/Projects',
+			'Teams/Acme/Work/Areas',
+			'Teams/Beta/Work/Projects',
+			'Teams/Beta/Work/Areas',
+		], [PARENT, CHILD]);
+		const child = results.find((result) => result.packId === 'child')!;
+		const acme = child.occurrences!.find(
+			(occurrence) => occurrence.anchorPath === 'Teams/Acme/Work',
+		)!;
+		const beta = child.occurrences!.find(
+			(occurrence) => occurrence.anchorPath === 'Teams/Beta/Work',
+		)!;
+
+		expect(acme.status).toBe('actionable');
+		expect(acme.parentOccurrenceKey).toBe(
+			detectionOccurrenceKey('parent', 'Teams/Acme'),
+		);
+		expect(beta.status).toBe('suppressed');
+		expect(beta.suppressionReason).toBe('missing-local-parent');
+		expect(child.suppressedByMissingParent).toBeFalsy(); // pack still has one actionable occurrence
+		expect(isSurfacedDetection(child)).toBe(true);
+	});
+
+	test('does not let an incomplete local parent authorize a child', () => {
+		const results = detectPacks([
+			'Teams/Acme/System',
+			'Teams/Acme/Work/Projects',
+			'Teams/Acme/Work/Areas',
+		], [PARENT, CHILD]);
+		const child = results.find((result) => result.packId === 'child')!;
+		expect(child.occurrences?.[0].status).toBe('suppressed');
+	});
+
+	test('pack-global mode is an explicit compatibility escape hatch', () => {
+		const globalChild: ManifestPackEntry = {
+			...CHILD,
+			id: 'global-child',
+			detection: {
+				...CHILD.detection!,
+				scopedUnderMode: 'pack-global',
+			},
+		};
+		const results = detectPacks([
+			'Teams/Acme/System',
+			'Teams/Acme/Output',
+			'Teams/Beta/Work/Projects',
+			'Teams/Beta/Work/Areas',
+		], [PARENT, globalChild]);
+		const child = results.find((result) => result.packId === 'global-child')!;
+
+		expect(child.occurrences?.[0].status).toBe('actionable');
+		expect(child.occurrences?.[0].parentOccurrenceKey).toBeUndefined();
+	});
+});
+
+describe('detectPacks — occurrence partitions and legacy result fallback', () => {
+	test('partitions occurrence statuses independently of the pack summary', () => {
+		const pack: ManifestPackEntry = {
+			id: 'mixed',
+			name: 'Mixed',
+			detection: {
+				anyOf: [
+					{ folderRegex: '^Projects$', role: 'projects' },
+					{ folderRegex: '^Areas$', role: 'areas' },
+				],
+				occurrence: { minEvidence: 2 },
+			},
+		};
+		const results = detectPacks([
+			'Projects',
+			'Areas',
+			'Clients/Acme/Projects',
+		], [pack]);
+		const partition = partitionDetectionOccurrences(results);
+
+		expect(partition.actionable.map((occurrence) => occurrence.anchorPath)).toEqual(['']);
+		expect(partition.incomplete.map((occurrence) => occurrence.anchorPath)).toEqual([
+			'Clients/Acme',
+		]);
+		expect(partition.suppressed).toEqual([]);
+	});
+
+	test('hand-built legacy DetectionResult values keep the old pack-level interpretation', () => {
+		const legacy: DetectionResult = {
+			packId: 'legacy',
+			score: 1,
+			signalsHit: 1,
+			minSignals: 1,
+			matchedSignals: [],
+		};
+		const suppressedLegacy: DetectionResult = {
+			...legacy,
+			packId: 'legacy-suppressed',
+			suppressedByMissingParent: true,
+		};
+
+		expect(isSurfacedDetection(legacy)).toBe(true);
+		expect(isSurfacedDetection(suppressedLegacy)).toBe(false);
+		const partition = partitionDetectionResults([legacy, suppressedLegacy]);
+		expect(partition.surfaced).toEqual([legacy]);
+		expect(partition.suppressed).toEqual([suppressedLegacy]);
+	});
+
+	test('occurrence status is authoritative when occurrences are present', () => {
+		const result: DetectionResult = {
+			packId: 'new-shape',
+			score: 3,
+			signalsHit: 3,
+			minSignals: 1,
+			matchedSignals: [],
+			occurrences: [{
+				key: detectionOccurrenceKey('new-shape', ''),
+				packId: 'new-shape',
+				packName: 'New shape',
+				anchorPath: '',
+				status: 'incomplete',
+				score: 0.5,
+				evidenceCount: 1,
+				minEvidence: 2,
+				countBy: 'roles',
+				evidence: [],
+				memberPaths: [],
+				supportPaths: [],
+				missingRoles: ['other'],
+			}],
+		};
+
+		expect(isSurfacedDetection(result)).toBe(false);
+		expect(partitionDetectionResults([result]).belowThreshold).toEqual([result]);
 	});
 });

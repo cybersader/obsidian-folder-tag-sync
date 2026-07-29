@@ -11,18 +11,20 @@
 
 	"detection": {
 		"anyOf": [
-			{ "folderRegex": "^0 - Tasks", "scope": "name", "label": "0 - Tasks, Planning" },
-			{ "folderRegex": "^1 - Workspaces", "scope": "name", "label": "1 - Workspaces, Projects" },
-			{ "folderRegex": "^2 - Areas", "scope": "name", "label": "2 - Areas, Initiatives" },
-			{ "folderRegex": "^3 - Docs", "scope": "name", "label": "3 - Docs, Intel, SOPs" },
-			{ "folderRegex": "^4 - Topics", "scope": "name", "label": "4 - Topics, Knowledge" },
-			{ "folderRegex": "^5 - Archive", "scope": "name", "label": "5 - Archive, Admin" },
-			{ "folderRegex": "^6 - Ideation", "scope": "name", "label": "6 - Ideation, Sandbox" },
-			{ "folderRegex": "^7 - Vault Config", "scope": "name", "label": "7 - Vault Config & Management" },
-			{ "folderRegex": "^99 - ARCHIVE", "scope": "name", "label": "99 - ARCHIVE" }
+			{ "folderRegex": "^0 - Tasks", "scope": "name", "label": "0 - Tasks, Planning", "role": "tasks" },
+			{ "folderRegex": "^1 - Workspaces", "scope": "name", "label": "1 - Workspaces, Projects", "role": "workspaces" },
+			{ "folderRegex": "^2 - Areas", "scope": "name", "label": "2 - Areas, Initiatives", "role": "areas" },
+			{ "folderRegex": "^3 - Docs", "scope": "name", "label": "3 - Docs, Intel, SOPs", "role": "docs" },
+			{ "folderRegex": "^4 - Topics", "scope": "name", "label": "4 - Topics, Knowledge", "role": "topics" },
+			{ "folderRegex": "^5 - Archive", "scope": "name", "label": "5 - Archive, Admin", "role": "archive" },
+			{ "folderRegex": "^6 - Ideation", "scope": "name", "label": "6 - Ideation, Sandbox", "role": "ideation" },
+			{ "folderRegex": "^7 - Vault Config", "scope": "name", "label": "7 - Vault Config & Management", "role": "vault-config" },
+			{ "folderRegex": "^99 - ARCHIVE", "scope": "name", "label": "99 - ARCHIVE", "role": "archive-99" }
 		],
 		"minSignals": 4,
-		"scopedUnder": null
+		"occurrence": { "countBy": "roles", "minEvidence": 4 },
+		"scopedUnder": null,
+		"scopedUnderMode": "local"
 	},
 
 	"rules": [

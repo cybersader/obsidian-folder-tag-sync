@@ -1,6 +1,6 @@
 ---
 title: Current state
-description: The "drop a fresh agent (or returning human) here and be oriented in two minutes" snapshot — where the project is, the live direction, and the open wall, as of v0.1.36.
+description: The "drop a fresh agent (or returning human) here and be oriented in two minutes" snapshot — the v0.1.38 BRAT release, its occurrence-first Workbench, and the next open wall.
 sidebar:
   label: "Current state"
   order: 0.5
@@ -10,61 +10,87 @@ sidebar:
 This is the fast-orientation page. If you're a fresh agent or a human returning after time away, read this top-to-bottom, then skim the [Glossary](/obsidian-folder-tag-sync/agent-context/glossary/) for any unfamiliar term. It's kept current deliberately — if it's stale, fix it.
 :::
 
-**As of:** v0.1.36 released via BRAT with preview-first production support bundles and bounded structured debug logging · not yet in the Obsidian community catalog.
+**As of:** v0.1.38 released via BRAT with the occurrence-first Map/Scope/Candidates Workbench · not yet in the Obsidian community catalog.
 
 ## What this plugin is, in one paragraph
 
-Folders are a rigid single hierarchy; tags are a flexible overlapping (polyhierarchical) one. Folder Tag Sync bridges them with **deterministic, rule-based transformations** (regex + transform pipelines — never AI inference). A rule maps a folder shape to a tag shape and can run forward (folder → tag, additive: writes frontmatter tags) or inverse (tag → folder, moves files). Users get value without writing regex via **rule packs** (PARA, Johnny Decimal, SEACOW, …) they can detect in their vault or install from a catalog.
+Folders are a rigid single hierarchy; tags are a flexible overlapping (polyhierarchical) one. Folder Tag Sync bridges them with **deterministic, rule-based transformations** (regex + transform pipelines — never AI inference). A rule maps a folder shape to a tag shape and can run forward (folder → tag, additive: writes frontmatter tags) or inverse (tag → folder, moves files). Users get value without writing regex via **rule packs** (PARA, Johnny Decimal, SEACOW, …) that the plugin can recognize in the vault, scope to a branch, preview, and install.
 
 ## Where we are right now
 
-The engine is mature: two sync directions, a typed rule model, Path Lens templates, specificity-aware matching, frontmatter witness, bulk sync, known-system detection, `.orgsys` preview/composition, and the Taxonomy Workbench Map all ship. Tests use Bun plus real-Obsidian WebdriverIO coverage for settings, modals, context menus, clipboard behavior, and visual rendering.
+The released v0.1.38 baseline includes both sync directions, the typed rule model, Path Lens templates, specificity-aware matching, group precedence, the frontmatter witness, bulk sync, known-system detection, `.orgsys` preview/composition, preview-first production support bundles with bounded structured debug logging, and the occurrence-first Taxonomy Workbench.
 
-The most recent campaign (v0.1.22 → 0.1.27) was one sustained push to solve the **"where do my rules apply / what will actually happen?" visibility problem** — the wall that made the plugin unusable on large real vaults. See the full arc in [zz-log 2026-04-30](/obsidian-folder-tag-sync/agent-context/zz-log/2026-04-30-detection-ux-and-auto-scope/). In short:
+The release consolidates the previously separate detect and Scan & Snap workflows into **one persistent Taxonomy Workbench** and makes the Workbench occurrence-first:
 
-- **0.1.22** — interactive [hierarchical sync preview](/obsidian-folder-tag-sync/agent-context/glossary/) with selective apply (you see and pick the changes, by branch).
-- **0.1.23** — [detection tree](/obsidian-folder-tag-sync/agent-context/glossary/): a scan now shows *where* in the vault each pattern fired.
-- **0.1.24** — [anchored instances](/obsidian-folder-tag-sync/agent-context/glossary/): "JD at root AND inside Projects/X" reads as two distinct instances, not one blur.
-- **0.1.25** — [hierarchy-first detection view](/obsidian-folder-tag-sync/agent-context/glossary/): packs become invisible plumbing; you navigate *your* folder tree.
-- **0.1.27** — [auto-scope](/obsidian-folder-tag-sync/agent-context/glossary/) + [scope tint](/obsidian-folder-tag-sync/agent-context/glossary/): selecting a folder rewrites rules to fire only inside it, and the subtree visibly paints the reach before you apply.
+- **Organizational systems** — a shell-owned deck remains visible across every surface. One card represents one anchored occurrence such as `PARA at Work`; repeated anchors stay separate. Cards lead with local shape/evidence, incomplete occurrences are shown by default as inspect-only, and a local preference can hide them.
+- **Rule layers** — installed rules are grouped separately by runtime `MappingRule.group` and precedence. Current-snapshot links to system occurrences are visibly labelled inferred or unknown because no durable deployment provenance exists yet.
+- **Map** — read the vault hierarchy with detected-system rails, typed member/support relation chips, selected-only desktop connectors, and the effects of enabled installed rules. Overlapping folders relate to every applicable occurrence. Detected / My rules / Both modes, folder detail, emitted-tag preview, Settings handoff, and “Choose this branch in scope” remain available.
+- **Scope** — inspect all complete/incomplete/suppressed evidence in one hierarchy, but select only branches containing actionable occurrences. Scope tint and absorbed selections reduce choices to a deterministic minimal cover. Deployments stay anchored at `occurrence.anchorPath`, preventing duplicated shapes such as `Projects/Projects`.
+- **Candidates** — preview scoped or automatically detected rules grouped by exact occurrence, with coverage, sample emissions, bijectivity/lossiness, conflicts, predicted winners, and exact selection counts. Sorting happens inside each occurrence group. Adding drafts is confirmed and **always persists new rules disabled for review**.
 
-## The active workstream — authoring at scale ("Scan & Snap")
+Compatibility and safety contracts:
 
-**Visibility is solved end-to-end; rule _authoring_ at scale is the wall** — and as of 2026-04-30 we've **decided the approach** and started building it. Full design + decisions: [Authoring-at-scale design](/obsidian-folder-tag-sync/agent-context/zz-log/2026-04-30-authoring-at-scale-scan-and-snap-design/).
+- Existing command IDs are preserved: `scan-vault-for-systems` routes to a clean Scope state, `scan-and-snap-draft-rules` routes to detected-instance Candidates, and `taxonomy-workbench-open-map` routes to Map.
+- Routes reuse one Workbench leaf rather than detaching/recreating it, so workspace state, selected occurrence, local incomplete-visibility preference, and transient choices can survive navigation.
+- Detection actionability is occurrence-local. Evidence from unrelated parents cannot combine; support evidence can strengthen its owning member-seeded occurrence but cannot seed one alone.
+- Folder topology changes and successful settings saves increment a source revision. Open Workbenches mark themselves stale immediately, debounce recollection, disable stale candidate installation, and recheck freshness before persistence.
+- Draft installation never creates/moves folders or changes notes, tags, frontmatter, or current sync behavior. Existing rule enabled states remain unchanged.
+- Selected rule IDs are deduplicated, already-installed IDs are skipped, persistence occurs once, and an in-memory rollback restores the previous rule list if saving fails.
+- Built-in rule packs are validated into an embedded catalog and bundled into `main.js`; detection, drafting, browsing, and installation work from the standard BRAT assets (`main.js`, `manifest.json`, `styles.css`) without a runtime `rule-packs/` directory.
+- `.orgsys` composition remains preview-only. It must not reach the install path until composed group precedence can be persisted safely.
 
-The design is **"Scan & Snap" (Vault Cartographer)** — a scan-first wizard that never opens blank: it walks your vault, narrates it back in SEACOW terms ("you're ~80% SEACOW-outer + JD; your Work axis is an open slot"), and hands you a populated, previewed, conflict-checked candidate-rule table composed from org-system Lego blocks snapped onto your real branches. It was the **unanimous** winner of a 3-judge design panel.
+## How this evolved
 
-**Locked decisions:** ship the *safe* detection-driven path first (raw-structure synthesizer deferred to Phase 3); candidates **enabled by default** with junk sorted up; **read-only** (no folder creation in MVP); SEACOW axes presented as **labels**, not jargon dropdowns. A user insight to honor: an org-system block manifests two ways — *unfold at the current level* (map existing folders; MVP) or *create a container then unfold below* (Phase 4 `establish`).
+The v0.1.22–0.1.27 campaign solved the **“where do my rules apply / what will actually happen?”** visibility problem:
 
-**Build status through v0.1.35:** the Scan & Snap drafting flow shipped first (0.1.29), then the **Taxonomy Workbench** direction took over (the term "Scan & snap" was renamed; the command is now "Taxonomy Workbench: draft rules from detected systems"). Shipped since:
+- **0.1.22** — interactive [hierarchical sync preview](/obsidian-folder-tag-sync/agent-context/glossary/) with selective apply.
+- **0.1.23** — [detection tree](/obsidian-folder-tag-sync/agent-context/glossary/), showing where patterns fired.
+- **0.1.24** — [anchored instances](/obsidian-folder-tag-sync/agent-context/glossary/), separating repeated systems at different depths.
+- **0.1.25** — [hierarchy-first detection](/obsidian-folder-tag-sync/agent-context/glossary/), making the user's folder tree the primary surface.
+- **0.1.27** — [auto-scope](/obsidian-folder-tag-sync/agent-context/glossary/) and [scope tint](/obsidian-folder-tag-sync/agent-context/glossary/).
+- **0.1.29 onward** — Scan & Snap candidate drafting, `.orgsys`, composition preview, the dockable Workbench Map, installed-rule sensing, and production support bundles.
+- **2026-07-28 unreleased consolidation** — the proven detect, scope, preview, and install seams were connected inside the Workbench instead of competing as separate product surfaces.
+- **2026-07-29 unreleased occurrence/deck redesign** — detection became occurrence-local, the persistent Organizational systems / Rule layers deck made groups tangible, candidates became occurrence-grouped, and stale-source guards were added.
 
-- **0.1.32 — `.orgsys` foundation + live preview.** A slot-based system-definition format (`orgsys.ts`) + `compileSystemDef` that lowers it to the existing rule-pack format (golden-tested). The **"Taxonomy Workbench: preview a system definition"** command (`OrgsysPreviewModal`) lets you edit an `.orgsys` and watch the compiled rules + emissions on your real folders update live. See [Taxonomy Workbench](/obsidian-folder-tag-sync/agent-context/zz-log/2026-06-25-taxonomy-workbench-orgsys/).
-- **0.1.33 — composition (preview-only).** `mounts`/`at:`-glob/`extends`/`rebind` — nest a system inside another (JD under every entity's Output). An adversarial pass caught + fixed two criticals (literal-mount doubling, mount cycle) + the emoji/JD glob miss; install-time gaps (esp. H1: precedence not persisted) are **deferred + documented**. See [composition shipped](/obsidian-folder-tag-sync/agent-context/zz-log/2026-06-25-orgsys-composition-shipped/).
-- **0.1.34 — the Map pane (first slice).** A dockable, full-height **`TaxonomyWorkbenchView`** (ItemView, ribbon icon + "Taxonomy Workbench: open the map" command) that renders the real vault folder hierarchy at scale with detected-system chips — the "big surface" the user repeatedly asked for. Read-only display; snap/manipulate gestures are the next slice. Shared renderer `annotatedTreeRender.ts`.
+## Verification status
 
-- **0.1.35 — Map sensing + the swimlane-rails appearance.** The Map now annotates each folder with what the user's *installed rules* do (`folderRuleView.ts`: winning rule, emitted tags, conflicts) via a Detected/My rules/Both toggle; click a folder for a drill-in detail; **right-click** context menu (show rules / open settings / preview sync); and a Map↔Settings round-trip (open-settings-and-scroll-to-rule, and an open-the-map button in Settings). Visual language (user's pick): systems render as **colored swimlane rails** in the left gutter, ordered outer→inner so nesting reads structurally (PARA-inside-JD), with a faint folder tint by the innermost system — replacing the confusing chip-stacking. `annotatedTreeRender.ts` + `analyzeSystemStacks`.
+The v0.1.38 release was verified with these measured gates:
 
-- **0.1.36 — Production support bundles.** A command/Settings entry opens an exact preview containing runtime/configuration JSON, derived detection + installed-rule diagnostics, a complete concise folder-only tree, and a bounded sanitized debug-log tail. Readable relative names are the default; **Anonymize names** deterministically aliases folders/rules/groups/tags/patterns/templates without changing relationships. Note filenames/content/frontmatter, vault name, absolute paths, and note-derived debug tag fields are excluded. Large-vault rule evaluation yields back to the UI in chunks; aggregate counts remain exact while retained per-folder detection/rule detail is capped at 2,000 rows. The debug logger now uses structured bounded JSONL at the correct plugin path, rotates, persists across reloads, and responds to the Settings toggle immediately.
+- **Bun unit suite:** 1,152 passing, 0 failing, 2,765 assertions across 47 files.
+- **Production build / TypeScript:** clean; generated embedded catalog contains 8 validated packs (53.9 KiB source payload).
+- **Obsidian-community lint:** clean.
+- **Real Obsidian 1.12.7:** all 10 serial WDIO specs pass, **68 tests total**, including occurrence-group rendering, keyboard tabs, cross-surface selection, incomplete inspect-only behavior, selected-only connectors, stale-install prevention, command-route recollection, Scope occurrence anchoring, three-file release parity, disabled installation, no fixture mutation, idempotent reinstall, deliberate enablement, touch actions, support privacy, and narrow-pane overflow.
+- **Docs:** 76 static pages build successfully; route/content smoke is 33/33 green.
+- **Repository hygiene:** legacy `DetectVaultModal.ts` and `ScanAndSnapModal.ts` are deleted; the CRLF-aware diff check is clean.
+- **Visual inspection:** final desktop, 480 px, and approximately 320 px Workbench screenshots were inspected alongside Scope minimal-cover, grouped Candidates, post-install, and enabled-sensing states. Narrow panes omit decorative connectors and remain free of page-level horizontal overflow.
 
-**Verification status:** production build and Obsidian-community lint are clean; **1050 Bun unit tests pass**; all **9 real-Obsidian WDIO specs pass (60 tests total)**, including 7/7 support-bundle privacy/clipboard/refresh tests plus typed-model and Workbench regressions; and the docs build/content smoke is **33/33 green**. The performance suite includes a 10,000-folder vault with 25 simultaneously matching rules, exact aggregate assertions, and bounded retained diagnostics. Also unrelated: GitHub issue #1 (duplicate frontmatter tags) was fixed + shipped (0.1.31) via the adversarial loop. Hot Reload is installed in the dev vault so builds drop straight in.
+The release still installs Workbench-generated rules disabled for deliberate review; publication does not weaken the non-destructive installation boundary.
 
-**Awaiting user reaction** to the rails appearance (they care about it looking good — open to tuning rail width/tint/legibility). **Next slices** (all on existing seams): interaction on the Map (snap a system onto a branch → live coverage/conflict via `scanAndSnapPlan`); making composition INSTALLABLE (solve the deferred H1 precedence-persistence); then the wizard/WorkspaceConfig and export/establish. Full plan in the Taxonomy Workbench design entry.
+## Next open wall
+
+The occurrence-first deck closes both the duplicated detect-vs-Workbench UX and the folder-label-vs-group mismatch. The next architectural wall is **durable deployment provenance and installable composition**:
+
+1. Define a deployment registry that persists occurrence/source/anchor identity across restart and manual rule edits without pretending current inferred associations are ownership.
+2. Reconcile durable deployments across anchor rename/move, deleted evidence, split occurrences, and intentionally accepted incomplete structures.
+3. Persist composed group precedence so `.orgsys` mounts can install without changing winner semantics after restart.
+4. Add genuinely new rule synthesis for vault structures that match no built-in system, while keeping preview/conflict honesty.
+5. Keep inverse-direction ambiguity, attachments, folder notes, and public plugin APIs as separate open questions rather than mixing them into Workbench installation.
 
 ## Community-plugin submission status
 
 Not yet accepted into the Obsidian community catalog (a [submission PR stalled — see zz-log 2026-04-13](/obsidian-folder-tag-sync/agent-context/zz-log/2026-04-13-submission-pr-stalled/)). The reputation/grading system on community.obsidian.md is downstream of *acceptance*; the gate is passing Obsidian's automated review, which `eslint-plugin-obsidianmd` mirrors locally.
 
-**Current `npm run lint` status:** clean. ESLint uses `eslint-plugin-obsidianmd` for submission-critical sentence case, settings-heading, forbidden-element, sample-name, and manifest checks; test/spec files are excluded from the production type-aware lint project. Continue running lint together with build, unit tests, and the real-Obsidian E2E suite before any community-submission retry.
+**Current `npm run lint` status:** clean after the final consolidation gate. Continue running lint together with build, unit tests, and the complete real-Obsidian E2E suite before any community-submission retry.
 
 ## Reading order for a fresh session
 
-1. **This page** — where we are + the live direction.
-2. [Glossary](/obsidian-folder-tag-sync/agent-context/glossary/) — every project term, plain-language, with code locations. Use it the moment a term is unfamiliar.
+1. **This page** — released baseline, verified unreleased work, and the next wall.
+2. [Glossary](/obsidian-folder-tag-sync/agent-context/glossary/) — every project term, plain-language, with code locations.
 3. [Vision](/obsidian-folder-tag-sync/agent-context/vision/) — the problem and long-term goals.
 4. [Decisions](/obsidian-folder-tag-sync/agent-context/decisions/) — what's settled and why.
 5. [Open questions](/obsidian-folder-tag-sync/agent-context/open-questions/) — what's genuinely undecided.
 6. [Exploration log](/obsidian-folder-tag-sync/agent-context/zz-log/) — dated session history, newest first.
 
 :::note[Known-stale elsewhere]
-Some `about/` pages still trail reality (e.g. `about/development-status.md` says "v0.1.7 beta"; the roadmap's "Rule Analytics" item lists shipped features as future). The `agent-context/` docs are the source of truth for internal state; treat `about/*` version/status claims with suspicion until reconciled.
+Some `about/` pages still trail reality (for example, `about/development-status.md` has an old beta version and the roadmap lists several shipped features as future). The `agent-context/` docs are the source of truth for internal state; treat `about/*` version/status claims with suspicion until reconciled.
 :::

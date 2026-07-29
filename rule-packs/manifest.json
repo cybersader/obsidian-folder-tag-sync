@@ -1,8 +1,8 @@
 {
   "version": 1,
-  "generatedAt": "2026-04-30T02:52:10.559Z",
+  "generatedAt": "2026-07-29T19:23:39.175Z",
   "packCount": 8,
-  "totalBytes": 54064,
+  "totalBytes": 55176,
   "packs": [
     {
       "id": "cyberbase-actual",
@@ -39,54 +39,68 @@
           {
             "folderRegex": "^0 - Tasks",
             "scope": "name",
-            "label": "0 - Tasks, Planning"
+            "label": "0 - Tasks, Planning",
+            "role": "tasks"
           },
           {
             "folderRegex": "^1 - Workspaces",
             "scope": "name",
-            "label": "1 - Workspaces, Projects"
+            "label": "1 - Workspaces, Projects",
+            "role": "workspaces"
           },
           {
             "folderRegex": "^2 - Areas",
             "scope": "name",
-            "label": "2 - Areas, Initiatives"
+            "label": "2 - Areas, Initiatives",
+            "role": "areas"
           },
           {
             "folderRegex": "^3 - Docs",
             "scope": "name",
-            "label": "3 - Docs, Intel, SOPs"
+            "label": "3 - Docs, Intel, SOPs",
+            "role": "docs"
           },
           {
             "folderRegex": "^4 - Topics",
             "scope": "name",
-            "label": "4 - Topics, Knowledge"
+            "label": "4 - Topics, Knowledge",
+            "role": "topics"
           },
           {
             "folderRegex": "^5 - Archive",
             "scope": "name",
-            "label": "5 - Archive, Admin"
+            "label": "5 - Archive, Admin",
+            "role": "archive"
           },
           {
             "folderRegex": "^6 - Ideation",
             "scope": "name",
-            "label": "6 - Ideation, Sandbox"
+            "label": "6 - Ideation, Sandbox",
+            "role": "ideation"
           },
           {
             "folderRegex": "^7 - Vault Config",
             "scope": "name",
-            "label": "7 - Vault Config & Management"
+            "label": "7 - Vault Config & Management",
+            "role": "vault-config"
           },
           {
             "folderRegex": "^99 - ARCHIVE",
             "scope": "name",
-            "label": "99 - ARCHIVE"
+            "label": "99 - ARCHIVE",
+            "role": "archive-99"
           }
         ],
         "minSignals": 4,
-        "scopedUnder": null
+        "occurrence": {
+          "countBy": "roles",
+          "minEvidence": 4
+        },
+        "scopedUnder": null,
+        "scopedUnderMode": "local"
       },
       "establish": null,
-      "sizeBytes": 6870
+      "sizeBytes": 7133
     },
     {
       "id": "jd",
@@ -108,16 +122,23 @@
           {
             "folderRegex": "^\\d{1,2} - [A-Za-z]",
             "scope": "name",
-            "label": "Numbered area (e.g. '10 - Projects' or '0 - Tasks')"
+            "label": "Numbered area (e.g. '10 - Projects' or '0 - Tasks')",
+            "role": "numbered-folder"
           },
           {
             "folderRegex": "^\\d{1,2}-[a-z]",
             "scope": "name",
-            "label": "Numbered area (compact, e.g. '10-projects' or '0-tasks')"
+            "label": "Numbered area (compact, e.g. '10-projects' or '0-tasks')",
+            "role": "numbered-folder"
           }
         ],
         "minSignals": 2,
-        "scopedUnder": null
+        "occurrence": {
+          "countBy": "folders",
+          "minEvidence": 2
+        },
+        "scopedUnder": null,
+        "scopedUnderMode": "local"
       },
       "establish": {
         "createFolders": [
@@ -128,7 +149,7 @@
         ],
         "summary": "Numbered top-level areas. Strict 2-digit and enterprise-style 1-digit both supported."
       },
-      "sizeBytes": 1716
+      "sizeBytes": 1860
     },
     {
       "id": "para",
@@ -153,26 +174,35 @@
           {
             "folderRegex": "^Projects$",
             "scope": "name",
-            "label": "Projects/ root"
+            "label": "Projects/ root",
+            "role": "projects"
           },
           {
             "folderRegex": "^Areas$",
             "scope": "name",
-            "label": "Areas/ root"
+            "label": "Areas/ root",
+            "role": "areas"
           },
           {
             "folderRegex": "^Resources$",
             "scope": "name",
-            "label": "Resources/ root"
+            "label": "Resources/ root",
+            "role": "resources"
           },
           {
             "folderRegex": "^Archive$",
             "scope": "name",
-            "label": "Archive/ root"
+            "label": "Archive/ root",
+            "role": "archive"
           }
         ],
         "minSignals": 2,
-        "scopedUnder": null
+        "occurrence": {
+          "countBy": "roles",
+          "minEvidence": 2
+        },
+        "scopedUnder": null,
+        "scopedUnderMode": "local"
       },
       "establish": {
         "createFolders": [
@@ -183,7 +213,7 @@
         ],
         "summary": "Four top-level Work folders: active Projects, ongoing Areas of responsibility, reference Resources, and Archive."
       },
-      "sizeBytes": 4125
+      "sizeBytes": 4290
     },
     {
       "id": "seacow-cyberbase",
@@ -225,36 +255,49 @@
           {
             "folderRegex": "^Capture$",
             "scope": "name",
-            "label": "Capture/ root"
+            "label": "Capture/ root",
+            "role": "capture"
           },
           {
             "folderRegex": "^Entity$",
             "scope": "name",
-            "label": "Entity/ root"
+            "label": "Entity/ root",
+            "role": "entity"
           },
           {
             "folderRegex": "^Output$",
             "scope": "name",
-            "label": "Output/ root"
+            "label": "Output/ root",
+            "role": "output"
           },
           {
             "folderRegex": "^System$",
             "scope": "name",
-            "label": "System/ root"
+            "label": "System/ root",
+            "role": "system"
           },
           {
-            "folderRegex": "^Capture/(Inbox|Clips)$",
+            "folderRegex": "(?:^|/)Capture/(Inbox|Clips)$",
             "scope": "path",
-            "label": "Capture/Inbox or Capture/Clips"
+            "label": "Capture/Inbox or Capture/Clips",
+            "role": "capture-detail",
+            "relation": "support"
           },
           {
-            "folderRegex": "^Output/(Main|Public)$",
+            "folderRegex": "(?:^|/)Output/(Main|Public)$",
             "scope": "path",
-            "label": "Output/Main or Output/Public"
+            "label": "Output/Main or Output/Public",
+            "role": "output-detail",
+            "relation": "support"
           }
         ],
         "minSignals": 2,
-        "scopedUnder": null
+        "occurrence": {
+          "countBy": "roles",
+          "minEvidence": 2
+        },
+        "scopedUnder": null,
+        "scopedUnderMode": "local"
       },
       "establish": {
         "createFolders": [
@@ -267,7 +310,7 @@
         ],
         "summary": "Lays down the four SEACOW outer roots — Capture, Entity, Output, System — with conventional sub-folders. Pick component packs (PARA, JD, etc.) to fill the inner axes."
       },
-      "sizeBytes": 5857
+      "sizeBytes": 6127
     },
     {
       "id": "seacow-templates",
@@ -293,39 +336,52 @@
           {
             "folderRegex": "^Entity$",
             "scope": "name",
-            "label": "Entity/ root (per-user scoping)"
+            "label": "Entity/ root (per-user scoping)",
+            "role": "entity"
           },
           {
             "folderRegex": "^Capture$",
             "scope": "name",
-            "label": "Capture/ root"
+            "label": "Capture/ root",
+            "role": "capture"
           },
           {
             "folderRegex": "^Output$",
             "scope": "name",
-            "label": "Output/ root"
+            "label": "Output/ root",
+            "role": "output"
           },
           {
             "folderRegex": "^System$",
             "scope": "name",
-            "label": "System/ root"
+            "label": "System/ root",
+            "role": "system"
           },
           {
-            "folderRegex": "^Capture\\/(Inbox|Clips)$",
+            "folderRegex": "(?:^|/)Capture\\/(Inbox|Clips)$",
             "scope": "path",
-            "label": "Capture/Inbox or Capture/Clips"
+            "label": "Capture/Inbox or Capture/Clips",
+            "role": "capture-detail",
+            "relation": "support"
           },
           {
-            "folderRegex": "^Output\\/(Public|Main)$",
+            "folderRegex": "(?:^|/)Output\\/(Public|Main)$",
             "scope": "path",
-            "label": "Output/Public or Output/Main"
+            "label": "Output/Public or Output/Main",
+            "role": "output-detail",
+            "relation": "support"
           }
         ],
         "minSignals": 2,
-        "scopedUnder": null
+        "occurrence": {
+          "countBy": "roles",
+          "minEvidence": 2
+        },
+        "scopedUnder": null,
+        "scopedUnderMode": "local"
       },
       "establish": null,
-      "sizeBytes": 6368
+      "sizeBytes": 6638
     },
     {
       "id": "templates-demo",

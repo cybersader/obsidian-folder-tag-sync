@@ -25,9 +25,10 @@
  * Pure consumer of the engine — it never mutates settings, folders, or files.
  * The compiler, matcher, and forward-emit runtime are all imported as-is.
  *
- * Sibling to ScanAndSnapModal / DetectVaultModal — reuses their structural
- * patterns (collectVaultFolders, modal sizing, makeStat-style cards, the
- * data-attribute hooks the E2E targets).
+ * A separate preview-only modal beside the persistent Taxonomy Workbench. It
+ * reuses the same structural patterns (folder collection, roomy sizing,
+ * makeStat-style cards, and stable E2E data hooks) without entering the rule
+ * installation path.
  */
 
 import { App, Modal, TFolder } from 'obsidian';

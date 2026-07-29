@@ -1,8 +1,7 @@
 /**
- * Integration tests for the apply-with-scope flow that DetectVaultModal
- * runs when the user clicks "Apply" with selected folders. Exercises the
- * end-to-end engine path: detect → cross-pack hit map → minimal cover →
- * scoped pack plan → scoped rules.
+ * Integration tests for the hierarchy-scoping engine path now consumed by the
+ * Taxonomy Workbench: detect → cross-pack hit map → minimal cover → scoped
+ * pack plan → scoped rules.
  *
  * These tests don't touch Obsidian — they just simulate the data flow
  * with a synthetic vault folder list and a hand-rolled detection result.

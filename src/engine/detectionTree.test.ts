@@ -21,7 +21,12 @@ import {
 	colorForSignalIndex,
 	extractInstances,
 } from './detectionTree';
-import type { DetectionResult } from './detectPacks';
+import {
+	detectPacks,
+	detectionOccurrenceKey,
+	type DetectionResult,
+	type ManifestPackEntry,
+} from './detectPacks';
 
 function makeResult(signals: Array<{
 	folderRegex: string;
@@ -463,11 +468,96 @@ describe('collectCrossPackHits — cross-pack signal aggregation', () => {
 		expect(map.hitsByPath.size).toBe(0);
 	});
 
+	test('below-threshold packs are defensively excluded from cross-pack map', () => {
+		const folders = ['Projects'];
+		const para = makeResultWithId('para', [{ folderRegex: '^Projects$', label: 'projects' }]);
+		para.score = 0.5;
+		para.minSignals = 2;
+		const names = new Map([['para', 'PARA']]);
+		const map = collectCrossPackHits(folders, [para], names);
+		expect(map.allSignals).toEqual([]);
+		expect(map.hitsByPath.size).toBe(0);
+	});
+
 	test('pack name falls back to id if not in lookup', () => {
 		const folders = ['Projects'];
 		const result = makeResultWithId('mystery-pack', [{ folderRegex: '^Projects$', label: 'p' }]);
 		const map = collectCrossPackHits(folders, [result], new Map());
 		expect(map.allSignals[0].packName).toBe('mystery-pack');
+	});
+});
+
+describe('collectCrossPackHits — occurrence-native evidence maps', () => {
+	const OCCURRENCE_PACK: ManifestPackEntry = {
+		id: 'local-system',
+		name: 'Local system',
+		detection: {
+			anyOf: [
+				{ folderRegex: '^Projects$', role: 'projects' },
+				{ folderRegex: '^Areas$', role: 'areas' },
+				{
+					folderRegex: '(?:^|/)Projects/Detail$',
+					scope: 'path',
+					role: 'detail',
+					relation: 'support',
+				},
+			],
+			occurrence: { countBy: 'roles', minEvidence: 2 },
+		},
+	};
+
+	test('exposes complete evidence separately from actionable occurrence hits', () => {
+		const folders = [
+			'Projects',
+			'Areas',
+			'Projects/Detail',
+			'Clients/Acme/Projects',
+		];
+		const results = detectPacks(folders, [OCCURRENCE_PACK]);
+		const map = collectCrossPackHits(folders, results, new Map());
+
+		expect(new Set(map.allEvidenceHitsByPath.keys())).toEqual(new Set(folders));
+		expect(new Set(map.actionableHitsByPath.keys())).toEqual(new Set([
+			'Projects',
+			'Areas',
+			'Projects/Detail',
+		]));
+		expect(map.hitsByPath).toBe(map.actionableHitsByPath);
+
+		const member = map.actionableHitsByPath.get('Projects')![0];
+		expect(member.occurrenceKey).toBe(detectionOccurrenceKey('local-system', ''));
+		expect(member.occurrenceAnchorPath).toBe('');
+		expect(member.relation).toBe('member');
+		expect(member.occurrenceStatus).toBe('actionable');
+
+		const support = map.actionableHitsByPath.get('Projects/Detail')![0];
+		expect(support.occurrenceKey).toBe(member.occurrenceKey);
+		expect(support.relation).toBe('support');
+
+		const incomplete = map.allEvidenceHitsByPath.get('Clients/Acme/Projects')![0];
+		expect(incomplete.occurrenceKey).toBe(
+			detectionOccurrenceKey('local-system', 'Clients/Acme'),
+		);
+		expect(incomplete.occurrenceStatus).toBe('incomplete');
+	});
+
+	test('preserves repeated local occurrences with distinct identities', () => {
+		const folders = [
+			'Teams/Acme/Projects',
+			'Teams/Acme/Areas',
+			'Teams/Beta/Projects',
+			'Teams/Beta/Areas',
+		];
+		const results = detectPacks(folders, [OCCURRENCE_PACK]);
+		const map = collectCrossPackHits(folders, results, new Map());
+		const keys = new Set(
+			[...map.actionableHitsByPath.values()].flat().map((hit) => hit.occurrenceKey),
+		);
+
+		expect(keys).toEqual(new Set([
+			detectionOccurrenceKey('local-system', 'Teams/Acme'),
+			detectionOccurrenceKey('local-system', 'Teams/Beta'),
+		]));
 	});
 });
 

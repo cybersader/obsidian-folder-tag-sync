@@ -11,13 +11,15 @@
 
 	"detection": {
 		"anyOf": [
-			{ "folderRegex": "^Projects$", "scope": "name", "label": "Projects/ root" },
-			{ "folderRegex": "^Areas$", "scope": "name", "label": "Areas/ root" },
-			{ "folderRegex": "^Resources$", "scope": "name", "label": "Resources/ root" },
-			{ "folderRegex": "^Archive$", "scope": "name", "label": "Archive/ root" }
+			{ "folderRegex": "^Projects$", "scope": "name", "label": "Projects/ root", "role": "projects" },
+			{ "folderRegex": "^Areas$", "scope": "name", "label": "Areas/ root", "role": "areas" },
+			{ "folderRegex": "^Resources$", "scope": "name", "label": "Resources/ root", "role": "resources" },
+			{ "folderRegex": "^Archive$", "scope": "name", "label": "Archive/ root", "role": "archive" }
 		],
 		"minSignals": 2,
-		"scopedUnder": null
+		"occurrence": { "countBy": "roles", "minEvidence": 2 },
+		"scopedUnder": null,
+		"scopedUnderMode": "local"
 	},
 
 	"establish": {

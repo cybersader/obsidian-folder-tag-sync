@@ -12,16 +12,87 @@ The whole glossary is one page on purpose — use your browser's find (Ctrl/Cmd-
 
 ## Detection & the hierarchy-first scan
 
-These are the terms from the v0.1.22–0.1.27 visibility campaign — the ones most likely to feel unfamiliar.
+These are the terms from the v0.1.22–0.1.27 visibility campaign and the consolidated Taxonomy Workbench that now owns detection, scoping, and candidate review.
+
+### Taxonomy Workbench
+**In plain terms:** The one persistent Obsidian pane for understanding organizational systems and turning that evidence into reviewable rules. It has three surfaces — **Map**, **Scope**, and **Candidates** — while detection, scope planning, candidate analysis, and installation stay separate pure/testable engines underneath.
+
+Legacy commands are compatibility routes, not separate products: the old detect command opens Scope, the old draft command opens Candidates from detected instances, and the map command opens Map. The same Workbench leaf is reused so navigation does not discard unrelated state.
+
+*Lives in:* `src/ui/TaxonomyWorkbenchView.ts`; state/routing in `src/workbench/workbenchState.ts`; snapshot orchestration in `src/workbench/WorkbenchSession.ts`; panels in `src/ui/workbench/` · *Related:* Organizational systems deck, Workbench Map, Workbench Scope, Workbench Candidates, disabled draft, hierarchy-first detection view
+
+### Organizational-system occurrence
+**In plain terms:** One deployment-shaped occurrence of a known organizational system at one anchor. `PARA at Work` and `PARA at Home` are separate occurrences even though both use the PARA definition. A `Projects` folder is evidence inside an occurrence; it is not independently “a PARA.”
+
+Occurrence confidence is local: evidence under unrelated parents cannot combine into a false complete system. Each occurrence is `actionable`, `incomplete`, or `suppressed`, has a collision-safe key, and retains its member/support evidence and missing roles.
+
+*Lives in:* `src/engine/detectPacks.ts` (`DetectionOccurrence`, `partitionDetectionOccurrences`) · *Related:* member evidence, support evidence, anchored instances, Organizational systems deck
+
+### Member evidence / support evidence
+**In plain terms:** **Member** folders establish a system occurrence and represent its coordinated roles. **Support** folders add shape and confidence to the nearest compatible member-seeded occurrence but can never create an occurrence alone.
+
+**Example:** In SEACOW, `Capture` can seed an occurrence as a member while `Capture/Inbox` attaches as support. In PARA, `Projects` and `Areas` are distinct member roles. Alternative regexes sharing one semantic role count once.
+
+*Lives in:* rule-pack `detection.anyOf` metadata plus `src/engine/detectPacks.ts` · *Related:* signal, organizational-system occurrence, incomplete occurrence
+
+### Organizational systems deck
+**In plain terms:** The persistent group-level deck above Map, Scope, and Candidates. It renders one selectable card per anchored occurrence, shows shape/evidence before actions, preserves the selected occurrence across surfaces, and shows incomplete occurrences by default as inspect-only.
+
+Folder rows and candidate-group headers carry typed textual relation chips back to exact occurrence keys. On desktop, a decorative selected-only connector overlay reinforces those relationships; narrow panes retain the chips and omit connectors.
+
+*Lives in:* `src/ui/workbench/OrganizationalSystemsDeck.ts`, `ConnectorOverlay.ts`, and `src/workbench/organizationalSystemsProjection.ts` · *Related:* organizational-system occurrence, typed relation, Workbench Map, Workbench Candidates
+
+### Rule layers
+**In plain terms:** The separate persistent view of installed rules grouped by `MappingRule.group` in runtime precedence order, with Ungrouped last. A Rule layer is execution structure, not proof that one organizational system owns those rules.
+
+*Lives in:* `src/ui/workbench/RuleLayersSection.ts`; projection in `src/workbench/organizationalSystemsProjection.ts` · *Related:* group precedence, inferred association, Organizational systems deck
+
+### Typed relation / inferred association
+**In plain terms:** A typed relation says *how* two visible things are connected — for example member, support, scoped-under, or candidate-source — using text and stable keys rather than color alone. Candidate-to-occurrence provenance is exact because the planner carries `occurrenceKey`. Installed rules lack durable deployment provenance, so their links to system occurrences are labelled **inferred** or **unknown**, never ownership.
+
+*Lives in:* `src/workbench/organizationalSystemsProjection.ts`; rendered by the persistent deck and folder/candidate chips · *Related:* Rule layers, organizational-system occurrence, candidate provenance
+
+### Workbench Map
+**In plain terms:** The read-only sensing surface. It overlays detected organizational-system rails and the effects of enabled installed rules onto the vault folder hierarchy, with Detected / My rules / Both modes and a folder detail panel.
+
+*Lives in:* `src/ui/workbench/WorkbenchMapPanel.ts`; sparse rendering in `src/ui/annotatedTreeRender.ts`; installed-rule sensing in `src/engine/folderRuleView.ts` · *Related:* Taxonomy Workbench, detection tree, cross-pack hit map
+
+### Workbench Scope
+**In plain terms:** The interactive hierarchy-first deployment surface. A user selects vault root or folder branches to include, sees scope tint and absorbed selections, and previews the detected `(pack, instance anchor)` deployments that will generate candidates. Signal filtering changes emphasis only; it never removes hidden pack hits from deployment calculation.
+
+Only actionable occurrences can create deployments. Incomplete and suppressed evidence stays visible for inspection, but its Scope checkbox is disabled. Ancestor selection intentionally includes actionable occurrences below that branch, while root selection includes every actionable occurrence. Deployments remain anchored at `occurrence.anchorPath` rather than blindly at the clicked signal path, preventing duplicated shapes such as `Projects/Projects`.
+
+*Lives in:* `src/ui/workbench/WorkbenchScopePanel.ts`; pure planning in `src/engine/scopePackPlan.ts` · *Related:* scope point, minimal scope cover, surfaced detection, Workbench Candidates
+
+### Workbench Candidates
+**In plain terms:** The triage and installation surface. It shows candidate rules with coverage, sample emissions, bijectivity/lossiness, candidate and installed-rule conflicts, predicted winners, sorting, and exact selection counts before confirmation.
+
+Candidates can come from explicit Scope deployments or actionable detected occurrences. Rows are grouped by exact `occurrenceKey`, and noise/conflict sorting happens inside each occurrence group without changing candidate-key selection. The analysis temporarily treats source-disabled rules as enabled so preview/conflict evidence is honest; persistence creates fresh disabled copies. Inverse-only (`tag-to-folder`) candidates are labelled explicitly: folder coverage is not applicable and tag-side overlaps are not claimed because the Workbench does not collect a complete tag inventory.
+
+*Lives in:* `src/ui/workbench/WorkbenchCandidatePanel.ts`; planning in `src/engine/scanAndSnapPlan.ts`; installation reduction in `src/engine/ruleInstallPlan.ts` · *Related:* Taxonomy Workbench, anchored instances, disabled draft
+
+### Surfaced detection
+**In plain terms:** The compatibility pack-level summary meaning “this pack has at least one actionable occurrence.” New action consumers use occurrence status directly; pack-level `score >= 1` remains only for legacy hand-built results without occurrence data.
+
+Incomplete and suppressed occurrence evidence remains diagnostic and inspectable. `collectCrossPackHits` exposes separate all-evidence and actionable-only maps so display can explain partial systems without accidentally turning them into deployments or candidates.
+
+*Lives in:* `src/engine/detectPacks.ts` (`isSurfacedDetection`, `partitionDetectionResults`, `partitionDetectionOccurrences`); defensive hit partitioning in `src/engine/detectionTree.ts` · *Related:* organizational-system occurrence, signal, cross-pack hit map, Workbench Scope
+
+### Disabled draft
+**In plain terms:** A rule added by the Workbench is persisted with `enabled: false`, regardless of the source pack's enabled flag. “Selected” means “add this draft for review,” not “arm synchronization.”
+
+Installation deduplicates selected rule IDs, skips IDs already installed in either enabled state, saves once, rolls the in-memory list back if saving fails, and reports exact added/existing/duplicate counts. Drafting does not create or move folders and does not change note files, tags, frontmatter, or current sync behavior.
+
+*Lives in:* `src/engine/ruleInstallPlan.ts`; atomic persistence in `src/main.ts` (`installWorkbenchRules`) · *Related:* Workbench Candidates, Taxonomy Workbench
 
 ### Hierarchy-first detection view
-**In plain terms:** The detect-mode modal shows your vault as one folder tree with detection chips on each folder, instead of a list of "packs found."
+**In plain terms:** Workbench Scope shows your vault as one folder tree with detection chips on each folder, instead of a list of “packs found.”
 
-Earlier the modal was pack-centric (a card per detected pack with its signals listed inside), which didn't match how users think — they look at their folder tree and ask "what patterns fired *here*?", not "which plugin pack contributed this signal." The modal now renders one unified sparse vault tree where each folder row carries chips for whichever signals matched it, drawn from *any* detected pack. Pack identity is demoted to chip tooltips, the apply summary, and the suppressed-pack notice. Selection happens per-folder; Apply later resolves which packs were responsible for the selected folders' hits.
+The original detect UI was pack-centric (a card per pack definition with its signals listed inside), which didn't match how users inspect a vault. Scope therefore keeps the unified sparse folder tree as its action surface. The newer persistent Organizational systems deck complements that tree at a different semantic level: it groups evidence into anchored occurrences so users can inspect and focus `PARA at Work` as one coordinated object rather than treating every matched folder as a standalone taxonomy.
 
-**Example:** A folder row `📁 01 - Active` shows two coloured chips (`JD numbered`, `PARA`) even though those come from two different rule packs; hovering a chip reveals "From Johnny Decimal."
+**Example:** A folder row `📁 01 - Active` can carry two textual relations (`Member · Johnny Decimal @ Cybersader`, `Member · PARA`) because it contributes to two occurrences. Selecting its ancestor can deploy both actionable occurrences; selecting either relation focuses the matching group card.
 
-*Lives in:* `src/ui/DetectVaultModal.ts` (class `DetectVaultModal`, `onOpen` + `renderTree`) · *Related:* detection tree, cross-pack hit map, signal, auto-scope
+*Lives in:* `src/ui/workbench/WorkbenchScopePanel.ts`; planning in `src/engine/scopePackPlan.ts` · *Related:* detection tree, cross-pack hit map, signal, auto-scope
 
 ### Detection tree
 **In plain terms:** A sparse folder tree built from a detection scan that keeps only folders that matched a pattern plus their ancestors, so you can see *where* in the vault patterns fired.
@@ -44,7 +115,7 @@ Detection scores each pack against the vault using its `detection.anyOf` list of
 ### Cross-pack hit map / AnnotatedHit
 **In plain terms:** A merged map from folder path → the list of (pack, signal) pairs that matched that folder, combining hits from every detected pack into one structure.
 
-Because the UI is hierarchy-first and pack-blind, it needs per-folder annotations regardless of which pack a signal came from. `collectCrossPackHits` walks every non-suppressed `DetectionResult`, assigns each signal a globally-unique `globalIndex` (driving deterministic colours), and produces `hitsByPath` where each `AnnotatedHit` pairs a `folderPath` with its `AnnotatedSignal` (which still carries `packId`/`packName` for apply-time plumbing). Suppressed packs (missing required parent) are intentionally excluded so the tree doesn't imply they were confidently detected.
+Because the UI is hierarchy-first and pack-blind, it needs per-folder annotations regardless of which pack a signal came from. `collectCrossPackHits` walks every surfaced `DetectionResult`, assigns each signal a globally-unique `globalIndex` (driving deterministic colours), and produces `hitsByPath` where each `AnnotatedHit` pairs a `folderPath` with its `AnnotatedSignal` (which still carries `packId`/`packName` for deployment plumbing). Below-threshold and suppressed packs are intentionally excluded so the tree cannot turn weak evidence into actionable scope hits.
 
 **Example:** `hitMap.hitsByPath.get('Projects/01 - Active')` → `[{signal:{packId:'johnny-decimal', label:'JD numbered', globalIndex:0}}, {signal:{packId:'para', label:'PARA', globalIndex:3}}]`.
 
@@ -66,20 +137,20 @@ To keep the detection tree compact on large vaults, only hit folders and their a
 
 **Example:** A `Projects` node with one kept child `01 - Active` and three unmatched siblings renders the kept child plus "… 3 other folder(s), no matches."
 
-*Lives in:* `src/engine/detectionTree.ts` (third pass in `buildDetectionTree`/`buildAnnotatedTree`); rendered in `DetectVaultModal.ts` · *Related:* detection tree, hierarchy-first detection view
+*Lives in:* `src/engine/detectionTree.ts` (third pass in `buildDetectionTree`/`buildAnnotatedTree`); rendered by `src/ui/workbench/WorkbenchScopePanel.ts` and `src/ui/annotatedTreeRender.ts` · *Related:* detection tree, hierarchy-first detection view
 
 ## Selecting & scoping
 
 What happens when you check folders in the detection tree and apply.
 
 ### Scope point
-**In plain terms:** A folder you selected that survives minimal-cover reduction and becomes the entry point the applied rules get anchored to.
+**In plain terms:** A selected inclusion branch that survives minimal-cover reduction and determines which detected system instances proceed to Candidates.
 
-A checked folder that the minimal-cover algorithm keeps (i.e. not absorbed by a selected ancestor) is the actual anchor where rules will be entry-pointed. The UI gives it the strongest visual treatment — thick coloured left border, tinted background, uppercase `scope` badge — so you know exactly which folder the rules localize to. At apply time, `computeScopedPackPlan` finds, for each scope point, every pack whose signals fired at-or-under that folder, and re-scopes those packs' rules to it.
+A checked folder that the minimal-cover algorithm keeps (i.e. not absorbed by a selected ancestor) gets the strongest visual treatment — thick coloured left border, tinted background, uppercase `scope` badge. `buildScopePackPlan` includes surfaced hit clusters at-or-under that branch, but anchors each deployment at the cluster's shared parent. The scope point is therefore an inclusion boundary, not necessarily the final rule entry point.
 
-**Example:** Checking `Projects` (and nothing above it) marks the Projects row with a `scope` badge whose tooltip reads: "Rules will be entry-pointed at 'Projects'. The tinted region below shows reach."
+**Example:** Checking a direct `Work/Projects` PARA signal includes the PARA instance and shows the selected row as a scope point, while the deployment summary correctly anchors PARA at `Work` so the generated rule is `^Work/Projects…`, not `^Work/Projects/Projects…`.
 
-*Lives in:* `src/ui/DetectVaultModal.ts` (`renderTreeNode` `isScopePoint` branch; `computeScopedPackPlan`) · *Related:* minimal scope cover, absorbed selection, scope tint, auto-scope
+*Lives in:* `src/ui/workbench/WorkbenchScopePanel.ts`; pure deployment planning in `src/engine/scopePackPlan.ts` · *Related:* minimal scope cover, absorbed selection, scope tint, auto-scope
 
 ### Minimal scope cover
 **In plain terms:** A reduction of the selected scope folders that drops any folder already contained by another selected folder, so a pack's rules aren't applied twice at overlapping scopes.
@@ -97,16 +168,16 @@ The hierarchy-first view promises that picking a folder localizes rules to that 
 
 **Example:** `scopeRule` for pattern `^\d+ - .*` scoped to `Projects/Cybersader/01 - Active` yields `folderPattern` `^Projects/Cybersader/01 - Active/\d+ - .*`, `folderEntryPoint` `Projects/Cybersader/01 - Active`, `id` `…__projects-cybersader-01-active`.
 
-*Lives in:* `src/engine/scopeRules.ts` (`scopeRule`, `scopeRules`, `scopePattern`, `scopeTemplate`, `pathToSlug`); applied in `DetectVaultModal.applySelected` · *Related:* scope point, minimal scope cover, scope tint, cross-pack hit map
+*Lives in:* `src/engine/scopeRules.ts` (`scopeRule`, `scopeRules`, `scopePattern`, `scopeTemplate`, `pathToSlug`); deployments are planned in `src/engine/scopePackPlan.ts` and candidate copies are scoped in `src/engine/scanAndSnapPlan.ts` · *Related:* scope point, minimal scope cover, scope tint, cross-pack hit map
 
 ### Scope tint
-**In plain terms:** A coloured background region painted into a scope point's subtree so you can *see*, before clicking Apply, exactly which folders your selection will cover.
+**In plain terms:** A coloured background region painted into a scope point's subtree so you can see which detection evidence the selected inclusion branch contains.
 
-Selection should feel semantic — checking a folder should visibly wrap its subtree in the scope's colour so reach is obvious. Each cover scope gets a stable golden-angle hue (`scopeColorForIndex`); the scope point itself gets a strong tint (alpha 0.20) plus a thick left border and badge, while inside-scope descendants get a faint tint (0.07) of the most-specific containing scope's colour, keeping multi-scope selections visually separable. Tints recompute on every re-render, so checking a box instantly repaints the affected subtree, and hover deepens the tint without flicker.
+Selection should feel semantic — checking a folder visibly wraps its subtree in the scope's colour so the included branch is obvious. Each cover scope gets a stable golden-angle hue (`scopeColorForIndex`); the scope point itself gets a strong tint (alpha 0.20) plus a thick left border and badge, while inside-scope descendants get a faint tint (0.07) of the most-specific containing scope's colour, keeping multi-scope selections visually separable. Tints recompute on every re-render. The separate deployment summary names the actual detected instance anchors used to scope rule copies.
 
 **Example:** Checking `Projects` shades the Projects row a strong blue and faintly tints every folder beneath it the same blue; checking a second scope `Areas` paints its subtree a distinct hue.
 
-*Lives in:* `src/ui/DetectVaultModal.ts` (`renderTreeNode` `tintBg`/`baseBg`/`isInsideAnyScope`/`scopeContaining`; `scopeColorForIndex`) · *Related:* scope point, minimal scope cover, absorbed selection
+*Lives in:* `src/ui/workbench/WorkbenchScopePanel.ts` (scope colour assignment and row tinting) · *Related:* scope point, minimal scope cover, absorbed selection
 
 ### Absorbed selection
 **In plain terms:** A folder you checked that the minimal-cover algorithm discarded because an ancestor folder is also selected — shown dimmed with an "↑ absorbed" badge.
@@ -115,7 +186,7 @@ When both a parent and child folder are selected, the child is redundant (the pa
 
 **Example:** With both `Projects` and `Projects/Cybersader` checked, the `Projects/Cybersader` row dims and shows "↑ absorbed" since only `Projects` becomes a scope point.
 
-*Lives in:* `src/ui/DetectVaultModal.ts` (`isAbsorbedSelection` + `renderTreeNode` `isAbsorbed` branch) · *Related:* minimal scope cover, scope point, scope tint
+*Lives in:* `src/ui/workbench/WorkbenchScopePanel.ts` (selected-vs-cover rendering) · *Related:* minimal scope cover, scope point, scope tint
 
 ## Preview & apply
 

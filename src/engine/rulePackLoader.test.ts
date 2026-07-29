@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'fs';
 import { join } from 'path';
-import { loadRulePackFromJSON } from './rulePackLoader';
+import { loadRulePackFromJSON, loadRulePackFromObject } from './rulePackLoader';
 
 describe('loadRulePackFromJSON — seacow-cyberbase.json', () => {
 	const json = readFileSync(
@@ -138,6 +138,8 @@ describe('Phase 2C metadata extension — anchor packs', () => {
 		expect(result.pack.compatibleWith).toContain('para');
 		expect(result.pack.detection?.anyOf.length).toBeGreaterThan(2);
 		expect(result.pack.detection?.minSignals).toBe(2);
+		expect(result.pack.detection?.occurrence).toEqual({ countBy: 'roles', minEvidence: 2 });
+		expect(result.pack.detection?.anyOf.filter((signal) => signal.relation === 'support')).toHaveLength(2);
 		expect(result.pack.establish?.createFolders.length).toBeGreaterThan(0);
 	});
 
@@ -155,6 +157,13 @@ describe('Phase 2C metadata extension — anchor packs', () => {
 			'Resources/ root',
 			'Archive/ root',
 		]);
+		expect(result.pack.detection?.anyOf.map((s) => s.role)).toEqual([
+			'projects',
+			'areas',
+			'resources',
+			'archive',
+		]);
+		expect(result.pack.detection?.occurrence).toEqual({ countBy: 'roles', minEvidence: 2 });
 	});
 
 	test('jd.json detection regex compiles', () => {
@@ -170,6 +179,18 @@ describe('Phase 2C metadata extension — anchor packs', () => {
 		expect(re0.test('10 - Projects')).toBe(true);
 		expect(re0.test('Projects')).toBe(false); // no number = no match
 		expect(re1.test('10-projects')).toBe(true);
+		expect(sigs.map((signal) => signal.role)).toEqual(['numbered-folder', 'numbered-folder']);
+		expect(result.pack.detection?.occurrence).toEqual({ countBy: 'folders', minEvidence: 2 });
+	});
+
+	test('enterprise-jd-vault.json loads its role-counted local threshold', () => {
+		const json = readFileSync(join(__dirname, '../../rule-packs/enterprise-jd-vault.json'), 'utf-8');
+		const result = loadRulePackFromJSON(json);
+		if (!result.ok) throw new Error(result.errors.join('; '));
+
+		expect(result.pack.detection?.anyOf).toHaveLength(9);
+		expect(result.pack.detection?.occurrence).toEqual({ countBy: 'roles', minEvidence: 4 });
+		expect(result.pack.detection?.scopedUnderMode).toBe('local');
 	});
 });
 
@@ -242,6 +263,57 @@ describe('Phase 2C metadata — validation rejects malformed input', () => {
 		const result = loadRulePackFromJSON(json);
 		if (!result.ok) throw new Error(result.errors.join('; '));
 		expect(result.pack.axes).toEqual(['work', 'capture']);
+	});
+
+	test('older detection metadata receives occurrence-safe defaults', () => {
+		const result = loadRulePackFromObject({
+			...baseValid,
+			detection: {
+				anyOf: [{ folderRegex: '^Projects$' }],
+				minSignals: 2,
+				scopedUnder: 'outer-pack',
+			},
+		});
+		if (!result.ok) throw new Error(result.errors.join('; '));
+
+		expect(result.pack.detection).toEqual({
+			anyOf: [{
+				folderRegex: '^Projects$',
+				scope: 'name',
+				label: undefined,
+				role: undefined,
+				relation: 'member',
+			}],
+			minSignals: 2,
+			occurrence: { countBy: 'roles', minEvidence: 2 },
+			scopedUnder: 'outer-pack',
+			scopedUnderMode: 'local',
+		});
+	});
+
+	test.each([
+		['signal scope', { anyOf: [{ folderRegex: '^X$', scope: 'vault' }] }, 'scope'],
+		['signal relation', { anyOf: [{ folderRegex: '^X$', relation: 'context' }] }, 'relation'],
+		['occurrence countBy', { anyOf: [{ folderRegex: '^X$' }], occurrence: { countBy: 'signals' } }, 'countBy'],
+		['scopedUnderMode', { anyOf: [{ folderRegex: '^X$' }], scopedUnderMode: 'global' }, 'scopedUnderMode'],
+	] as const)('invalid %s enum fails validation', (_label, detection, field) => {
+		const result = loadRulePackFromObject({ ...baseValid, detection });
+		expect(result.ok).toBe(false);
+		if (!result.ok) {
+			expect(result.errors.some((error) => error.includes(field))).toBe(true);
+		}
+	});
+
+	test.each([
+		['minSignals', { anyOf: [{ folderRegex: '^X$' }], minSignals: 0 }],
+		['fractional minSignals', { anyOf: [{ folderRegex: '^X$' }], minSignals: 1.5 }],
+		['occurrence.minEvidence', { anyOf: [{ folderRegex: '^X$' }], occurrence: { minEvidence: -1 } }],
+	] as const)('invalid %s number fails validation', (_label, detection) => {
+		const result = loadRulePackFromObject({ ...baseValid, detection });
+		expect(result.ok).toBe(false);
+		if (!result.ok) {
+			expect(result.errors.some((error) => error.includes('must be a positive integer'))).toBe(true);
+		}
 	});
 });
 
@@ -783,5 +855,52 @@ describe('loadRulePackFromJSON — Path Lens template rules (Path C)', () => {
 		if (result.ok) {
 			expect(result.pack.rules[0].group).toBe('my-template-pack');
 		}
+	});
+});
+
+describe('loadRulePackFromObject', () => {
+	const rawPack = () => ({
+		id: 'object-pack',
+		name: 'Object pack',
+		description: 'Loaded without a JSON parsing round trip',
+		version: '1.0.0',
+		author: 'Test',
+		rules: [
+			{
+				id: 'object-rule',
+				name: 'Object rule',
+				priority: 1,
+				direction: 'folder-to-tag' as const,
+				folderPattern: '^Projects(?:/|$)',
+				tagPattern: '^projects/',
+				options: {
+					createFolders: true,
+					addTags: true,
+					removeOrphanedTags: false,
+					syncOnFileCreate: true,
+					syncOnFileMove: true,
+					syncOnFileRename: true,
+				},
+			},
+		],
+	});
+
+	test('validates objects through the same path as JSON input', () => {
+		const raw = rawPack();
+		const fromObject = loadRulePackFromObject(raw);
+		const fromJSON = loadRulePackFromJSON(JSON.stringify(raw));
+		expect(fromObject).toEqual(fromJSON);
+	});
+
+	test('does not mutate or retain nested references to the raw object', () => {
+		const raw = rawPack();
+		const before = JSON.stringify(raw);
+		const result = loadRulePackFromObject(raw);
+		if (!result.ok) throw new Error(result.errors.join('; '));
+
+		expect(JSON.stringify(raw)).toBe(before);
+		expect(result.pack.rules[0]).not.toBe(raw.rules[0]);
+		expect(raw.rules[0]).not.toHaveProperty('enabled');
+		expect(raw.rules[0]).not.toHaveProperty('group');
 	});
 });

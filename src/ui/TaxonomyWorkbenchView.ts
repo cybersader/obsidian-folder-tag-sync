@@ -1,62 +1,65 @@
-/**
- * TaxonomyWorkbenchView — the big dockable pane for the Taxonomy Workbench.
- *
- * The detect-mode modal already renders the hierarchy-first annotated vault
- * tree, but a modal is cramped: it caps the tree at `max-height: 50vh` and
- * competes with the apply controls for space. Users have repeatedly asked for
- * the full hierarchy as a large surface they can dock and live in. This view
- * is that surface — an Obsidian `ItemView` (leaf/pane) that renders the WHOLE
- * vault folder hierarchy at full scale with TWO annotation layers per folder:
- *
- *   - DETECTED systems (from `detectPacks`) — what known organizational
- *     systems live here, i.e. what COULD apply.
- *   - MY RULES (from `computeFolderRuleView`) — what the user's INSTALLED
- *     rules actually do here: the winning rule, the tag it emits, and whether
- *     2+ rules conflict.
- *
- * SCOPE (this slice — "Sensing"): read-only on the rules. It senses + shows
- * (coverage + conflicts), lets the user drill into any folder, right-click for
- * actions, and round-trips to settings. NO snap / install / edit-rule
- * gestures — those land in a later slice. The detection + render logic is
- * shared with the modal via the engine and the `renderAnnotatedTree` helper.
- */
-
-import { ItemView, Menu, Notice, WorkspaceLeaf } from 'obsidian';
-import { detectPacks, type ManifestPackEntry } from '../engine/detectPacks';
 import {
-	buildAnnotatedTree,
-	collectCrossPackHits,
-	type AnnotatedTree,
-	type CrossPackHitMap,
-} from '../engine/detectionTree';
-import { computeFolderRuleView, type FolderRuleEntry } from '../engine/folderRuleView';
-import { renderAnnotatedTree, type AnnotationMode } from './annotatedTreeRender';
-import { collectVaultFolderPaths } from '../utils/vaultFolders';
-import bundledManifest from '../../rule-packs/manifest.json';
+	ItemView,
+	Notice,
+	type ViewStateResult,
+	WorkspaceLeaf,
+} from 'obsidian';
+import {
+	sortCandidatesByConflict,
+	sortCandidatesByNoise,
+} from '../engine/scanAndSnapPlan';
+import {
+	isWorkbenchSessionCancelledError,
+	WorkbenchSession,
+	type WorkbenchSessionSnapshot,
+} from '../workbench/WorkbenchSession';
+import { buildOrganizationalSystemsProjection } from '../workbench/organizationalSystemsProjection';
+import {
+	createDefaultWorkbenchState,
+	reduceWorkbenchRoute,
+	resolveSelectedCandidateKeys,
+	validateWorkbenchState,
+	type WorkbenchCandidateState,
+	type WorkbenchRoute,
+	type WorkbenchState,
+	type WorkbenchSurface,
+} from '../workbench/workbenchState';
 import type DynamicTagsFoldersPlugin from '../main';
+import { ConnectorOverlay } from './workbench/ConnectorOverlay';
+import { OrganizationalSystemsDeck } from './workbench/OrganizationalSystemsDeck';
+import { RuleLayersSection } from './workbench/RuleLayersSection';
+import { WorkbenchCandidatePanel } from './workbench/WorkbenchCandidatePanel';
+import { WorkbenchMapPanel } from './workbench/WorkbenchMapPanel';
+import { WorkbenchScopePanel } from './workbench/WorkbenchScopePanel';
 
 export const TAXONOMY_WORKBENCH_VIEW = 'taxonomy-workbench-map';
 
-interface ManifestFile {
-	version: number;
-	packs: Array<ManifestPackEntry & { file: string; description: string; ruleCount: number }>;
-}
+type ActiveWorkbenchPanel =
+	| WorkbenchMapPanel
+	| WorkbenchScopePanel
+	| WorkbenchCandidatePanel;
 
+/** Persistent ItemView shell for the Map, Scope, and Candidates surfaces. */
 export class TaxonomyWorkbenchView extends ItemView {
 	private readonly plugin: DynamicTagsFoldersPlugin;
-	private treeContainer!: HTMLElement;
-	private detailEl!: HTMLElement;
-
-	/**
-	 * Which annotation layer(s) paint on the tree. Defaults to 'both' so the
-	 * "my rules" sensing layer is visible on first open without a toggle.
-	 */
-	private annotationMode: AnnotationMode = 'both';
-
-	/** Cached per-folder rule view for the current render — drives the detail panel + menus. */
-	private folderRuleView: Map<string, FolderRuleEntry> = new Map();
-	/** Rule id → display name, for resolving matchingRuleIds in the drill-in detail. */
-	private ruleNameById: Map<string, string> = new Map();
+	private state: WorkbenchState = freezeWorkbenchState(createDefaultWorkbenchState());
+	private snapshot: WorkbenchSessionSnapshot | null = null;
+	private activePanel: ActiveWorkbenchPanel | null = null;
+	private activePanelSurface: WorkbenchSurface | null = null;
+	private navigationEl: HTMLElement | null = null;
+	private statusEl: HTMLElement | null = null;
+	private deckEl: HTMLElement | null = null;
+	private panelEl: HTMLElement | null = null;
+	private systemsDeck: OrganizationalSystemsDeck | null = null;
+	private ruleLayersSection: RuleLayersSection | null = null;
+	private connectorOverlay: ConnectorOverlay | null = null;
+	private collectionGeneration = 0;
+	private opened = false;
+	private scanning = false;
+	private snapshotStale = false;
+	private collectionError: string | null = null;
+	private sourceUnsubscribe: (() => void) | null = null;
+	private refreshTimer: ReturnType<typeof setTimeout> | null = null;
 
 	constructor(leaf: WorkspaceLeaf, plugin: DynamicTagsFoldersPlugin) {
 		super(leaf);
@@ -75,367 +78,613 @@ export class TaxonomyWorkbenchView extends ItemView {
 		return 'layers';
 	}
 
-	async onOpen(): Promise<void> {
-		this.renderAll();
+	getState(): Record<string, unknown> {
+		return cloneWorkbenchState(this.state) as unknown as Record<string, unknown>;
 	}
 
-	async onClose(): Promise<void> {
+	async setState(state: unknown, result: ViewStateResult): Promise<void> {
+		const next = freezeWorkbenchState(validateWorkbenchState(state));
+		const previous = this.state;
+		result.history = !sameWorkbenchState(previous, next);
+		this.setLocalState(next);
+
+		if (!this.opened) return;
+		this.renderNavigation();
+
+		if (this.shouldCollectForStateChange(previous, next)) {
+			this.destroyActivePanel();
+			this.panelEl?.empty();
+			await this.collectSnapshot();
+			return;
+		}
+
+		this.updateSnapshotState(next, previous.candidates.sort !== next.candidates.sort);
+		this.renderActivePanel();
+	}
+
+	/** Merge an external route into state and recollect current vault/settings data. */
+	async applyRoute(route: WorkbenchRoute): Promise<void> {
+		const previous = this.state;
+		const next = freezeWorkbenchState(reduceWorkbenchRoute(previous, route));
+		this.setLocalState(next);
+
+		if (!this.opened) return;
+		this.renderNavigation();
+		if (previous.surface !== next.surface) {
+			this.destroyActivePanel();
+			this.panelEl?.empty();
+		}
+
+		// Commands and Settings links are explicit requests to open/scan the live
+		// Workbench. Always recollect so a reused leaf cannot show stale folders,
+		// enabled-rule coverage, conflicts, or detections from its prior snapshot.
+		await this.collectSnapshot();
+	}
+
+	protected async onOpen(): Promise<void> {
+		this.opened = true;
+		this.sourceUnsubscribe = this.plugin.subscribeWorkbenchSourceChanges((revision) => {
+			this.handleSourceRevisionChange(revision);
+		});
+		this.buildShell();
+		await this.collectSnapshot();
+	}
+
+	protected async onClose(): Promise<void> {
+		this.opened = false;
+		this.collectionGeneration++;
+		this.scanning = false;
+		this.snapshotStale = false;
+		this.sourceUnsubscribe?.();
+		this.sourceUnsubscribe = null;
+		if (this.refreshTimer !== null) clearTimeout(this.refreshTimer);
+		this.refreshTimer = null;
+		this.destroyActivePanel();
+		this.destroyPersistentDeck();
+		this.connectorOverlay?.destroy();
+		this.connectorOverlay = null;
+		this.snapshot = null;
+		this.navigationEl = null;
+		this.statusEl = null;
+		this.deckEl = null;
+		this.panelEl = null;
 		this.contentEl.empty();
+		this.contentEl.removeClass('dtf-workbench-shell');
 	}
 
-	/**
-	 * Build (or rebuild) the entire pane: header + stat row + the full annotated
-	 * vault tree + the drill-in detail area. Re-runnable so the "Refresh"
-	 * affordance and the annotation-mode toggle can re-scan + re-paint.
-	 */
-	private renderAll(): void {
+	private buildShell(): void {
 		const root = this.contentEl;
 		root.empty();
-		root.addClass('dtf-workbench-view');
-		// Fill the pane and let the tree body own the scroll — this is the whole
-		// point of the pane vs. the cramped modal: the entire hierarchy visible
-		// on a big surface.
+		root.addClass('dtf-workbench-shell');
+		root.dataset.dtfWorkbenchShell = '1';
 		root.style.display = 'flex';
 		root.style.flexDirection = 'column';
 		root.style.height = '100%';
+		root.style.minHeight = '0';
 		root.style.padding = '0.6em 0.8em';
+		root.style.gap = '0.55em';
 
-		// ─── Scan: detection pass + "my rules" pass ───────────────────────
-		const manifest = bundledManifest as ManifestFile;
-		const folderPaths = collectVaultFolderPaths(this.app.vault.getRoot());
-		const results = detectPacks(folderPaths, manifest.packs);
-		const packNamesById = new Map(manifest.packs.map((p) => [p.id, p.name]));
-		const hitMap: CrossPackHitMap = collectCrossPackHits(folderPaths, results, packNamesById);
-
-		// "My rules" — what the user's INSTALLED rules actually do per folder.
-		this.folderRuleView = computeFolderRuleView(
-			folderPaths,
-			this.plugin.settings.rules,
-			this.plugin.settings.groupPrecedence,
-		);
-		this.ruleNameById = new Map(this.plugin.settings.rules.map((r) => [r.id, r.name]));
-
-		let coveredFolders = 0;
-		let conflictFolders = 0;
-		for (const entry of this.folderRuleView.values()) {
-			if (entry.winnerRuleId) coveredFolders++;
-			if (entry.conflict) conflictFolders++;
-		}
-
-		const detectedPackIds = new Set<string>();
-		for (const sig of hitMap.allSignals) detectedPackIds.add(sig.packId);
-
-		// ─── Header (title + mode toggle + open settings + refresh) ───────
 		const header = root.createDiv();
 		header.style.display = 'flex';
 		header.style.alignItems = 'center';
 		header.style.justifyContent = 'space-between';
-		header.style.gap = '0.5em';
+		header.style.gap = '0.6em';
 		header.style.flexWrap = 'wrap';
-		header.style.marginBottom = '0.6em';
 		header.style.flex = '0 0 auto';
 
-		const title = header.createEl('h3', { text: 'Taxonomy Workbench map' });
+		const title = header.createEl('h2', { text: 'Taxonomy Workbench' });
 		title.style.margin = '0';
+		title.style.fontSize = '1.15em';
 
-		const controls = header.createDiv();
-		controls.style.display = 'flex';
-		controls.style.alignItems = 'center';
-		controls.style.gap = '0.4em';
-		controls.style.flexWrap = 'wrap';
+		this.navigationEl = header.createDiv();
+		this.navigationEl.dataset.dtfWorkbenchSurfaceNav = '1';
+		this.navigationEl.setAttr('role', 'tablist');
+		this.navigationEl.setAttr('aria-label', 'Taxonomy Workbench surfaces');
+		this.navigationEl.style.display = 'flex';
+		this.navigationEl.style.alignItems = 'center';
+		this.navigationEl.style.gap = '0.35em';
+		this.navigationEl.style.flexWrap = 'wrap';
+		this.renderNavigation();
 
-		this.renderModeToggle(controls);
+		this.statusEl = root.createDiv();
+		this.statusEl.style.flex = '0 0 auto';
+		this.statusEl.setAttr('aria-live', 'polite');
+		this.renderStatus();
 
-		const openSettingsBtn = controls.createEl('button', { text: 'Open settings' });
-		openSettingsBtn.dataset.dtfOpenSettings = '1';
-		openSettingsBtn.setAttr('aria-label', 'Open Folder Tag Sync settings');
-		openSettingsBtn.addEventListener('click', () => this.openPluginSettings(null));
+		this.deckEl = root.createDiv({ cls: 'dtf-workbench-persistent-deck' });
+		this.deckEl.dataset.dtfWorkbenchPersistentDeck = '1';
 
-		const refreshBtn = controls.createEl('button', { text: 'Refresh' });
-		refreshBtn.setAttr('aria-label', 'Re-scan the vault');
-		refreshBtn.addEventListener('click', () => this.renderAll());
+		this.panelEl = root.createDiv();
+		this.panelEl.id = 'dtf-workbench-active-panel';
+		this.panelEl.setAttr('role', 'tabpanel');
+		this.panelEl.dataset.dtfWorkbenchCurrentSurface = this.state.surface;
+		this.panelEl.style.flex = '1 1 auto';
+		this.panelEl.style.minHeight = '0';
+		this.panelEl.style.overflow = 'auto';
 
-		// ─── Stat row (reuses the detect-modal stat-card style) ───────────
-		const statBar = root.createDiv();
-		statBar.style.display = 'grid';
-		statBar.style.gridTemplateColumns = 'repeat(auto-fit, minmax(120px, 1fr))';
-		statBar.style.gap = '0.5em';
-		statBar.style.marginBottom = '0.7em';
-		statBar.style.flex = '0 0 auto';
-		this.makeStat(statBar, 'Folders your rules cover', coveredFolders);
-		this.makeStat(statBar, 'Rule conflicts', conflictFolders);
-		this.makeStat(statBar, 'Folders matched', hitMap.hitsByPath.size);
-		this.makeStat(statBar, 'Systems detected', detectedPackIds.size);
-		this.makeStat(statBar, 'Vault folders', folderPaths.length);
-
-		// ─── Tree (fills remaining height, scrolls) ───────────────────────
-		this.treeContainer = root.createDiv();
-		this.treeContainer.dataset.dtfWorkbenchMap = '1';
-		this.treeContainer.dataset.dtfDetectTree = '1';
-		this.treeContainer.style.flex = '1 1 auto';
-		this.treeContainer.style.overflow = 'auto';
-		this.treeContainer.style.background = 'var(--background-secondary)';
-		this.treeContainer.style.padding = '0.5em 0.6em';
-		this.treeContainer.style.borderRadius = '6px';
-		this.treeContainer.style.fontSize = '0.9em';
-		this.treeContainer.style.minHeight = '0'; // let flex child shrink so overflow scrolls
-
-		// Build the tree for the active mode. 'detected' keeps detection hits;
-		// 'rules' keeps rule-covered folders; 'both' keeps the union — so each
-		// layer's annotations always have a row to land on.
-		const tree = this.buildTreeForMode(folderPaths, hitMap);
-		const hasDetection = hitMap.hitsByPath.size > 0;
-		const nothingToShow =
-			(this.annotationMode === 'detected' && !hasDetection) ||
-			(this.annotationMode === 'rules' && coveredFolders === 0) ||
-			(this.annotationMode === 'both' && !hasDetection && coveredFolders === 0);
-
-		if (nothingToShow) {
-			this.renderEmptyState();
-		} else {
-			renderAnnotatedTree(this.treeContainer, tree, {
-				expandToDepth: 2,
-				folderRuleView: this.folderRuleView,
-				annotationMode: this.annotationMode,
-				onFolderClick: (path) => this.openFolderDetail(path),
-				onFolderContextMenu: (path, _name, evt) => this.showFolderMenu(path, evt),
-			});
-		}
-
-		// ─── Drill-in detail area (hidden until a folder is clicked) ──────
-		this.detailEl = root.createDiv();
-		this.detailEl.dataset.dtfFolderDetail = '1';
-		this.detailEl.style.flex = '0 0 auto';
-		this.detailEl.style.marginTop = '0.6em';
-		this.detailEl.style.maxHeight = '32%';
-		this.detailEl.style.overflow = 'auto';
-		this.detailEl.style.display = 'none';
+		this.connectorOverlay = new ConnectorOverlay(root);
 	}
 
-	/**
-	 * Segmented control switching the annotation focus: detected systems, my
-	 * rules, or both. Selecting re-runs the render with the new mode.
-	 */
-	private renderModeToggle(parent: HTMLElement): void {
-		const group = parent.createDiv();
-		group.dataset.dtfModeToggle = '1';
-		group.style.display = 'inline-flex';
-		group.style.border = '1px solid var(--background-modifier-border)';
-		group.style.borderRadius = '6px';
-		group.style.overflow = 'hidden';
+	private renderNavigation(): void {
+		const navigation = this.navigationEl;
+		if (!navigation) return;
+		navigation.empty();
+		this.contentEl.dataset.dtfWorkbenchCurrentSurface = this.state.surface;
+		if (this.panelEl) {
+			this.panelEl.dataset.dtfWorkbenchCurrentSurface = this.state.surface;
+			this.panelEl.setAttr('aria-labelledby', `dtf-workbench-tab-${this.state.surface}`);
+		}
 
-		const modes: Array<{ mode: AnnotationMode; label: string }> = [
-			{ mode: 'detected', label: 'Detected systems' },
-			{ mode: 'rules', label: 'My rules' },
-			{ mode: 'both', label: 'Both' },
+		const surfaces: Array<{ surface: WorkbenchSurface; label: string }> = [
+			{ surface: 'map', label: 'Map' },
+			{ surface: 'scope', label: 'Scope' },
+			{ surface: 'candidates', label: 'Candidates' },
 		];
-		for (const { mode, label } of modes) {
-			const btn = group.createEl('button', { text: label });
-			btn.dataset.dtfMode = mode;
-			btn.style.border = 'none';
-			btn.style.borderRadius = '0';
-			btn.style.boxShadow = 'none';
-			btn.style.fontSize = '0.82em';
-			btn.style.padding = '0.25em 0.6em';
-			if (mode === this.annotationMode) {
-				btn.style.background = 'var(--interactive-accent)';
-				btn.style.color = 'var(--text-on-accent)';
-			} else {
-				btn.style.background = 'var(--background-secondary)';
-				btn.style.color = 'var(--text-normal)';
+		for (const [index, { surface, label }] of surfaces.entries()) {
+			const button = navigation.createEl('button', { text: label });
+			const active = this.state.surface === surface;
+			button.id = `dtf-workbench-tab-${surface}`;
+			button.dataset.dtfWorkbenchSurfaceButton = surface;
+			button.setAttr('role', 'tab');
+			button.setAttr('aria-controls', 'dtf-workbench-active-panel');
+			button.setAttr('aria-selected', String(active));
+			button.tabIndex = active ? 0 : -1;
+			if (active) {
+				button.dataset.dtfWorkbenchActiveSurface = '1';
+				button.addClass('mod-cta');
 			}
-			btn.addEventListener('click', () => {
-				if (this.annotationMode === mode) return;
-				this.annotationMode = mode;
-				this.renderAll();
+			button.addEventListener('click', () => {
+				void this.navigateToSurface(surface);
+			});
+			button.addEventListener('keydown', (event) => {
+				if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+				event.preventDefault();
+				const targetIndex = event.key === 'Home'
+					? 0
+					: event.key === 'End'
+						? surfaces.length - 1
+						: (index + (event.key === 'ArrowRight' ? 1 : -1) + surfaces.length)
+							% surfaces.length;
+				const target = surfaces[targetIndex].surface;
+				void this.navigateToSurface(target).then(() => {
+					this.navigationEl
+						?.querySelector<HTMLElement>(`[data-dtf-workbench-surface-button="${target}"]`)
+						?.focus();
+				});
 			});
 		}
 	}
 
-	/**
-	 * Build the annotated tree for the active mode. The detection tree only
-	 * keeps detection-hit folders + ancestors; to give the "my rules" layer a
-	 * row to paint on, we augment the kept set with rule-covered folders (an
-	 * entry with an empty hit array is still kept and rendered).
-	 */
-	private buildTreeForMode(folderPaths: string[], hitMap: CrossPackHitMap): AnnotatedTree {
-		if (this.annotationMode === 'detected') {
-			return buildAnnotatedTree(folderPaths, hitMap);
-		}
-		// 'rules' starts from an empty hit map; 'both' keeps detection hits.
-		const augmented: CrossPackHitMap = {
-			allSignals: hitMap.allSignals,
-			hitsByPath: this.annotationMode === 'both' ? new Map(hitMap.hitsByPath) : new Map(),
-		};
-		for (const [path, entry] of this.folderRuleView) {
-			if (entry.winnerRuleId && !augmented.hitsByPath.has(path)) {
-				augmented.hitsByPath.set(path, []);
-			}
-		}
-		return buildAnnotatedTree(folderPaths, augmented);
-	}
+	private renderStatus(): void {
+		const status = this.statusEl;
+		if (!status) return;
+		status.empty();
 
-	private renderEmptyState(): void {
-		const empty = this.treeContainer.createDiv();
-		empty.style.padding = '1.5em 1em';
-		empty.style.textAlign = 'center';
-		empty.style.color = 'var(--text-muted)';
-		if (this.annotationMode === 'rules') {
-			empty.createEl('p', { text: 'No folders are covered by your installed rules.' });
-			empty.createEl('p', {
-				text: 'Add or enable rules, then refresh — or switch to detected systems.',
-			}).style.fontSize = '0.85em';
-		} else {
-			empty.createEl('p', { text: 'No organizational patterns detected in this vault.' });
-			empty.createEl('p', {
-				text: 'Add folders that follow a known system, then refresh.',
-			}).style.fontSize = '0.85em';
-		}
-	}
-
-	/**
-	 * Open the drill-in detail for `path`: the folder path, the winning rule,
-	 * the tags it emits, all matching rules, and a conflict note. Lightweight —
-	 * a fixed panel at the bottom of the pane, not an inline tree injection.
-	 */
-	private openFolderDetail(path: string): void {
-		const entry = this.folderRuleView.get(path);
-		const el = this.detailEl;
-		el.empty();
-		el.style.display = 'block';
-		el.style.padding = '0.6em 0.8em';
-		el.style.background = 'var(--background-secondary)';
-		el.style.borderRadius = '6px';
-		el.style.borderLeft = '3px solid var(--interactive-accent)';
-
-		// Header row: folder path + close button.
-		const headRow = el.createDiv();
-		headRow.style.display = 'flex';
-		headRow.style.justifyContent = 'space-between';
-		headRow.style.alignItems = 'baseline';
-		headRow.style.gap = '0.5em';
-		const pathEl = headRow.createEl('div', { text: path || '(vault root)' });
-		pathEl.style.fontWeight = '600';
-		pathEl.style.fontFamily = 'var(--font-monospace)';
-		pathEl.style.wordBreak = 'break-all';
-		const closeBtn = headRow.createEl('button', { text: 'Close' });
-		closeBtn.style.flex = '0 0 auto';
-		closeBtn.addEventListener('click', () => { el.style.display = 'none'; });
-
-		if (!entry || !entry.winnerRuleId) {
-			const none = el.createDiv({ text: 'No enabled rule covers this folder.' });
-			none.style.color = 'var(--text-muted)';
-			none.style.marginTop = '0.4em';
-			none.style.fontSize = '0.9em';
+		if (this.scanning) {
+			status.removeAttribute('role');
+			status.dataset.dtfWorkbenchStatus = 'scanning';
+			status.style.display = 'block';
+			status.style.padding = '0.45em 0.65em';
+			status.style.borderRadius = '6px';
+			status.style.background = 'var(--background-secondary)';
+			status.style.color = 'var(--text-muted)';
+			status.setText('Scanning the vault and collecting workbench data…');
 			return;
 		}
 
-		// Winning rule.
-		const winnerRow = el.createDiv();
-		winnerRow.style.marginTop = '0.5em';
-		winnerRow.style.fontSize = '0.9em';
-		winnerRow.createSpan({ text: 'Winning rule: ' }).style.color = 'var(--text-muted)';
-		winnerRow.createSpan({ text: entry.winnerRuleName ?? entry.winnerRuleId }).style.fontWeight = '600';
-
-		// Emitted tags.
-		const tagsRow = el.createDiv();
-		tagsRow.style.marginTop = '0.35em';
-		tagsRow.style.fontSize = '0.9em';
-		tagsRow.style.display = 'flex';
-		tagsRow.style.flexWrap = 'wrap';
-		tagsRow.style.alignItems = 'center';
-		tagsRow.style.gap = '0.3em';
-		tagsRow.createSpan({ text: 'Would emit: ' }).style.color = 'var(--text-muted)';
-		if (entry.emittedTags.length === 0) {
-			tagsRow.createSpan({ text: '(no tag — opaque)' }).style.color = 'var(--text-muted)';
-		} else {
-			for (const t of entry.emittedTags) {
-				const chip = tagsRow.createEl('code', { text: t });
-				chip.style.padding = '0.05em 0.4em';
-				chip.style.background = 'rgba(40, 140, 70, 0.15)';
-				chip.style.color = 'var(--text-success, rgb(40, 140, 70))';
-				chip.style.borderRadius = '4px';
-			}
+		if (this.collectionError) {
+			status.setAttr('role', 'alert');
+			status.dataset.dtfWorkbenchStatus = 'error';
+			status.style.display = 'flex';
+			status.style.alignItems = 'center';
+			status.style.justifyContent = 'space-between';
+			status.style.gap = '0.5em';
+			status.style.flexWrap = 'wrap';
+			status.style.padding = '0.55em 0.7em';
+			status.style.borderRadius = '6px';
+			status.style.background = 'rgba(200, 60, 60, 0.12)';
+			status.style.border = '1px solid rgba(200, 60, 60, 0.4)';
+			status.style.color = 'var(--text-error, rgb(190, 50, 50))';
+			status.createDiv({ text: `Workbench collection failed: ${this.collectionError}` });
+			const retry = status.createEl('button', { text: 'Retry' });
+			retry.addEventListener('click', () => {
+				void this.collectSnapshot();
+			});
+			return;
 		}
 
-		// All matching rules.
-		const matchRow = el.createDiv();
-		matchRow.style.marginTop = '0.35em';
-		matchRow.style.fontSize = '0.9em';
-		const names = entry.matchingRuleIds.map((id) => this.ruleNameById.get(id) ?? id);
-		matchRow.createSpan({
-			text: `Matching rule${names.length === 1 ? '' : 's'} (${names.length}): `,
-		}).style.color = 'var(--text-muted)';
-		matchRow.createSpan({ text: names.join(', ') });
-
-		// Conflict note.
-		if (entry.conflict) {
-			const conflictRow = el.createDiv();
-			conflictRow.style.marginTop = '0.4em';
-			conflictRow.style.fontSize = '0.85em';
-			conflictRow.style.color = 'rgb(200, 60, 60)';
-			conflictRow.setText(
-				`Conflict: ${names.length} rules match this folder. ` +
-				`"${entry.winnerRuleName ?? entry.winnerRuleId}" wins by precedence.`,
-			);
+		if (this.snapshotStale) {
+			status.removeAttribute('role');
+			status.dataset.dtfWorkbenchStatus = 'stale';
+			status.style.display = 'block';
+			status.style.padding = '0.45em 0.65em';
+			status.style.borderRadius = '6px';
+			status.style.background = 'var(--background-secondary)';
+			status.style.color = 'var(--text-muted)';
+			status.setText('Vault folders or rule settings changed. Refreshing the workbench…');
+			return;
 		}
 
-		// Open-settings shortcut (focuses the winning rule).
-		const actions = el.createDiv();
-		actions.style.marginTop = '0.5em';
-		const settingsBtn = actions.createEl('button', { text: 'Open settings for the winning rule' });
-		settingsBtn.addEventListener('click', () => this.openPluginSettings(entry.winnerRuleId));
+		status.removeAttribute('role');
+		status.dataset.dtfWorkbenchStatus = 'ready';
+		status.style.display = 'none';
 	}
 
-	/**
-	 * Right-click menu on a folder row. Read-only on the rules: show the
-	 * drill-in, jump to settings (focusing the winner), or report the emitted
-	 * tags. Does NOT run a real sync.
-	 */
-	private showFolderMenu(path: string, evt: MouseEvent): void {
-		const entry = this.folderRuleView.get(path);
-		const menu = new Menu();
+	private async navigateToSurface(surface: WorkbenchSurface): Promise<void> {
+		if (surface === this.state.surface) return;
+		const next = freezeWorkbenchState({ ...cloneWorkbenchState(this.state), surface });
+		this.setLocalState(next);
+		this.renderNavigation();
 
-		menu.addItem((item) =>
-			item
-				.setTitle('Show rules affecting this folder')
-				.setIcon('search')
-				.onClick(() => this.openFolderDetail(path)),
-		);
+		if (surface === 'candidates') {
+			this.destroyActivePanel();
+			this.panelEl?.empty();
+			await this.collectSnapshot();
+			return;
+		}
 
-		menu.addItem((item) =>
-			item
-				.setTitle('Open Folder Tag Sync settings')
-				.setIcon('gear')
-				.onClick(() => this.openPluginSettings(entry?.winnerRuleId ?? null)),
-		);
-
-		menu.addItem((item) =>
-			item
-				.setTitle('Preview sync for this folder')
-				.setIcon('tag')
-				.onClick(() => {
-					const tags = entry?.emittedTags ?? [];
-					if (entry?.winnerRuleId && tags.length > 0) {
-						new Notice(`${path || '(vault root)'} → ${tags.join(', ')}`);
-					} else {
-						new Notice(`No rule emits tags for ${path || '(vault root)'}.`);
-					}
-					this.openFolderDetail(path);
-				}),
-		);
-
-		menu.showAtMouseEvent(evt);
+		this.updateSnapshotState(next);
+		this.renderActivePanel();
 	}
 
-	/**
-	 * Map → Settings navigation. Opens the Obsidian settings window on the
-	 * Folder Tag Sync tab. When a rule id is passed, the plugin stashes it as
-	 * `focusRuleId` so `SettingsTab.display()` scrolls to + highlights that
-	 * rule once.
-	 */
-	private openPluginSettings(focusRuleId: string | null): void {
-		if (focusRuleId) this.plugin.focusRuleId = focusRuleId;
+	private handleSourceRevisionChange(revision: number): void {
+		if (!this.opened || !this.snapshot || revision === this.snapshot.sourceRevision) return;
+		this.snapshotStale = true;
+		this.renderStatus();
+		this.renderActivePanel();
+		this.scheduleSourceRefresh();
+	}
+
+	private scheduleSourceRefresh(): void {
+		if (this.refreshTimer !== null) clearTimeout(this.refreshTimer);
+		this.refreshTimer = setTimeout(() => {
+			this.refreshTimer = null;
+			if (this.opened) void this.collectSnapshot();
+		}, 300);
+	}
+
+	private async collectSnapshot(): Promise<void> {
+		if (!this.opened) return;
+		if (this.refreshTimer !== null) clearTimeout(this.refreshTimer);
+		this.refreshTimer = null;
+		const generation = ++this.collectionGeneration;
+		this.scanning = true;
+		this.collectionError = null;
+		this.renderStatus();
+
+		const session = new WorkbenchSession({
+			root: this.app.vault.getRoot(),
+			settings: this.plugin.settings,
+			sourceRevision: this.plugin.getWorkbenchSourceRevision(),
+		});
+
+		try {
+			const snapshot = await session.collect(this.state, {
+				isCancelled: () => !this.opened || generation !== this.collectionGeneration,
+			});
+			if (!this.opened || generation !== this.collectionGeneration) return;
+			this.snapshot = snapshot;
+			this.state = freezeWorkbenchState(snapshot.state);
+			this.scanning = false;
+			this.snapshotStale = snapshot.sourceRevision
+				!== this.plugin.getWorkbenchSourceRevision();
+			this.collectionError = null;
+			this.renderNavigation();
+			this.renderStatus();
+			this.renderPersistentDeck();
+			this.renderActivePanel();
+			if (this.snapshotStale) this.scheduleSourceRefresh();
+		} catch (error) {
+			if (isWorkbenchSessionCancelledError(error)
+				|| !this.opened
+				|| generation !== this.collectionGeneration) return;
+			this.scanning = false;
+			this.collectionError = errorMessage(error);
+			this.renderStatus();
+			await this.plugin.debugLogger.error('Taxonomy Workbench collection failed', {
+				surface: this.state.surface,
+				error: this.collectionError,
+			});
+		}
+	}
+
+	private renderPersistentDeck(): void {
+		this.connectorOverlay?.update(this.state.selectedSystemInstanceKey);
+		const container = this.deckEl;
+		const snapshot = this.snapshot;
+		if (!container || !snapshot) return;
+
+		if (this.systemsDeck && this.ruleLayersSection) {
+			this.systemsDeck.update(snapshot);
+			this.ruleLayersSection.update(snapshot);
+			return;
+		}
+
+		container.empty();
+		const systemsEl = container.createDiv();
+		const layersEl = container.createDiv();
+		this.systemsDeck = new OrganizationalSystemsDeck(systemsEl, snapshot, {
+			onSelectSystem: (occurrenceKey) => this.selectSystemInstance(occurrenceKey),
+			onShowIncompleteChange: (show) => this.setShowIncompleteSystems(show),
+		});
+		this.ruleLayersSection = new RuleLayersSection(layersEl, snapshot);
+	}
+
+	private renderActivePanel(): void {
+		this.connectorOverlay?.update(this.state.selectedSystemInstanceKey);
+		const container = this.panelEl;
+		const snapshot = this.snapshot;
+		if (!container || !snapshot) return;
+
+		if (this.activePanel && this.activePanelSurface !== this.state.surface) {
+			this.destroyActivePanel();
+		}
+
+		if (this.activePanelSurface === 'map'
+			&& this.activePanel instanceof WorkbenchMapPanel) {
+			this.activePanel.update(snapshot);
+			return;
+		}
+		if (this.activePanelSurface === 'scope'
+			&& this.activePanel instanceof WorkbenchScopePanel) {
+			this.activePanel.update(snapshot, this.state.scope);
+			return;
+		}
+		if (this.activePanelSurface === 'candidates'
+			&& this.activePanel instanceof WorkbenchCandidatePanel) {
+			this.activePanel.update(snapshot);
+			return;
+		}
+
+		container.empty();
+		this.activePanelSurface = this.state.surface;
+		if (this.state.surface === 'map') {
+			this.activePanel = new WorkbenchMapPanel(container, {
+				onStateChange: (state) => this.acceptPanelState(state),
+				onRefresh: () => this.collectSnapshot(),
+				onOpenSettings: (ruleId) => this.openPluginSettings(ruleId),
+				onChooseBranchInScope: (path) => this.chooseBranchInScope(path),
+				onPreviewEmittedTags: (path, tags) => this.previewEmittedTags(path, tags),
+				onSelectSystem: (occurrenceKey) => this.selectSystemInstance(occurrenceKey),
+			});
+			this.activePanel.render(snapshot);
+			return;
+		}
+
+		if (this.state.surface === 'scope') {
+			this.activePanel = new WorkbenchScopePanel(container, {
+				snapshot,
+				scope: this.state.scope,
+				onSelectedPathsChange: (selectedPaths) => {
+					this.acceptScopeState({ ...this.state.scope, selectedPaths });
+				},
+				onSignalFilterChange: (signalFilter) => {
+					this.acceptScopeState({ ...this.state.scope, signalFilter });
+				},
+				onRouteToCandidates: () => {
+					void this.draftScopeCandidates();
+				},
+				onRefresh: () => {
+					void this.collectSnapshot();
+				},
+				onSelectSystem: (occurrenceKey) => this.selectSystemInstance(occurrenceKey),
+			});
+			return;
+		}
+
+		this.activePanel = new WorkbenchCandidatePanel(container, {
+			snapshot,
+			onInstall: async (selectedRules) => {
+				if (this.snapshotStale
+					|| this.snapshot?.sourceRevision
+						!== this.plugin.getWorkbenchSourceRevision()) {
+					await this.collectSnapshot();
+					throw new Error('Candidates were refreshed because the vault or rule settings changed. Review the updated plan before installing.');
+				}
+				const result = await this.plugin.installWorkbenchRules(selectedRules);
+				await this.collectSnapshot();
+				return result;
+			},
+			onCandidateStateChange: (candidateState) => {
+				this.acceptCandidateState(candidateState);
+			},
+			onEditScope: () => this.navigateToSurface('scope'),
+			onRefresh: () => this.collectSnapshot(),
+			onReviewAddedRule: (ruleId) => this.openPluginSettings(ruleId),
+			onSelectSystem: (occurrenceKey) => this.selectSystemInstance(occurrenceKey),
+			isSnapshotStale: () => this.snapshotStale,
+		});
+	}
+
+	private selectSystemInstance(occurrenceKey: string | null): void {
+		const nextKey = occurrenceKey;
+		const next = freezeWorkbenchState({
+			...cloneWorkbenchState(this.state),
+			selectedSystemInstanceKey: nextKey,
+		});
+		this.setLocalState(next);
+		this.updateSnapshotState(next);
+		this.renderActivePanel();
+	}
+
+	private setShowIncompleteSystems(showIncompleteSystems: boolean): void {
+		const selected = this.snapshot?.organizationalSystems.cards.find((card) =>
+			card.occurrenceKey === this.state.selectedSystemInstanceKey);
+		const next = freezeWorkbenchState({
+			...cloneWorkbenchState(this.state),
+			selectedSystemInstanceKey: !showIncompleteSystems && selected?.status === 'incomplete'
+				? null
+				: this.state.selectedSystemInstanceKey,
+			preferences: { showIncompleteSystems },
+		});
+		this.setLocalState(next);
+		this.updateSnapshotState(next);
+		this.renderActivePanel();
+	}
+
+	private acceptPanelState(state: WorkbenchState): void {
+		const next = freezeWorkbenchState(validateWorkbenchState(state));
+		this.setLocalState(next);
+		this.updateSnapshotState(next);
+	}
+
+	private acceptScopeState(scope: WorkbenchState['scope']): void {
+		const next = freezeWorkbenchState({
+			...cloneWorkbenchState(this.state),
+			scope: {
+				selectedPaths: [...scope.selectedPaths],
+				signalFilter: scope.signalFilter ? { ...scope.signalFilter } : null,
+			},
+		});
+		this.setLocalState(next);
+		this.updateSnapshotState(next);
+	}
+
+	private acceptCandidateState(candidateState: WorkbenchCandidateState): void {
+		const sortChanged = this.state.candidates.sort !== candidateState.sort;
+		const next = freezeWorkbenchState({
+			...cloneWorkbenchState(this.state),
+			candidates: {
+				...candidateState,
+				selectedKeys: candidateState.selectedKeys === null
+					? null
+					: [...candidateState.selectedKeys],
+			},
+		});
+		this.setLocalState(next);
+		this.updateSnapshotState(next, sortChanged);
+		if (sortChanged) this.renderActivePanel();
+	}
+
+	private async chooseBranchInScope(path: string): Promise<void> {
+		const next = freezeWorkbenchState({
+			...cloneWorkbenchState(this.state),
+			surface: 'scope',
+			scope: {
+				...cloneWorkbenchState(this.state).scope,
+				selectedPaths: [path],
+			},
+		});
+		this.setLocalState(next);
+		this.updateSnapshotState(next);
+		this.renderNavigation();
+		this.renderActivePanel();
+	}
+
+	private async draftScopeCandidates(): Promise<void> {
+		const next = freezeWorkbenchState({
+			...cloneWorkbenchState(this.state),
+			surface: 'candidates',
+			candidates: {
+				...cloneWorkbenchState(this.state).candidates,
+				source: 'scope-selection',
+				selectedKeys: null,
+			},
+		});
+		this.setLocalState(next);
+		this.renderNavigation();
+		this.destroyActivePanel();
+		this.panelEl?.empty();
+		await this.collectSnapshot();
+	}
+
+	private updateSnapshotState(next: WorkbenchState, resortCandidates = false): void {
+		const snapshot = this.snapshot;
+		if (!snapshot) return;
+
+		let candidatePlan = snapshot.candidatePlan;
+		if (candidatePlan && resortCandidates) {
+			const candidates = next.candidates.sort === 'conflict'
+				? sortCandidatesByConflict([...candidatePlan.candidates])
+				: sortCandidatesByNoise([...candidatePlan.candidates]);
+			Object.freeze(candidates);
+			candidatePlan = { ...candidatePlan, candidates };
+			Object.freeze(candidatePlan);
+		}
+
+		const validCandidateKeys = candidatePlan?.candidates.map((candidate) => candidate.key) ?? [];
+		const selectedCandidateKeys = resolveSelectedCandidateKeys(
+			next.candidates.selectedKeys,
+			validCandidateKeys,
+		);
+		Object.freeze(selectedCandidateKeys);
+
+		const installedRules = snapshot.organizationalSystems.ruleLayers
+			.flatMap((layer) => [...layer.rules]);
+		const groupPrecedence = snapshot.organizationalSystems.ruleLayers
+			.filter((layer) => layer.group !== null && layer.precedenceIndex !== null)
+			.sort((a, b) => a.precedenceIndex! - b.precedenceIndex!)
+			.map((layer) => layer.group!);
+		const organizationalSystems = buildOrganizationalSystemsProjection({
+			detectionResults: snapshot.detectionResults,
+			candidates: candidatePlan?.candidates,
+			installedRules,
+			groupPrecedence,
+			candidateSort: next.candidates.sort,
+		});
+		const occurrenceStats = {
+			...snapshot.occurrenceStats,
+			visibleCount: organizationalSystems.cards.filter((card) =>
+				next.preferences.showIncompleteSystems || card.status !== 'incomplete').length,
+		};
+
+		const updated: WorkbenchSessionSnapshot = {
+			...snapshot,
+			state: next,
+			candidatePlan,
+			selectedCandidateKeys,
+			organizationalSystems,
+			occurrenceStats,
+		};
+		this.snapshot = Object.freeze(updated);
+		this.renderPersistentDeck();
+	}
+
+	private shouldCollectForStateChange(
+		previous: WorkbenchState,
+		next: WorkbenchState,
+	): boolean {
+		if (!this.snapshot) return true;
+		if (next.surface !== 'candidates') return false;
+		if (!this.snapshot.candidatePlan) return true;
+		if (previous.surface !== 'candidates') return true;
+		if (previous.candidates.source !== next.candidates.source) return true;
+		return next.candidates.source === 'scope-selection'
+			&& !sameScopeState(previous, next);
+	}
+
+	private setLocalState(next: WorkbenchState): void {
+		const statusChanged = this.scanning || this.collectionError !== null;
+		if (this.scanning) this.collectionGeneration++;
+		this.scanning = false;
+		this.collectionError = null;
+		this.state = next;
+		if (statusChanged) this.renderStatus();
+		if (this.opened) this.app.workspace.requestSaveLayout();
+	}
+
+	private destroyActivePanel(): void {
+		this.activePanel?.destroy();
+		this.activePanel = null;
+		this.activePanelSurface = null;
+	}
+
+	private destroyPersistentDeck(): void {
+		this.systemsDeck?.destroy();
+		this.ruleLayersSection?.destroy();
+		this.systemsDeck = null;
+		this.ruleLayersSection = null;
+		this.deckEl?.empty();
+	}
+
+	private previewEmittedTags(path: string, tags: readonly string[]): void {
+		const displayPath = path || '(vault root)';
+		if (tags.length > 0) new Notice(`${displayPath} → ${tags.join(', ')}`);
+		else new Notice(`No rule emits tags for ${displayPath}.`);
+	}
+
+	private openPluginSettings(ruleId?: string): void {
+		if (ruleId) this.plugin.focusRuleId = ruleId;
 		const setting = (
 			this.app as unknown as {
 				setting?: { open: () => void; openTabById: (id: string) => unknown };
@@ -448,20 +697,46 @@ export class TaxonomyWorkbenchView extends ItemView {
 		setting.open();
 		setting.openTabById(this.plugin.manifest.id);
 	}
+}
 
-	// ─── Stat-card helper (mirrors DetectVaultModal.makeStat) ─────────────
-	private makeStat(parent: HTMLElement, label: string, value: number): void {
-		const card = parent.createDiv();
-		card.style.padding = '0.4em 0.6em';
-		card.style.background = 'var(--background-secondary)';
-		card.style.borderRadius = '6px';
-		const v = card.createEl('div', { text: String(value) });
-		v.style.fontSize = '1.2em';
-		v.style.fontWeight = '600';
-		v.style.lineHeight = '1.1';
-		const l = card.createEl('div', { text: label });
-		l.style.fontSize = '0.75em';
-		l.style.color = 'var(--text-muted)';
-	}
+function freezeWorkbenchState(state: WorkbenchState): WorkbenchState {
+	const clone = cloneWorkbenchState(state);
+	if (clone.scope.signalFilter) Object.freeze(clone.scope.signalFilter);
+	Object.freeze(clone.scope.selectedPaths);
+	Object.freeze(clone.scope);
+	if (clone.candidates.selectedKeys) Object.freeze(clone.candidates.selectedKeys);
+	Object.freeze(clone.candidates);
+	Object.freeze(clone.preferences);
+	return Object.freeze(clone);
+}
 
+function cloneWorkbenchState(state: WorkbenchState): WorkbenchState {
+	return {
+		...state,
+		scope: {
+			selectedPaths: [...state.scope.selectedPaths],
+			signalFilter: state.scope.signalFilter ? { ...state.scope.signalFilter } : null,
+		},
+		candidates: {
+			...state.candidates,
+			selectedKeys: state.candidates.selectedKeys === null
+				? null
+				: [...state.candidates.selectedKeys],
+		},
+		preferences: { ...state.preferences },
+	};
+}
+
+function sameWorkbenchState(a: WorkbenchState, b: WorkbenchState): boolean {
+	return JSON.stringify(a) === JSON.stringify(b);
+}
+
+function sameScopeState(a: WorkbenchState, b: WorkbenchState): boolean {
+	return JSON.stringify(a.scope) === JSON.stringify(b.scope);
+}
+
+function errorMessage(error: unknown): string {
+	if (error instanceof Error && error.message.trim() !== '') return error.message;
+	if (typeof error === 'string' && error.trim() !== '') return error;
+	return 'Unknown error';
 }

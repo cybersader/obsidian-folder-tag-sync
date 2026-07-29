@@ -1173,103 +1173,74 @@ describe('folder-tag-sync — Phase 2 typed model E2E', function () {
       });
     });
 
-    describe('Phase 2C — Detect-mode UI', function () {
-      it('Scan command opens detect modal with detected packs ranked', async function () {
-        // Stage SEACOW-shaped folders via vault.createFolder so they
-        // register in the vault index — adapter.mkdir bypasses the index
-        // and vault.getRoot() wouldn't see the folders.
-        await browser.executeObsidian(async ({ app }) => {
-          const dirs = ['Capture', 'Capture/Inbox', 'Entity', 'Output', 'Output/Main', 'System'];
+    describe('Phase 2C — Workbench Scope detection UI', function () {
+      it('Scan command opens the persistent Scope leaf with bundled SEACOW signals surfaced', async function () {
+        const fixtureRoot = 'TypedModelDetectFixture';
+        // Detection consumes the build-embedded bundled catalog. Only vault
+        // folders are created here; no runtime rule-pack files are staged.
+        await browser.executeObsidian(async ({ app }, root: string) => {
+          app.workspace.detachLeavesOfType('taxonomy-workbench-map');
+          const existing = app.vault.getAbstractFileByPath(root);
+          if (existing) await app.vault.delete(existing, true);
+          const dirs = [
+            root,
+            `${root}/Capture`,
+            `${root}/Entity`,
+            `${root}/Output`,
+            `${root}/System`,
+          ];
           for (const d of dirs) {
             if (!app.vault.getAbstractFileByPath(d)) {
               await app.vault.createFolder(d);
             }
           }
-        });
+        }, fixtureRoot);
         await browser.pause(200);
 
-        // Invoke scanVaultForSystems directly on the plugin instance —
-        // more deterministic than command-palette resolution.
-        const invokeResult = await browser.executeObsidian(({ app }) => {
-          const plugin = (app as unknown as {
-            plugins: { plugins: Record<string, { scanVaultForSystems?: () => void }> };
-          }).plugins.plugins['folder-tag-sync'];
-          if (!plugin) return { invoked: false, reason: 'plugin not found' };
-          if (typeof plugin.scanVaultForSystems !== 'function') {
-            return { invoked: false, reason: 'method missing' };
-          }
-          plugin.scanVaultForSystems();
-          return { invoked: true };
+        const invoked = await browser.executeObsidian(({ app }) => {
+          const commands = (app as unknown as {
+            commands: { executeCommandById: (id: string) => boolean };
+          }).commands;
+          return commands.executeCommandById('folder-tag-sync:scan-vault-for-systems');
         });
-        expect(invokeResult.invoked).toBe(true);
+        expect(invoked).toBe(true);
+        await browser.pause(1200);
 
-        await browser.pause(700);
-
-        const surfaced = await browser.executeObsidian(() => {
-          // Check both possible selectors — the modal class is applied to modalEl
-          const modalDirect = document.querySelector('.dtf-detect-modal');
-          const modalContainer = document.querySelector('.modal-container .modal.dtf-detect-modal');
-          const modalAny = document.querySelector('.modal.dtf-detect-modal') ?? modalDirect ?? modalContainer;
-          const allModals = Array.from(document.querySelectorAll('.modal-container .modal'));
-          if (!modalAny) {
-            return {
-              hasModal: false,
-              packs: [] as string[],
-              diagnostic: {
-                modalCount: allModals.length,
-                modalClasses: allModals.map((m) => m.className).slice(0, 3),
-              },
-            };
-          }
-          const signalChips = Array.from(
-            modalAny.querySelectorAll<HTMLElement>('[data-dtf-signal-pack-id]'),
+        const surfaced = await browser.executeObsidian(({ app }) => {
+          const scope = document.querySelector<HTMLElement>('[data-dtf-workbench-scope="1"]');
+          const chips = Array.from(
+            scope?.querySelectorAll<HTMLElement>('[data-dtf-signal-pack-id]') ?? [],
           );
+          const legend = Array.from(scope?.querySelectorAll('div') ?? [])
+            .some((el) => (el.textContent ?? '').trim()
+              === 'Detected signals (click to filter visually):');
           return {
-            hasModal: true,
-            packs: signalChips.map((chip) => chip.dataset.dtfSignalPackId ?? ''),
-            diagnostic: {
-              modalCount: allModals.length,
-              modalClasses: allModals.map((m) => m.className).slice(0, 3),
-            },
+            leafCount: app.workspace.getLeavesOfType('taxonomy-workbench-map').length,
+            hasScope: Boolean(scope),
+            hasTree: Boolean(scope?.querySelector('[data-dtf-detect-tree="1"]')),
+            hasLegend: legend,
+            packs: chips.map((chip) => chip.dataset.dtfSignalPackId ?? ''),
+            detectModalCount: document.querySelectorAll('.dtf-detect-modal').length,
+            currentSurface: document.querySelector<HTMLElement>('[data-dtf-workbench-shell="1"]')
+              ?.dataset.dtfWorkbenchCurrentSurface ?? null,
           };
         });
-        if (!surfaced.hasModal) {
-          console.error(
-            `[detect modal] not found. Open modals: ${JSON.stringify(surfaced.diagnostic)}`,
-          );
-        }
-        expect(surfaced.hasModal).toBe(true);
 
-        // If hasModal is true but no packs surfaced, dump diagnostic about
-        // what the vault actually contains and what the modal is showing.
-        if (!surfaced.packs.some((p) => p.toLowerCase().includes('seacow'))) {
-          const debug = await browser.executeObsidian(({ app }) => {
-            const out: { folders: string[]; modalText: string } = { folders: [], modalText: '' };
-            const walk = (folder: { children: unknown[]; path: string }) => {
-              for (const child of folder.children as { children?: unknown[]; path?: string }[]) {
-                if ('children' in child && child.path) {
-                  out.folders.push(child.path);
-                  walk(child as { children: unknown[]; path: string });
-                }
-              }
-            };
-            walk(app.vault.getRoot() as unknown as { children: unknown[]; path: string });
-            const modal = document.querySelector('.dtf-detect-modal');
-            out.modalText = (modal?.textContent ?? '').slice(0, 500);
-            return out;
-          });
-          console.error(
-            `[detect e2e] no SEACOW match. vault folders: ${JSON.stringify(debug.folders)}\nmodal text: ${debug.modalText}`,
-          );
-        }
-        // SEACOW outer should surface; PARA/JD won't unless we created their roots
+        expect(surfaced.leafCount).toBe(1);
+        expect(surfaced.hasScope).toBe(true);
+        expect(surfaced.hasTree).toBe(true);
+        expect(surfaced.hasLegend).toBe(true);
+        expect(surfaced.currentSurface).toBe('scope');
+        expect(surfaced.detectModalCount).toBe(0);
         expect(surfaced.packs.some((p) => p.toLowerCase().includes('seacow'))).toBe(true);
 
-        await snap('11-detect-modal-seacow-surfaced');
+        await snap('11-workbench-scope-seacow-surfaced');
 
-        // Close modal with Escape
-        await browser.keys(['Escape']);
-        await browser.pause(150);
+        await browser.executeObsidian(async ({ app }, root: string) => {
+          app.workspace.detachLeavesOfType('taxonomy-workbench-map');
+          const existing = app.vault.getAbstractFileByPath(root);
+          if (existing) await app.vault.delete(existing, true);
+        }, fixtureRoot);
       });
     });
 

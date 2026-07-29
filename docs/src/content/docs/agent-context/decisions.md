@@ -89,13 +89,13 @@ This is a running log of technical decisions. Each entry states **what** was dec
 
 These decisions came out of making the plugin usable on real, large vaults. Full narrative in the [2026-04-30 log](/obsidian-folder-tag-sync/agent-context/zz-log/2026-04-30-detection-ux-and-auto-scope/); terms in the [Glossary](/obsidian-folder-tag-sync/agent-context/glossary/).
 
-### Packs are invisible plumbing — the detect modal is hierarchy-first
+### Packs are invisible plumbing — detection is hierarchy-first
 
-**Decided:** The detect-vault modal renders the user's own folder tree with per-folder detection chips, not a list of "packs found." Pack identity surfaces only as a chip tooltip / secondary notice.
+**Decided:** The detection surface renders the user's own folder tree with per-folder detection chips, not a list of “packs found.” This interaction now lives in Workbench Scope; pack identity remains secondary plumbing rather than the primary navigation level.
 
 **Why:** Users think in terms of their vault's folder tree, not which pack (PARA/JD/SEACOW) detected what. Surfacing packs as the primary level forced users to reverse-map pack names onto their own structure. Hierarchy-first makes the user's structure the navigation surface and lets the plugin handle pack plumbing underneath.
 
-**Rejected:** Both per-pack cards and per-anchor cards — they still organize around packs. Shipped 0.1.25 (`src/ui/DetectVaultModal.ts`).
+**Rejected:** Both per-pack cards and per-anchor cards — they still organize around packs. The interaction first shipped in 0.1.25 and now lives in `src/ui/workbench/WorkbenchScopePanel.ts`.
 
 ---
 
@@ -105,13 +105,31 @@ These decisions came out of making the plugin usable on real, large vaults. Full
 
 **Why:** The same pattern recurs at multiple nesting points in real vaults (e.g. entity-scoped JD sub-hierarchies). Reporting only "pattern X detected" loses the *where*, which is exactly what the user needs to decide where to scope rules. Shipped 0.1.24 (`extractInstances`).
 
+**Workbench refinement (2026-07-29):** Occurrences are now first-class detection output rather than a UI extraction pass. Evidence is scored locally by semantic roles or folder paths; support evidence attaches to the nearest member-seeded occurrence and cannot seed one alone. Actionability belongs to each occurrence, not to a pack-wide score.
+
+---
+
+### Organizational systems are lifecycle-shaped occurrence objects; Rule layers stay separate
+
+**Decided:** The persistent Workbench shell renders one card per anchored organizational-system occurrence across Map, Scope, and Candidates. Folder rows carry typed member/support relations to every applicable occurrence. Candidate provenance is exact by `occurrenceKey`; installed rules remain grouped separately by runtime `MappingRule.group` as **Rule layers**.
+
+**Why:** A folder such as `Projects` is evidence for a PARA role, not independently “a PARA.” Users need to inspect and act on the coordinated group (`PARA at Work`) while still navigating through folders. Runtime rule precedence and system identity are related but not equivalent.
+
+**Honesty boundary:** Installed rules do not yet carry durable deployment provenance. Associations from a Rule layer to occurrences are labelled **inferred** or **unknown**, never ownership. The deck is a current-snapshot read model, not a durable deployment registry.
+
+**Interaction boundary:** Incomplete occurrences are shown by default for inspection but cannot create Scope deployments or Candidates. Selected-only SVG connectors are decorative and disappear in narrow panes; textual relation chips remain the semantic source.
+
+**Freshness boundary:** The plugin increments a monotonic Workbench source revision after successful settings saves and folder create/delete/rename events. Open views mark snapshots stale immediately, pause candidate installation, debounce recollection, and recheck the revision before persistence.
+
 ---
 
 ### Auto-scope rewrites rule entry-points instead of installing vault-wide
 
 **Decided:** Selecting a branch in the detection tree rewrites the applied rules so they only fire inside that branch — `folderPattern`/`folderTemplate`/`folderEntryPoint` get the scope path anchored in, and the rule `id` gets a scope-slug suffix so multiple scoped instances of the same pack don't collide. `minimalScopeCover` drops descendant selections so overlapping scopes don't double-fire.
 
-**Why:** The hierarchy-first view *promises* that selecting a folder makes rules local to it. Without rewriting entry-points, a pack's rules would fire wherever their original pattern matched anywhere in the vault, defeating the selection. Shipped 0.1.27 (`src/engine/scopeRules.ts`).
+**Why:** The hierarchy-first view *promises* that rules become local to the chosen detected instance rather than firing at every occurrence in the vault. Without rewriting entry-points, a pack's rules would fire wherever their original pattern matched. Shipped 0.1.27 (`src/engine/scopeRules.ts`).
+
+**Workbench refinement (2026-07-28):** A selected Scope branch is now an inclusion boundary. Each detected hit cluster is deployed at its shared parent, preserving the actual instance anchor and preventing direct-signal choices from generating duplicated shapes such as `Projects/Projects`. Literal rule entry points are prepended, not replaced, so nested PARA emits `#projects/web` rather than `#projects/projects/web`.
 
 ---
 
@@ -136,6 +154,66 @@ These decisions came out of making the plugin usable on real, large vaults. Full
 **Decided:** The detection scan and rule preview apply the same emoji-strip + whitespace + JD-prefix normalization the runtime pipeline does, *before* matching folder names against detection regexes / rule patterns.
 
 **Why:** Real vaults use decorated folders (`📁 10 - Projects`). Pack regexes like `^\d{2} - ` failed to match these even though the runtime would strip the emoji. Per the principle "detect things without creating yet more schemas on the import side," the engine normalizes input before matching rather than making pack authors enumerate emoji variants. (`src/engine/detectPacks.ts` `matchesNormalized`.)
+
+## Taxonomy Workbench consolidation (2026-07-28)
+
+### One user-facing Workbench; modular engines underneath
+
+**Decided:** Consolidate known-system detection, deployment scoping, candidate review, and installation into one persistent Taxonomy Workbench with Map, Scope, and Candidates surfaces. Keep detection, hit collection, scope planning, candidate planning, state reconciliation, pack loading, and install reduction as independent pure/testable modules.
+
+**Why:** The old Detect and Scan & Snap modals plus the Map were three implementations of one mental workflow. They duplicated vault scans, pack loading, UI chrome, and persistence behavior, and they made users decide which product to open before they could answer one question: “What systems are here, where should they apply, and what rules would that create?”
+
+**Rejected:** (1) Keep all three product surfaces indefinitely; (2) collapse all domain logic into one ItemView monolith. The first preserves user confusion and drift; the second destroys testable seams.
+
+---
+
+### Only surfaced detections may become actions
+
+**Decided:** A detection is actionable only when `score >= 1` and it is not suppressed by a missing required parent. Only this surfaced partition can create rails, selectable scope hits, deployments, exclusivity warnings, or candidates. Below-threshold and suppressed results may be shown as explanatory diagnostics only.
+
+**Why:** Weak evidence is useful context but unsafe input to an install path. The boundary is centralized in `isSurfacedDetection` / `partitionDetectionResults` and enforced again by `collectCrossPackHits` so later callers cannot accidentally promote a weak match.
+
+---
+
+### Workbench drafts install disabled
+
+**Decided:** Every newly added Workbench rule is persisted with `enabled: false`, regardless of the source pack's enabled state. Existing rules retain their enabled states. Selection means “add this draft,” not “arm sync.”
+
+**Why:** Candidate preview intentionally analyzes enabled copies so coverage and conflicts are meaningful, but installation is a separate safety boundary. Adding drafts must not silently change current sync behavior, files, folders, tags, or frontmatter. Users review the rules in Settings and enable them deliberately.
+
+**Rejected:** Candidates enabled by default (the earlier Scan & Snap design). That made one confirmation simultaneously authorize persistence and active automation.
+
+---
+
+### Inverse-only previews must say what is not known
+
+**Decided:** Do not run `tag-to-folder` candidates through the folder→tag preview pipeline. Label folder coverage as not applicable and tag-side conflict analysis as unavailable unless a complete tag inventory exists.
+
+**Why:** Applying the forward runtime to an inverse-only rule can default a missing folder pattern to `.*`, fabricating all-folder coverage and emissions. A zero-conflict badge would also be false reassurance because folder inventory cannot prove tag-side non-collision. Disabled installation remains allowed, but the uncertainty must be visible in the row and confirmation.
+
+---
+
+### Preserve command IDs as routes into one leaf
+
+**Decided:** Keep `scan-vault-for-systems`, `scan-and-snap-draft-rules`, and `taxonomy-workbench-open-map` for compatibility, but reduce them into Workbench state and reuse an existing Workbench leaf when possible.
+
+**Why:** Existing hotkeys and user habits keep working while duplicate modal implementations disappear. Reusing one ItemView also allows workspace persistence and avoids losing unrelated transient choices through detach/recreate routing.
+
+---
+
+### Embed built-in packs in `main.js`
+
+**Decided:** Generate a validated full `rule-packs/catalog.json`, statically import it through `BundledRulePackRepository`, and bundle it into `main.js`. Runtime built-in detection/drafting/browsing must not depend on a `rule-packs/` directory.
+
+**Why:** BRAT and Obsidian plugin releases conventionally ship `main.js`, `manifest.json`, and `styles.css`. Earlier E2E staging of pack JSON hid a production packaging gap. The embedded catalog makes the tested layout match the released layout.
+
+---
+
+### `.orgsys` composition remains preview-only
+
+**Decided:** The consolidation does not make composed `.orgsys` definitions installable.
+
+**Why:** Composed group precedence is not yet persisted. Installing composed rules before solving that boundary could change rule winners after restart, which violates deterministic and preview-honest behavior.
 
 ## Support and diagnostics
 

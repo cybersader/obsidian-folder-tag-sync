@@ -307,3 +307,423 @@
 		flex-wrap: wrap;
 	}
 }
+
+/* Taxonomy Workbench — persistent organizational-system deck */
+.dtf-workbench-shell {
+	position: relative;
+	container-name: dtf-workbench;
+	container-type: inline-size;
+}
+
+.dtf-workbench-shell,
+.dtf-workbench-shell * {
+	box-sizing: border-box;
+}
+
+.dtf-workbench-shell [data-dtf-workbench-surface-nav='1'] button,
+.dtf-workbench-shell button.dtf-orgsys-card,
+.dtf-workbench-shell button.dtf-candidate-occurrence-header {
+	min-height: 44px;
+}
+
+.dtf-workbench-connectors {
+	position: absolute;
+	inset: 0;
+	z-index: 4;
+	pointer-events: none;
+	overflow: visible;
+}
+
+.dtf-workbench-connectors path {
+	fill: none;
+	stroke: var(--interactive-accent);
+	stroke-width: 1.5;
+	stroke-dasharray: 4 4;
+	opacity: 0.5;
+	vector-effect: non-scaling-stroke;
+}
+
+.dtf-workbench-persistent-deck {
+	position: relative;
+	z-index: 2;
+	flex: 0 1 auto;
+	display: grid;
+	grid-template-columns: minmax(0, 2fr) minmax(220px, 1fr);
+	gap: 0.65em;
+	max-height: 46%;
+	min-height: 0;
+	padding: 0.65em;
+	overflow: auto;
+	background: var(--background-secondary);
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-m);
+}
+
+.dtf-organizational-systems,
+.dtf-rule-layers {
+	min-width: 0;
+}
+
+.dtf-orgsys-heading-row {
+	display: flex;
+	align-items: flex-start;
+	justify-content: space-between;
+	gap: 0.75em;
+	margin-bottom: 0.35em;
+}
+
+.dtf-orgsys-heading-row h3,
+.dtf-rule-layers-heading h3 {
+	margin: 0;
+	font-size: 1em;
+}
+
+.dtf-orgsys-heading-description,
+.dtf-rule-layers-heading > div {
+	margin-top: 0.15em;
+	color: var(--text-muted);
+	font-size: var(--font-ui-smaller);
+	line-height: 1.35;
+}
+
+.dtf-orgsys-preference {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.4em;
+	min-height: 36px;
+	flex: 0 0 auto;
+	font-size: var(--font-ui-smaller);
+	color: var(--text-muted);
+}
+
+.dtf-orgsys-summary {
+	margin-bottom: 0.45em;
+	font-size: var(--font-ui-smaller);
+	color: var(--text-muted);
+}
+
+.dtf-orgsys-card-list {
+	display: grid;
+	grid-auto-flow: column;
+	grid-auto-columns: minmax(210px, 1fr);
+	gap: 0.45em;
+	padding: 2px;
+	overflow-x: auto;
+	overflow-y: hidden;
+}
+
+button.dtf-orgsys-card {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr);
+	gap: 0.22em;
+	width: 100%;
+	padding: 0.55em 0.65em;
+	text-align: left;
+	white-space: normal;
+	background: var(--background-primary);
+	border: 1px solid var(--background-modifier-border);
+	border-left: 4px solid var(--interactive-accent);
+	border-radius: var(--radius-s);
+	box-shadow: none;
+}
+
+button.dtf-orgsys-card[data-dtf-system-status='incomplete'] {
+	border-left-style: dashed;
+	border-left-color: var(--text-warning);
+}
+
+button.dtf-orgsys-card[data-dtf-system-status='suppressed'] {
+	border-left-color: var(--text-error);
+	opacity: 0.78;
+}
+
+button.dtf-orgsys-card:hover,
+button.dtf-orgsys-card:focus-visible {
+	background: var(--background-modifier-hover);
+}
+
+button.dtf-orgsys-card.is-selected {
+	outline: 2px solid var(--interactive-accent);
+	outline-offset: 1px;
+	background: var(--background-primary-alt);
+}
+
+.dtf-orgsys-card-title,
+.dtf-rule-layer-title {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 0.4em;
+	font-weight: 650;
+}
+
+.dtf-orgsys-status,
+.dtf-orgsys-inspect-only,
+.dtf-rule-layer-rank {
+	padding: 0.12em 0.42em;
+	border: 1px solid var(--background-modifier-border);
+	border-radius: 999px;
+	font-size: 0.7em;
+	font-weight: 600;
+	white-space: nowrap;
+}
+
+.dtf-orgsys-status.is-actionable {
+	color: var(--text-success);
+}
+
+.dtf-orgsys-status.is-incomplete {
+	color: var(--text-warning);
+}
+
+.dtf-orgsys-status.is-suppressed {
+	color: var(--text-error);
+}
+
+.dtf-orgsys-anchor {
+	font-family: var(--font-monospace);
+	font-size: 0.8em;
+	overflow-wrap: anywhere;
+}
+
+.dtf-orgsys-shape,
+.dtf-orgsys-missing,
+.dtf-rule-layer-counts,
+.dtf-rule-layer-association {
+	font-size: 0.76em;
+	color: var(--text-muted);
+}
+
+.dtf-orgsys-missing {
+	color: var(--text-warning);
+}
+
+.dtf-orgsys-selected-detail {
+	margin-top: 0.55em;
+	padding: 0.55em 0.65em;
+	background: var(--background-primary);
+	border-radius: var(--radius-s);
+	border: 1px solid var(--background-modifier-border);
+}
+
+.dtf-orgsys-detail-title {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 0.5em;
+	font-weight: 650;
+}
+
+.dtf-orgsys-relations,
+.dtf-folder-occurrence-relations,
+.dtf-scope-occurrence-relations {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.3em;
+	margin-top: 0.4em;
+	min-width: 0;
+}
+
+.dtf-orgsys-relation-chip,
+button.dtf-folder-occurrence-chip,
+span.dtf-folder-occurrence-chip {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.35em;
+	max-width: 100%;
+	min-height: 28px;
+	padding: 0.12em 0.45em;
+	white-space: normal;
+	overflow-wrap: anywhere;
+	font-size: 0.72em;
+	font-weight: 500;
+	line-height: 1.25;
+	color: var(--text-normal);
+	background: var(--background-secondary-alt);
+	border: 1px solid var(--background-modifier-border);
+	border-radius: 999px;
+	box-shadow: none;
+}
+
+button.dtf-folder-occurrence-chip.is-selected {
+	outline: 2px solid var(--interactive-accent);
+	outline-offset: 1px;
+}
+
+.dtf-orgsys-relation-kind {
+	font-weight: 650;
+	color: var(--text-accent);
+}
+
+.dtf-orgsys-detail-empty,
+.dtf-orgsys-empty,
+.dtf-rule-layer-empty {
+	padding: 0.5em;
+	color: var(--text-muted);
+	font-size: var(--font-ui-smaller);
+}
+
+.dtf-rule-layers-heading {
+	margin-bottom: 0.45em;
+}
+
+.dtf-rule-layer-list {
+	display: grid;
+	gap: 0.4em;
+}
+
+.dtf-rule-layer-card {
+	padding: 0.5em 0.6em;
+	background: var(--background-primary);
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-s);
+}
+
+.dtf-rule-layer-card.is-associated {
+	border-color: var(--interactive-accent);
+	box-shadow: inset 3px 0 0 var(--interactive-accent);
+}
+
+.dtf-rule-layer-association[data-dtf-rule-association='inferred'] {
+	margin-top: 0.25em;
+	color: var(--text-accent);
+}
+
+.dtf-candidate-occurrence-group {
+	margin-bottom: 0.7em;
+	background: var(--background-primary);
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-s);
+	overflow: hidden;
+}
+
+button.dtf-candidate-occurrence-header {
+	display: flex;
+	align-items: center;
+	gap: 0.5em;
+	width: 100%;
+	padding: 0.45em 0.65em;
+	text-align: left;
+	white-space: normal;
+	background: var(--background-primary-alt);
+	border: 0;
+	border-radius: 0;
+	box-shadow: none;
+}
+
+.dtf-candidate-occurrence-name {
+	font-weight: 650;
+}
+
+.dtf-candidate-occurrence-anchor {
+	min-width: 0;
+	font-family: var(--font-monospace);
+	font-size: 0.78em;
+	color: var(--text-muted);
+	overflow-wrap: anywhere;
+}
+
+.dtf-candidate-occurrence-count {
+	margin-left: auto;
+	font-size: 0.75em;
+	color: var(--text-muted);
+	white-space: nowrap;
+}
+
+.dtf-candidate-occurrence-rows {
+	padding: 0 0.35em;
+}
+
+@media (max-width: 600px) {
+	.dtf-workbench-persistent-deck {
+		grid-template-columns: minmax(0, 1fr);
+		max-height: 52%;
+	}
+
+	.dtf-orgsys-heading-row {
+		align-items: stretch;
+		flex-direction: column;
+	}
+
+	.dtf-orgsys-card-list {
+		grid-auto-flow: row;
+		grid-auto-columns: auto;
+		grid-template-columns: minmax(0, 1fr);
+		overflow-x: hidden;
+		overflow-y: auto;
+	}
+
+	.dtf-rule-layer-list {
+		grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+	}
+
+	.dtf-folder-occurrence-relations,
+	.dtf-scope-occurrence-relations {
+		flex-basis: 100%;
+		margin-left: 1.2em;
+	}
+}
+
+@container dtf-workbench (max-width: 750px) {
+	.dtf-orgsys-heading-description,
+	.dtf-rule-layers-heading > div {
+		display: none;
+	}
+
+	.dtf-orgsys-heading-row {
+		align-items: center;
+	}
+}
+
+@container dtf-workbench (max-width: 480px) {
+	.dtf-workbench-connectors {
+		display: none !important;
+	}
+
+	.dtf-workbench-persistent-deck {
+		grid-template-columns: minmax(0, 1fr);
+		max-height: 52%;
+	}
+
+	.dtf-orgsys-heading-row {
+		align-items: stretch;
+		flex-direction: column;
+	}
+
+	.dtf-orgsys-card-list {
+		grid-auto-flow: row;
+		grid-auto-columns: auto;
+		grid-template-columns: minmax(0, 1fr);
+		overflow-x: hidden;
+		overflow-y: auto;
+	}
+
+	.dtf-rule-layer-list {
+		grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+	}
+}
+
+@media (max-width: 380px) {
+	.dtf-workbench-shell {
+		padding: 0.45em !important;
+	}
+
+	.dtf-workbench-persistent-deck {
+		max-height: 56%;
+		padding: 0.5em;
+	}
+
+	.dtf-orgsys-heading-description,
+	.dtf-rule-layers-heading > div {
+		display: none;
+	}
+
+	button.dtf-candidate-occurrence-header {
+		align-items: flex-start;
+		flex-direction: column;
+	}
+
+	.dtf-candidate-occurrence-count {
+		margin-left: 0;
+	}
+}

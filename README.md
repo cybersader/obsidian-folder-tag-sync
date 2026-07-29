@@ -72,7 +72,10 @@ If you find issues or have suggestions, please [open an issue](https://github.co
   - Custom regex transformations
 - ✅ **Rule-Based System** — Define multiple rules with priority ordering and bidirectional inverse logic
 - ✅ **Settings UI** — Visual rule editor with drag-to-reorder, guided modal, and advanced regex modal
-- ✅ **Rule packs** — Import shipped packs (PARA, Johnny Decimal, SEACOW-cyberbase, Zettelkasten); detect organizational systems via vault scan
+- ✅ **Rule packs** — Import shipped packs (PARA, Johnny Decimal, SEACOW-cyberbase, Zettelkasten) from an embedded catalog that works in the standard three-file BRAT install
+- ✅ **Taxonomy Workbench** — One persistent Map → Scope → Candidates workflow with an **Organizational systems** deck that treats each anchored system occurrence as a group, keeps repeated occurrences separate, connects member/support folders back to their system, groups candidate rules by exact occurrence, and adds selected drafts **disabled for review**
+- ✅ **Rule layers and partial evidence** — Installed rules remain grouped honestly by runtime precedence layer (associations are labelled inferred), while incomplete systems are shown by default for inspection but cannot create scopes, candidates, or installations
+- ✅ **Compatible command routes** — The existing detect, draft, and map command IDs now open the corresponding Workbench surface and reuse one leaf, preserving hotkeys without reopening legacy modals
 - ✅ **Manual Sync Commands** — Sync on demand via command palette
 - ✅ **Support bundles and debug logging** — Preview and copy configuration, rule diagnostics, a complete folder-only tree, and a sanitized bounded log tail; optionally anonymize user-authored names before sharing
 

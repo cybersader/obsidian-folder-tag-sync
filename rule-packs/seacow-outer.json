@@ -11,15 +11,17 @@
 
 	"detection": {
 		"anyOf": [
-			{ "folderRegex": "^Capture$", "scope": "name", "label": "Capture/ root" },
-			{ "folderRegex": "^Entity$", "scope": "name", "label": "Entity/ root" },
-			{ "folderRegex": "^Output$", "scope": "name", "label": "Output/ root" },
-			{ "folderRegex": "^System$", "scope": "name", "label": "System/ root" },
-			{ "folderRegex": "^Capture/(Inbox|Clips)$", "scope": "path", "label": "Capture/Inbox or Capture/Clips" },
-			{ "folderRegex": "^Output/(Main|Public)$", "scope": "path", "label": "Output/Main or Output/Public" }
+			{ "folderRegex": "^Capture$", "scope": "name", "label": "Capture/ root", "role": "capture" },
+			{ "folderRegex": "^Entity$", "scope": "name", "label": "Entity/ root", "role": "entity" },
+			{ "folderRegex": "^Output$", "scope": "name", "label": "Output/ root", "role": "output" },
+			{ "folderRegex": "^System$", "scope": "name", "label": "System/ root", "role": "system" },
+			{ "folderRegex": "(?:^|/)Capture/(Inbox|Clips)$", "scope": "path", "label": "Capture/Inbox or Capture/Clips", "role": "capture-detail", "relation": "support" },
+			{ "folderRegex": "(?:^|/)Output/(Main|Public)$", "scope": "path", "label": "Output/Main or Output/Public", "role": "output-detail", "relation": "support" }
 		],
 		"minSignals": 2,
-		"scopedUnder": null
+		"occurrence": { "countBy": "roles", "minEvidence": 2 },
+		"scopedUnder": null,
+		"scopedUnderMode": "local"
 	},
 
 	"establish": {

@@ -29,24 +29,43 @@ import { compileTemplate, computeBijectivity, TemplateParseError } from './compi
 // SEACOW axis, vault-shape detection, composition (compatibleWith /
 // exclusiveWith), and bootstrap (establish.createFolders).
 
+export type DetectionEvidenceRelation = 'member' | 'support';
+export type DetectionOccurrenceCountBy = 'roles' | 'folders';
+export type DetectionScopedUnderMode = 'local' | 'pack-global';
+
 /** A single signal pattern matched against vault folder names. */
 export interface DetectionSignal {
 	/** Regex matched (case-insensitive) against folder name, full path, or both. */
 	folderRegex: string;
-	/** Where to apply the regex. Default: name. */
+	/** Where to apply the regex. Defaults to `name`. */
 	scope?: 'name' | 'path' | 'leafName';
 	/** Optional human description for the detect modal. */
 	label?: string;
+	/** Stable semantic role shared by alternative regex definitions. */
+	role?: string;
+	/** Whether the signal seeds an occurrence or only attaches context. Defaults to `member`. */
+	relation?: DetectionEvidenceRelation;
+}
+
+export interface DetectionOccurrencePolicy {
+	/** Count distinct semantic roles or distinct matched member folders. */
+	countBy: DetectionOccurrenceCountBy;
+	/** Local evidence required for an actionable occurrence. */
+	minEvidence: number;
 }
 
 /** Vault-shape detection rules for a pack. */
 export interface PackDetection {
-	/** Match if at least `minSignals` of these patterns hit. */
+	/** Signal definitions evaluated against the vault. */
 	anyOf: DetectionSignal[];
-	/** Threshold to surface in detect results. Default: 1. */
+	/** Compatibility threshold for the pack-level signal summary. Defaults to 1. */
 	minSignals?: number;
-	/** If set, this pack only fires when `scopedUnder` (a parent pack id) also matches. */
+	/** Occurrence-local scoring policy. Defaults to role-counting at minSignals. */
+	occurrence?: DetectionOccurrencePolicy;
+	/** If set, this pack only fires when a parent pack also matches. */
 	scopedUnder?: string;
+	/** Parent resolution mode. Defaults to the safer occurrence-local mode. */
+	scopedUnderMode?: DetectionScopedUnderMode;
 }
 
 /** What to create when bootstrapping a new vault from this pack. */
@@ -105,23 +124,57 @@ type RawRule = Partial<MappingRule> & {
 };
 
 /**
- * Parse + validate + derive. Returns {ok: false, errors} for any pack-level
- * or per-rule structural problem. Legacy rules with only Layer 1 fields pass
- * through (augmented with inferred Layer 2 metadata). Rules with `typedSpec`
- * are derived.
+ * Clone JSON-compatible input before normalization. Object-loaded packs may
+ * come from the statically imported bundled catalog, so loader enrichment must
+ * never mutate the catalog object or share nested references with it.
  */
-export function loadRulePackFromJSON(json: string): LoadResult | LoadError {
-	let raw: unknown;
-	try {
-		raw = JSON.parse(json);
-	} catch (err) {
-		return { ok: false, errors: [`JSON parse error: ${(err as Error).message}`] };
+function cloneRawValue(
+	value: unknown,
+	clones = new WeakMap<object, unknown>(),
+	active = new WeakSet<object>(),
+): unknown {
+	if (value === null || typeof value !== 'object') return value;
+	if (active.has(value)) {
+		throw new Error('Rule pack object must not contain circular references');
+	}
+	const existing = clones.get(value);
+	if (existing !== undefined) return existing;
+
+	active.add(value);
+	if (Array.isArray(value)) {
+		const copy: unknown[] = [];
+		clones.set(value, copy);
+		for (const item of value) copy.push(cloneRawValue(item, clones, active));
+		active.delete(value);
+		return copy;
 	}
 
-	if (!raw || typeof raw !== 'object') {
+	const copy: Record<string, unknown> = {};
+	clones.set(value, copy);
+	for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
+		copy[key] = cloneRawValue(child, clones, active);
+	}
+	active.delete(value);
+	return copy;
+}
+
+/**
+ * Validate + derive a parsed rule-pack object. Returns {ok: false, errors} for
+ * any pack-level or per-rule structural problem. Legacy rules with only Layer
+ * 1 fields pass through (augmented with inferred Layer 2 metadata). Rules with
+ * `typedSpec` are derived.
+ */
+export function loadRulePackFromObject(raw: unknown): LoadResult | LoadError {
+	if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
 		return { ok: false, errors: ['Rule pack must be a JSON object'] };
 	}
-	const obj = raw as Record<string, unknown>;
+
+	let obj: Record<string, unknown>;
+	try {
+		obj = cloneRawValue(raw) as Record<string, unknown>;
+	} catch (err) {
+		return { ok: false, errors: [(err as Error).message] };
+	}
 
 	const errors: string[] = [];
 	const requireString = (k: string): string | undefined => {
@@ -157,8 +210,12 @@ export function loadRulePackFromJSON(json: string): LoadResult | LoadError {
 			? (obj.id as string).trim()
 			: undefined;
 
-	for (const [i, rawRule] of (obj.rules as RawRule[]).entries()) {
-		const ruleErrors = validateAndNormalizeRule(rawRule, i);
+	for (const [i, candidate] of (obj.rules as unknown[]).entries()) {
+		if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) {
+			errors.push(`Rule #${i}: must be an object`);
+			continue;
+		}
+		const ruleErrors = validateAndNormalizeRule(candidate as RawRule, i);
 		if (!ruleErrors.ok) {
 			errors.push(...ruleErrors.errors);
 		} else {
@@ -197,6 +254,17 @@ export function loadRulePackFromJSON(json: string): LoadResult | LoadError {
 	};
 }
 
+/** Parse JSON, then delegate all validation and derivation to the object loader. */
+export function loadRulePackFromJSON(json: string): LoadResult | LoadError {
+	let raw: unknown;
+	try {
+		raw = JSON.parse(json);
+	} catch (err) {
+		return { ok: false, errors: [`JSON parse error: ${(err as Error).message}`] };
+	}
+	return loadRulePackFromObject(raw);
+}
+
 /**
  * Pull and validate the optional Phase 2C metadata blocks. Returns the
  * validated subset of fields suitable for spreading into the RulePack.
@@ -226,33 +294,69 @@ function validatePhase2CMeta(
 	}
 
 	if (obj.detection !== undefined) {
-		const det = obj.detection as Record<string, unknown>;
-		if (!Array.isArray(det.anyOf)) {
-			errors.push("'detection.anyOf' must be an array of signals");
+		if (!isRecord(obj.detection)) {
+			errors.push("'detection' must be an object");
 		} else {
-			const signals: DetectionSignal[] = [];
-			for (const [i, s] of (det.anyOf as Record<string, unknown>[]).entries()) {
-				if (typeof s.folderRegex !== 'string' || !s.folderRegex) {
-					errors.push(`detection.anyOf[${i}].folderRegex must be a non-empty string`);
-					continue;
+			const det = obj.detection;
+			const minSignals = readPositiveInteger(det.minSignals, 1, 'detection.minSignals', errors);
+			const scopedUnder = readOptionalPackId(det.scopedUnder, 'detection.scopedUnder', errors);
+			const scopedUnderMode = readEnum(
+				det.scopedUnderMode,
+				['local', 'pack-global'] as const,
+				'local',
+				'detection.scopedUnderMode',
+				errors,
+			);
+			const occurrence = readOccurrencePolicy(det.occurrence, minSignals, errors);
+
+			if (!Array.isArray(det.anyOf)) {
+				errors.push("'detection.anyOf' must be an array of signals");
+			} else {
+				const signals: DetectionSignal[] = [];
+				for (const [i, rawSignal] of det.anyOf.entries()) {
+					const prefix = `detection.anyOf[${i}]`;
+					if (!isRecord(rawSignal)) {
+						errors.push(`${prefix} must be an object`);
+						continue;
+					}
+					const folderRegex = rawSignal.folderRegex;
+					if (typeof folderRegex !== 'string' || folderRegex.length === 0) {
+						errors.push(`${prefix}.folderRegex must be a non-empty string`);
+						continue;
+					}
+					try {
+						new RegExp(folderRegex, 'i');
+					} catch (err) {
+						errors.push(`${prefix}.folderRegex invalid: ${(err as Error).message}`);
+						continue;
+					}
+
+					const scope = readEnum(
+						rawSignal.scope,
+						['name', 'path', 'leafName'] as const,
+						'name',
+						`${prefix}.scope`,
+						errors,
+					);
+					const relation = readEnum(
+						rawSignal.relation,
+						['member', 'support'] as const,
+						'member',
+						`${prefix}.relation`,
+						errors,
+					);
+					const label = readOptionalString(rawSignal.label, `${prefix}.label`, errors);
+					const role = readOptionalString(rawSignal.role, `${prefix}.role`, errors, true);
+					signals.push({ folderRegex, scope, label, role, relation });
 				}
-				try {
-					new RegExp(s.folderRegex, 'i');
-				} catch (err) {
-					errors.push(`detection.anyOf[${i}].folderRegex invalid: ${(err as Error).message}`);
-					continue;
-				}
-				signals.push({
-					folderRegex: s.folderRegex,
-					scope: s.scope === 'path' || s.scope === 'leafName' ? s.scope : 'name',
-					label: typeof s.label === 'string' ? s.label : undefined,
-				});
+				out.detection = {
+					anyOf: signals,
+					minSignals,
+					occurrence,
+					scopedUnder,
+					scopedUnderMode,
+				};
 			}
-			out.detection = {
-				anyOf: signals,
-				minSignals: typeof det.minSignals === 'number' ? det.minSignals : 1,
-				scopedUnder: typeof det.scopedUnder === 'string' ? det.scopedUnder : undefined,
-			};
 		}
 	}
 
@@ -269,6 +373,93 @@ function validatePhase2CMeta(
 	}
 
 	return out;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function readPositiveInteger(
+	value: unknown,
+	fallback: number,
+	path: string,
+	errors: string[],
+): number {
+	if (value === undefined) return fallback;
+	if (typeof value !== 'number' || !Number.isFinite(value) || !Number.isInteger(value) || value <= 0) {
+		errors.push(`${path} must be a positive integer`);
+		return fallback;
+	}
+	return value;
+}
+
+function readEnum<const T extends string>(
+	value: unknown,
+	allowed: readonly T[],
+	fallback: T,
+	path: string,
+	errors: string[],
+): T {
+	if (value === undefined) return fallback;
+	if (typeof value === 'string' && allowed.includes(value as T)) return value as T;
+	errors.push(`${path} must be one of: ${allowed.join(', ')}`);
+	return fallback;
+}
+
+function readOptionalString(
+	value: unknown,
+	path: string,
+	errors: string[],
+	requireNonEmpty = false,
+): string | undefined {
+	if (value === undefined) return undefined;
+	if (typeof value !== 'string' || (requireNonEmpty && value.trim() === '')) {
+		errors.push(`${path} must be ${requireNonEmpty ? 'a non-empty string' : 'a string'}`);
+		return undefined;
+	}
+	return value;
+}
+
+function readOptionalPackId(
+	value: unknown,
+	path: string,
+	errors: string[],
+): string | undefined {
+	if (value === undefined || value === null) return undefined;
+	if (typeof value !== 'string' || value.trim() === '') {
+		errors.push(`${path} must be null or a non-empty string`);
+		return undefined;
+	}
+	return value;
+}
+
+function readOccurrencePolicy(
+	value: unknown,
+	defaultMinEvidence: number,
+	errors: string[],
+): DetectionOccurrencePolicy {
+	if (value === undefined) {
+		return { countBy: 'roles', minEvidence: defaultMinEvidence };
+	}
+	if (!isRecord(value)) {
+		errors.push('detection.occurrence must be an object');
+		return { countBy: 'roles', minEvidence: defaultMinEvidence };
+	}
+	return {
+		countBy: readEnum(
+			value.countBy,
+			['roles', 'folders'] as const,
+			'roles',
+			'detection.occurrence.countBy',
+			errors,
+		),
+		minEvidence: readPositiveInteger(
+			value.minEvidence,
+			defaultMinEvidence,
+			'detection.occurrence.minEvidence',
+			errors,
+		),
+	};
 }
 
 /**

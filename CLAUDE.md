@@ -20,7 +20,7 @@ bun run dev
 # Build for production
 bun run build
 
-# Run tests (156+ tests)
+# Run tests (1,150+ tests)
 bun test
 
 # Run tests in watch mode
@@ -179,9 +179,9 @@ Input Folder: "📁 01 - Projects/My Cool Thing"
 
 ## Current Status
 
-**v0.1.36** is the current BRAT release; the plugin is not yet in the Obsidian community catalog. The engine is mature — both sync directions, the typed model, Path Lens templates, specificity-aware matching, frontmatter witness, bulk sync, detection of known systems, `.orgsys` preview/composition, the Taxonomy Workbench Map, and preview-first production support bundles all ship.
+**v0.1.38** is the current BRAT release; the plugin is not yet in the Obsidian community catalog. The engine is mature — both sync directions, the typed model, Path Lens templates, specificity-aware matching, frontmatter witness, bulk sync, known-system detection, `.orgsys` preview/composition, and preview-first production support bundles ship in this baseline.
 
-Support bundles include complete configuration, derived rule diagnostics, a full folder-only tree, bounded structured logs, and optional deterministic anonymization. The centre of gravity now returns to **rule authoring at scale** — snap-a-system gestures on the Map and installable composition.
+The release consolidates known-system detection and rule drafting into one persistent **Taxonomy Workbench** with Map, Scope, and Candidates surfaces, then makes anchored organizational-system occurrences the persistent group-level object. The shell-owned **Organizational systems** deck stays visible across surfaces; incomplete occurrences are inspect-only; **Rule layers** remain separate and inferred; candidate rows are grouped by exact occurrence; and folder/settings source revisions prevent stale installs. Legacy detect/draft/map command IDs remain routes into the same leaf. Workbench-installed drafts are always added disabled for review and do not modify folders, notes, tags, frontmatter, or active sync behavior. Built-in packs are embedded into `main.js`, so the standard `main.js` + `manifest.json` + `styles.css` BRAT layout is sufficient. `.orgsys` composition remains preview-only until composed group precedence and durable deployment provenance can be persisted safely.
 
 ### Knowledge base — read this first
 

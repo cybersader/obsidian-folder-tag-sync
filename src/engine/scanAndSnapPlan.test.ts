@@ -9,7 +9,15 @@
 
 import { describe, test, expect } from 'bun:test';
 import type { MappingRule } from '../types/settings';
-import type { DetectionResult } from './detectPacks';
+import {
+	detectPacks,
+	detectionOccurrenceKey,
+	type DetectionResult,
+	type ManifestPackEntry,
+} from './detectPacks';
+import { collectCrossPackHits } from './detectionTree';
+import { buildScopePackPlan } from './scopePackPlan';
+import { buildRuleInstallPlan } from './ruleInstallPlan';
 import {
 	buildScanAndSnapPlan,
 	bijectivityVerdictFor,
@@ -67,6 +75,20 @@ function jdRule(): MappingRule {
 	};
 }
 
+function inverseOnlyRule(): MappingRule {
+	return {
+		id: 'capture-inbox',
+		name: 'Capture inbox',
+		enabled: true,
+		priority: 10,
+		direction: 'tag-to-folder',
+		tagPattern: '^-inbox$',
+		tagEntryPoint: '-inbox',
+		folderEntryPoint: 'Capture/Inbox',
+		options: ruleOptions(),
+	};
+}
+
 /** A PARA DetectionResult that fired on Projects + Areas at the given depth. */
 function paraDetection(opts: {
 	suppressed?: boolean;
@@ -95,6 +117,36 @@ function jdDetection(example: string): DetectionResult {
 		matchedSignals: [
 			{ folderRegex: '^\\d{1,2} - [A-Za-z]', scope: 'name', label: 'Numbered area', exampleMatches: [example] },
 		],
+	};
+}
+
+function occurrenceParaDetection(
+	occurrences: Array<{
+		anchorPath: string;
+		status: 'actionable' | 'incomplete' | 'suppressed';
+	}>,
+): DetectionResult {
+	return {
+		packId: 'para',
+		score: occurrences.some((occurrence) => occurrence.status === 'actionable') ? 1 : 0.5,
+		signalsHit: 2,
+		minSignals: 2,
+		matchedSignals: [],
+		occurrences: occurrences.map(({ anchorPath, status }) => ({
+			key: detectionOccurrenceKey('para', anchorPath),
+			packId: 'para',
+			packName: 'PARA',
+			anchorPath,
+			status,
+			score: status === 'actionable' ? 1 : 0.5,
+			evidenceCount: status === 'actionable' ? 2 : 1,
+			minEvidence: 2,
+			countBy: 'roles',
+			evidence: [],
+			memberPaths: [],
+			supportPaths: [],
+			missingRoles: status === 'actionable' ? [] : ['areas'],
+		})),
 	};
 }
 
@@ -147,9 +199,14 @@ describe('buildScanAndSnapPlan — candidate production + scoping', () => {
 		expect(proj.anchorPath).toBe('Work');
 		// Scoped pattern: scope prepended after `^`.
 		expect(proj.rule.folderPattern).toBe('^Work/Projects(?:/|$)');
-		expect(proj.rule.folderEntryPoint).toBe('Work');
-		// It should actually match the nested folders.
+		expect(proj.rule.folderEntryPoint).toBe('Work/Projects');
+		// It should match the nested folders without duplicating the literal
+		// Projects segment in the emitted tag namespace.
 		expect(proj.coverage.matchCount).toBeGreaterThan(0);
+		expect(proj.coverage.sampleEmissions).toContainEqual({
+			folder: 'Work/Projects/X',
+			tags: ['#projects/x'],
+		});
 	});
 
 	test('suppressed packs produce no candidates', () => {
@@ -165,6 +222,216 @@ describe('buildScanAndSnapPlan — candidate production + scoping', () => {
 		});
 		expect(plan.candidates.length).toBe(0);
 		expect(plan.summary.totalCandidates).toBe(0);
+	});
+
+	test('below-threshold detections are not actionable candidate sources', () => {
+		const detection = paraDetection({ exampleProjects: 'Projects', exampleAreas: 'Areas' });
+		detection.score = 0.5;
+		const plan = buildScanAndSnapPlan({
+			folderPaths: ['Projects', 'Areas'],
+			detectionResults: [detection],
+			packRulesById: new Map([['para', [paraRule('Projects')]]]),
+			existingRules: [],
+		});
+
+		expect(plan.candidates).toEqual([]);
+	});
+
+	test('explicit deployments replace detected-instance inference and support root scopes', () => {
+		const plan = buildScanAndSnapPlan({
+			folderPaths: ['Projects', 'Projects/Web', 'Work', 'Work/Projects'],
+			detectionResults: [
+				paraDetection({ exampleProjects: 'Work/Projects', exampleAreas: 'Work/Areas' }),
+			],
+			deployments: [{ packId: 'para', anchorPath: '' }],
+			packRulesById: new Map([['para', [paraRule('Projects')]]]),
+			existingRules: [],
+		});
+
+		expect(plan.candidates).toHaveLength(1);
+		expect(plan.candidates[0].anchorPath).toBe('');
+		expect(plan.candidates[0].rule.id).toBe('para-projects');
+		expect(plan.candidates[0].coverage.matchCount).toBe(2);
+	});
+
+	test('explicit deployments can plan a pack without a detection result', () => {
+		const plan = buildScanAndSnapPlan({
+			folderPaths: ['Work', 'Work/Projects', 'Work/Projects/Web'],
+			deployments: [{ packId: 'para', anchorPath: 'Work' }],
+			packRulesById: new Map([['para', [paraRule('Projects')]]]),
+			existingRules: [],
+			packNamesById: PACK_NAMES,
+		});
+
+		expect(plan.candidates).toHaveLength(1);
+		expect(plan.candidates[0].anchorPath).toBe('Work');
+		expect(plan.candidates[0].occurrenceKey).toBe(
+			detectionOccurrenceKey('para', 'Work'),
+		);
+		expect(plan.candidates[0].rule.id).toBe('para-projects__work');
+	});
+
+	test('occurrence-native inference emits candidates only for actionable occurrences', () => {
+		const result = occurrenceParaDetection([
+			{ anchorPath: 'Teams/Acme', status: 'actionable' },
+			{ anchorPath: 'Teams/Beta', status: 'incomplete' },
+			{ anchorPath: 'Teams/Gamma', status: 'suppressed' },
+		]);
+		const plan = buildScanAndSnapPlan({
+			folderPaths: [
+				'Teams/Acme/Projects',
+				'Teams/Beta/Projects',
+				'Teams/Gamma/Projects',
+			],
+			detectionResults: [result],
+			packRulesById: new Map([['para', [paraRule('Projects')]]]),
+			existingRules: [],
+		});
+
+		expect(plan.candidates).toHaveLength(1);
+		expect(plan.candidates[0].anchorPath).toBe('Teams/Acme');
+		expect(plan.candidates[0].occurrenceKey).toBe(
+			detectionOccurrenceKey('para', 'Teams/Acme'),
+		);
+	});
+
+	test('preserves repeated actionable occurrence identities through candidate production', () => {
+		const result = occurrenceParaDetection([
+			{ anchorPath: 'Teams/Acme', status: 'actionable' },
+			{ anchorPath: 'Teams/Beta', status: 'actionable' },
+		]);
+		const plan = buildScanAndSnapPlan({
+			folderPaths: ['Teams/Acme/Projects', 'Teams/Beta/Projects'],
+			detectionResults: [result],
+			packRulesById: new Map([['para', [paraRule('Projects')]]]),
+			existingRules: [],
+		});
+
+		expect(plan.candidates).toHaveLength(2);
+		expect(plan.candidates.map((candidate) => candidate.occurrenceKey)).toEqual([
+			detectionOccurrenceKey('para', 'Teams/Acme'),
+			detectionOccurrenceKey('para', 'Teams/Beta'),
+		]);
+		expect(new Set(plan.candidates.map((candidate) => candidate.key)).size).toBe(2);
+	});
+
+	test('root scope deployments produce the same candidates as occurrence-native inference', () => {
+		const manifest: ManifestPackEntry[] = [{
+			id: 'para',
+			name: 'PARA',
+			detection: {
+				anyOf: [
+					{ folderRegex: '^Projects$', role: 'projects' },
+					{ folderRegex: '^Areas$', role: 'areas' },
+				],
+				occurrence: { countBy: 'roles', minEvidence: 2 },
+			},
+		}];
+		const folders = [
+			'Projects',
+			'Areas',
+			'Teams/Acme/Projects',
+			'Teams/Acme/Areas',
+			'Teams/Beta/Projects',
+		];
+		const detectionResults = detectPacks(folders, manifest);
+		const hits = collectCrossPackHits(folders, detectionResults, PACK_NAMES);
+		const scopePlan = buildScopePackPlan({ selectedPaths: [''], hitMap: hits });
+		const shared = {
+			folderPaths: folders,
+			packRulesById: new Map([['para', [paraRule('Projects'), paraRule('Areas')]]]),
+			existingRules: [],
+			packNamesById: PACK_NAMES,
+		};
+
+		const inferred = buildScanAndSnapPlan({ ...shared, detectionResults });
+		const explicit = buildScanAndSnapPlan({ ...shared, deployments: scopePlan.deployments });
+		const project = (plan: ReturnType<typeof buildScanAndSnapPlan>) => plan.candidates.map((candidate) => ({
+			key: candidate.key,
+			id: candidate.id,
+			occurrenceKey: candidate.occurrenceKey,
+			anchorPath: candidate.anchorPath,
+			folderPattern: candidate.rule.folderPattern,
+			matchCount: candidate.coverage.matchCount,
+		}));
+
+		expect(scopePlan.deployments.map((deployment) => deployment.anchorPath)).toEqual([
+			'',
+			'Teams/Acme',
+		]);
+		expect(project(explicit)).toEqual(project(inferred));
+	});
+});
+
+describe('buildScanAndSnapPlan — candidate identity and source immutability', () => {
+	test('candidate key is a stable composite placement key distinct from persisted rule id', () => {
+		const sharedIdA = { ...paraRule('Projects'), id: 'shared-rule' };
+		const sharedIdB = { ...paraRule('Projects'), id: 'shared-rule', name: 'Other projects' };
+		const input = {
+			folderPaths: ['Projects'],
+			deployments: [
+				{ packId: 'alpha', anchorPath: '' },
+				{ packId: 'beta', anchorPath: '' },
+			],
+			packRulesById: new Map([
+				['alpha', [sharedIdA]],
+				['beta', [sharedIdB]],
+			]),
+			existingRules: [],
+		};
+
+		const first = buildScanAndSnapPlan(input);
+		const second = buildScanAndSnapPlan(input);
+
+		expect(new Set(first.candidates.map((candidate) => candidate.id)).size).toBe(2);
+		expect(first.candidates.every((candidate) => candidate.id.startsWith('shared-rule__placement-')))
+			.toBe(true);
+		expect(new Set(first.candidates.map((candidate) => candidate.key)).size).toBe(2);
+		expect(first.candidates.every((candidate) => candidate.key !== candidate.id)).toBe(true);
+		expect(first.candidates.map((candidate) => candidate.id)).toEqual(
+			second.candidates.map((candidate) => candidate.id),
+		);
+		expect(first.candidates.map((candidate) => candidate.key)).toEqual(
+			second.candidates.map((candidate) => candidate.key),
+		);
+	});
+
+	test('disambiguates scoped rule ids when distinct occurrence anchors slug identically', () => {
+		const plan = buildScanAndSnapPlan({
+			folderPaths: ['A+B/Projects', 'A B/Projects'],
+			deployments: [
+				{ packId: 'para', anchorPath: 'A+B' },
+				{ packId: 'para', anchorPath: 'A B' },
+			],
+			packRulesById: new Map([['para', [paraRule('Projects')]]]),
+			existingRules: [],
+		});
+
+		expect(plan.candidates).toHaveLength(2);
+		expect(new Set(plan.candidates.map((candidate) => candidate.occurrenceKey)).size).toBe(2);
+		expect(new Set(plan.candidates.map((candidate) => candidate.id)).size).toBe(2);
+		expect(plan.candidates.every((candidate) => candidate.coverage.matchCount === 1)).toBe(true);
+		const install = buildRuleInstallPlan(
+			plan.candidates.map((candidate) => candidate.rule),
+			[],
+		);
+		expect(install.addedRules).toHaveLength(2);
+		expect(install.skippedDuplicateCount).toBe(0);
+	});
+
+	test('source-disabled pack rules are analyzed as enabled copies without mutation', () => {
+		const sourceRule = { ...paraRule('Projects'), enabled: false };
+		const plan = buildScanAndSnapPlan({
+			folderPaths: ['Projects', 'Projects/Web'],
+			deployments: [{ packId: 'para', anchorPath: '' }],
+			packRulesById: new Map([['para', [sourceRule]]]),
+			existingRules: [],
+		});
+
+		expect(sourceRule.enabled).toBe(false);
+		expect(plan.candidates[0].rule).not.toBe(sourceRule);
+		expect(plan.candidates[0].rule.enabled).toBe(true);
+		expect(plan.candidates[0].coverage.matchCount).toBe(2);
 	});
 });
 
@@ -195,6 +462,25 @@ describe('buildScanAndSnapPlan — coverage', () => {
 		});
 		const proj = plan.candidates.find((c) => c.id === 'para-projects')!;
 		expect(proj.coverage.matchCount).toBe(0);
+	});
+
+	test('inverse-only candidates do not fabricate folder coverage or emissions', () => {
+		const plan = buildScanAndSnapPlan({
+			folderPaths: ['Capture', 'Output', 'Projects', 'System'],
+			deployments: [{ packId: 'seacow', anchorPath: '' }],
+			packRulesById: new Map([['seacow', [inverseOnlyRule()]]]),
+			existingRules: [],
+		});
+
+		const candidate = plan.candidates[0];
+		expect(candidate.coverage).toEqual({
+			matchCount: 0,
+			sampleEmissions: [],
+			previewUnavailableReason: 'inverse-only',
+		});
+		expect(candidate.conflict.analysisUnavailableReason).toBe('inverse-only');
+		expect(candidate.conflict.conflicts).toBe(false);
+		expect(plan.summary.touchingCandidates).toBe(0);
 	});
 });
 
@@ -410,10 +696,12 @@ describe('summary', () => {
 describe('triage sort helpers', () => {
 	function row(over: Partial<CandidateRow> & { id: string }): CandidateRow {
 		return {
+			key: over.key ?? `test::${over.id}`,
 			id: over.id,
 			rule: { ...paraRule('Projects'), id: over.id },
 			sourcePackId: 'para',
 			sourcePackName: 'PARA',
+			occurrenceKey: detectionOccurrenceKey('para', ''),
 			anchorPath: '',
 			coverage: over.coverage ?? { matchCount: 5, sampleEmissions: [{ folder: 'Projects', tags: ['projects'] }] },
 			bijectivity: over.bijectivity ?? 'unknown',

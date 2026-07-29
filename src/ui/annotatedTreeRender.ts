@@ -26,11 +26,10 @@
  * The `annotationMode` option chooses which layer(s) paint; both can show at
  * once so the user reads "systems nest here, and my rule fires here" together.
  *
- * Deliberately NOT reusing `DetectVaultModal.renderTreeNode`: that method is
- * tightly coupled to the modal's selection state (selectedFolders, cover,
- * scopeColorByPath) and is covered by `scope-detect.e2e.ts`. Refactoring it
- * to be shareable risked regressing that passing E2E, so the read-only path
- * lives here as its own small, focused renderer.
+ * Deliberately separate from `WorkbenchScopePanel`'s renderer: Scope is tightly
+ * coupled to selection state (selected folders, minimal cover, scope colours),
+ * while this path is read-only. Keeping the interaction models separate avoids
+ * turning one tree component into a brittle matrix of configuration flags.
  *
  * Pure-ish: takes a DOM container + an `AnnotatedTree` (+ a plain data overlay
  * and plain callbacks). No Obsidian APIs, no I/O, no plugin state — the view
@@ -152,6 +151,9 @@ export interface AnnotatedTreeRenderOptions {
 	onFolderClick?: (fullPath: string, name: string, evt: MouseEvent) => void;
 	/** Called on a folder row's contextmenu — the view shows an Obsidian Menu. */
 	onFolderContextMenu?: (fullPath: string, name: string, evt: MouseEvent) => void;
+	/** Cross-surface organizational-system selection shown on typed relation chips. */
+	selectedOccurrenceKey?: string | null;
+	onOccurrenceClick?: (occurrenceKey: string) => void;
 }
 
 interface RenderCtx {
@@ -165,6 +167,8 @@ interface RenderCtx {
 	gutterWidth: number;
 	onFolderClick?: (fullPath: string, name: string, evt: MouseEvent) => void;
 	onFolderContextMenu?: (fullPath: string, name: string, evt: MouseEvent) => void;
+	selectedOccurrenceKey?: string | null;
+	onOccurrenceClick?: (occurrenceKey: string) => void;
 }
 
 /**
@@ -193,6 +197,8 @@ export function renderAnnotatedTree(
 		gutterWidth: showDetection ? analysis.maxDepth * (RAIL_WIDTH_PX + RAIL_GAP_PX) : 0,
 		onFolderClick: options.onFolderClick,
 		onFolderContextMenu: options.onFolderContextMenu,
+		selectedOccurrenceKey: options.selectedOccurrenceKey,
+		onOccurrenceClick: options.onOccurrenceClick,
 	};
 
 	const childKeys = [...tree.root.children.keys()].sort();
@@ -294,9 +300,15 @@ function renderNode(
 	const nameSpan = content.createSpan({ text: node.name });
 	nameSpan.style.fontWeight = emphasize ? '600' : '400';
 	if (!emphasize) nameSpan.style.color = 'var(--text-muted)';
+	nameSpan.style.flex = '1 1 auto';
+	nameSpan.style.minWidth = '0';
 	nameSpan.style.whiteSpace = 'nowrap';
 	nameSpan.style.overflow = 'hidden';
 	nameSpan.style.textOverflow = 'ellipsis';
+
+	if (ctx.showDetection && node.hits.length > 0) {
+		renderOccurrenceRelationChips(content, node, ctx);
+	}
 
 	// ─── "My rules" emission (single winning rule, right-aligned) ─────────
 	if (hasRuleWinner && ruleEntry) {
@@ -343,6 +355,48 @@ function renderNode(
 	}
 }
 
+function renderOccurrenceRelationChips(
+	parent: HTMLElement,
+	node: AnnotatedTreeNode,
+	ctx: RenderCtx,
+): void {
+	const relations = new Map<string, typeof node.hits[number]>();
+	for (const hit of node.hits) {
+		if (!hit.occurrenceKey) continue;
+		const relation = hit.relation ?? 'member';
+		const key = `${hit.occurrenceKey.length}:${hit.occurrenceKey}:${relation}`;
+		if (!relations.has(key)) relations.set(key, hit);
+	}
+	if (relations.size === 0) return;
+
+	const wrap = parent.createSpan({ cls: 'dtf-folder-occurrence-relations' });
+	for (const hit of relations.values()) {
+		const occurrenceKey = hit.occurrenceKey!;
+		const relation = hit.relation ?? 'member';
+		const chip = wrap.createEl('button', { cls: 'dtf-folder-occurrence-chip' });
+		chip.dataset.dtfOccurrenceKey = occurrenceKey;
+		chip.dataset.dtfRelation = relation;
+		chip.setAttr('aria-pressed', String(ctx.selectedOccurrenceKey === occurrenceKey));
+		if (ctx.selectedOccurrenceKey === occurrenceKey) chip.addClass('is-selected');
+		const fullAnchor = hit.occurrenceAnchorPath || 'vault root';
+		const compactAnchor = hit.occurrenceAnchorPath
+			? ` @ ${hit.occurrenceAnchorPath.split('/').at(-1)}`
+			: '';
+		chip.setText(
+			`${relation === 'support' ? 'Support' : 'Member'} · ${hit.signal.packName}${compactAnchor}`,
+		);
+		chip.setAttr(
+			'aria-label',
+			`${relation === 'support' ? 'Support' : 'Member'} evidence for ${hit.signal.packName} at ${fullAnchor}`,
+		);
+		chip.title = `${hit.signal.packName} occurrence at ${fullAnchor}`;
+		chip.addEventListener('click', (event) => {
+			event.stopPropagation();
+			ctx.onOccurrenceClick?.(occurrenceKey);
+		});
+	}
+}
+
 /**
  * Widen a `colorForSignalIndex` hue into a very-low-alpha tint for the row
  * background. The detection palette is always `hsl(H, S%, L%)`, so we swap to
@@ -367,7 +421,9 @@ function renderRuleEmission(row: HTMLElement, entry: FolderRuleEntry): void {
 	wrap.style.gap = '0.25em';
 	wrap.style.marginLeft = 'auto';
 	wrap.style.paddingLeft = '0.4em';
-	wrap.style.flex = '0 0 auto';
+	wrap.style.flex = '0 1 55%';
+	wrap.style.minWidth = '0';
+	wrap.style.maxWidth = '55%';
 
 	const tags = entry.emittedTags;
 	const headTag = tags[0] ?? '(no tag)';
@@ -383,7 +439,11 @@ function renderRuleEmission(row: HTMLElement, entry: FolderRuleEntry): void {
 	chip.style.borderRadius = '999px';
 	chip.style.fontSize = '0.72em';
 	chip.style.fontFamily = 'var(--font-monospace)';
+	chip.style.minWidth = '0';
+	chip.style.maxWidth = '100%';
 	chip.style.whiteSpace = 'nowrap';
+	chip.style.overflow = 'hidden';
+	chip.style.textOverflow = 'ellipsis';
 	const label = tags.length > 1 ? `→ ${headTag} +${tags.length - 1}` : `→ ${headTag}`;
 	chip.setText(label);
 	chip.title = entry.winnerRuleName

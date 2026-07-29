@@ -8,7 +8,7 @@ sidebar:
 Questions where the right answer isn't obvious yet. Input welcomed — open an issue.
 
 :::note
-This page was reconciled against shipped reality on 2026-04-30 (v0.1.27). Several former open questions have shipped — see [Resolved](#resolved-since-this-page-was-written) at the bottom. Terms are defined in the [Glossary](/obsidian-folder-tag-sync/agent-context/glossary/).
+This page was reconciled against the v0.1.38 BRAT release and its occurrence-first Workbench on 2026-07-29. Several former open questions have shipped — see [Resolved](#resolved-since-this-page-was-written) at the bottom. Terms are defined in the [Glossary](/obsidian-folder-tag-sync/agent-context/glossary/).
 :::
 
 ## When a tag could resolve to several folders, how do we pick — and when do we ask the user?
@@ -54,12 +54,23 @@ Templater and QuickAdd users might want `getTargetFolder(tags)` / `getTagsForFol
 - **F4 — frontmatter-property-driven destination resolution.** Resolve a file's target folder from a frontmatter property rather than its tags. Depends on settled F2/F3 (both shipped) but has no design entry yet.
 - **A5 — ordinal slot-value priority + cross-area auto-cleanup.** Use Johnny-Decimal-style ordinals as priority signals and auto-clean tags when a file moves across areas. Depends on the [frontmatter witness](/obsidian-folder-tag-sync/agent-context/glossary/) (shipped) but is otherwise unbuilt.
 
-## The live wall: rule authoring at scale
+## The live wall: installable composition and unknown-structure synthesis
 
-Not a small design question but the project's current centre of gravity (see [Current state](/obsidian-folder-tag-sync/agent-context/current-state/)). Visibility is solved end-to-end; *authoring* new rules for a large idiosyncratic vault that doesn't match a prebuilt pack still means hand-writing regex/templates one rule at a time. The open design question: how to generalize the 0.1.27 scope-from-selection machinery into **synthesizing new rules directly from a hierarchy-first tree selection**, with a live coverage preview. See the [2026-04-30 log](/obsidian-folder-tag-sync/agent-context/zz-log/2026-04-30-detection-ux-and-auto-scope/) for the proposed next steps.
+The duplicate detect/draft/Map product surfaces are no longer the open question: the current consolidation puts known-system evidence, branch scoping, candidate preview, and disabled installation into one Taxonomy Workbench.
+
+The occurrence-first deck makes the next questions more precise:
+
+1. **What is the durable deployment registry?** The current deck is a snapshot projection. Candidate provenance is exact while planning, but installed rules do not persist `occurrenceKey`, source pack, anchor, or deployment identity. Decide what survives restart and how it reconciles when rules are edited manually.
+2. **How should anchor renames and moves reconcile?** Folder topology invalidates and refreshes the current snapshot safely, but a future durable occurrence/deployment record needs a policy for renamed anchors, moved member folders, split occurrences, and deleted evidence.
+3. **How should composed `.orgsys` precedence be persisted?** Composition is preview-only because mounted systems need a stable group-precedence contract that survives save/reload. Installing before that is solved could change predicted winners after restart.
+4. **How should the plugin synthesize rules for structures no built-in pack recognizes?** Scope selection and coverage/conflict preview are reusable seams, but raw hierarchy → principled typed/template rule synthesis still needs constraints, user controls, and hostile examples. It must not guess silently or turn weak detection evidence into automation.
+5. **Should users be able to accept an incomplete occurrence as intentional?** Incomplete evidence is currently inspect-only. A future explicit acceptance mechanism would need durable provenance and clear consequences; lowering thresholds silently is not acceptable.
+
+A direct “mount this system here” Map gesture is now a shortcut/design question over the existing Scope/Candidates machinery, not a separate architecture.
 
 ## Resolved since this page was written
 
 - **Vault-wide batch application** — shipped in 0.1.23 as the [hierarchical sync preview](/obsidian-folder-tag-sync/agent-context/glossary/) (`preview-vault-sync` + `sync-entire-vault` commands, `VaultSyncPreviewModal` with dry-run tree, per-rule legend filter, and selective subtree apply). Folder-scoped application also shipped via [auto-scope](/obsidian-folder-tag-sync/agent-context/glossary/) in 0.1.27.
 - **"Where do my rules apply?" visibility** — shipped as the rule coverage report (`show-rule-coverage`) plus the whole [detection tree](/obsidian-folder-tag-sync/agent-context/glossary/) / [hierarchy-first](/obsidian-folder-tag-sync/agent-context/glossary/) arc.
+- **Separate detect, draft, and Map products** — resolved by the 2026-07-28 Taxonomy Workbench consolidation. The historical command IDs now route into one persistent Map / Scope / Candidates leaf; new drafts install disabled.
 - **Orphan tag removal** — shipped as `removeOrphanedTags` (A6), witness-gated.

@@ -2,24 +2,17 @@ import { App, PluginSettingTab, Setting, Notice, TFolder } from 'obsidian';
 import DynamicTagsFoldersPlugin from '../main';
 import { RuleEditorModal } from './RuleEditorModal';
 import { GuidedRuleEditorModal } from './GuidedRuleEditorModal';
-import { DetectVaultModal } from './DetectVaultModal';
 import { ConfirmModal } from './ConfirmModal';
 import { MappingRule } from '../types/settings';
 import { previewRule, RulePreview } from '../engine/rulePreview';
 import { copyTextToClipboard } from '../utils/clipboard';
+import type { WorkbenchRoute } from '../workbench/workbenchState';
 
 /**
  * Settings tab for the plugin
  */
 export class SettingsTab extends PluginSettingTab {
 	plugin: DynamicTagsFoldersPlugin;
-
-	/**
-	 * IDs of rules just imported via the DetectVault modal. Used to render
-	 * the "review and enable" banner above the rule list. Cleared when the
-	 * user dismisses the banner or enables/disables a rule directly.
-	 */
-	private lastImportedRuleIds: string[] = [];
 
 	constructor(app: App, plugin: DynamicTagsFoldersPlugin) {
 		super(app, plugin);
@@ -32,15 +25,14 @@ export class SettingsTab extends PluginSettingTab {
 
 		// Main heading is provided by Obsidian settings tab
 
-		// Settings → Map round-trip — jump straight to the visual map of what
-		// the installed rules do per folder (coverage + conflicts).
+		// Settings → Workbench round-trip — jump straight to the Map surface.
 		new Setting(containerEl)
 			.setName('Taxonomy Workbench map')
 			.setDesc('Open the map to see what your installed rules do per folder — coverage and conflicts.')
 			.addButton(btn => btn
 				.setButtonText('Open the map')
 				.onClick(() => {
-					void this.plugin.activateWorkbenchMap();
+					this.openWorkbenchRoute('map');
 				}),
 			);
 
@@ -393,55 +385,6 @@ export class SettingsTab extends PluginSettingTab {
 			return;
 		}
 
-		// "Just imported, review and enable" banner — appears after a scan-apply
-		// and persists until dismissed. Imported rules ship disabled per the
-		// safety mode (see openDetectVault). Banner gives the user one click to
-		// "Enable all just-imported", or per-rule via the inline toggle below.
-		if (this.lastImportedRuleIds.length > 0) {
-			const banner = containerEl.createDiv({ cls: 'dtf-import-banner' });
-			banner.style.padding = '0.7em 0.9em';
-			banner.style.background = 'var(--background-modifier-form-field)';
-			banner.style.borderLeft = '3px solid var(--interactive-accent)';
-			banner.style.borderRadius = '4px';
-			banner.style.marginBottom = '0.8em';
-			banner.style.display = 'flex';
-			banner.style.flexWrap = 'wrap';
-			banner.style.gap = '0.6em';
-			banner.style.alignItems = 'center';
-			banner.style.justifyContent = 'space-between';
-
-			const text = banner.createDiv();
-			text.style.flex = '1 1 60%';
-			const heading = text.createDiv();
-			heading.style.fontWeight = '600';
-			heading.setText(`${this.lastImportedRuleIds.length} rule(s) just imported — disabled by default`);
-			const sub = text.createDiv();
-			sub.style.fontSize = '0.85em';
-			sub.style.color = 'var(--text-muted)';
-			sub.setText('Review them below, then enable. Imports stay paused until you flip the toggle.');
-
-			const actions = banner.createDiv();
-			actions.style.display = 'flex';
-			actions.style.gap = '0.4em';
-
-			const enableAllBtn = actions.createEl('button', { text: 'Enable all just-imported' });
-			enableAllBtn.addClass('mod-cta');
-			enableAllBtn.addEventListener('click', () => {
-				const ids = new Set(this.lastImportedRuleIds);
-				for (const r of this.plugin.settings.rules) {
-					if (ids.has(r.id)) r.enabled = true;
-				}
-				this.lastImportedRuleIds = [];
-				void this.plugin.saveSettings().then(() => this.display());
-			});
-
-			const dismissBtn = actions.createEl('button', { text: 'Dismiss' });
-			dismissBtn.addEventListener('click', () => {
-				this.lastImportedRuleIds = [];
-				this.display();
-			});
-		}
-
 		// Bulk + group enable/disable controls — surfaces above the rule list.
 		// Bulk: enable/disable ALL rules in one click. Group: per-group buttons
 		// that scope to the rules sharing a `group` field (set by the loader
@@ -697,27 +640,6 @@ export class SettingsTab extends PluginSettingTab {
 	}
 
 	/**
-	 * Open the Detect-mode modal — scans the vault, runs detection against
-	 * the bundled rule-packs, lists matches with Apply buttons.
-	 */
-	private openDetectVault() {
-		const modal = new DetectVaultModal(this.app, async (newRules) => {
-			// Append, skipping any rule whose id already exists in settings.
-			// Force enabled=false on imported rules so scan-apply doesn't
-			// auto-arm them for future file events. User reviews + enables.
-			const existingIds = new Set(this.plugin.settings.rules.map((r) => r.id));
-			const toAdd = newRules.filter((r) => !existingIds.has(r.id))
-				.map(r => ({ ...r, enabled: false }));
-			this.plugin.settings.rules = [...this.plugin.settings.rules, ...toAdd];
-			// Track for the review-and-enable banner.
-			this.lastImportedRuleIds = toAdd.map(r => r.id);
-			await this.plugin.saveSettings();
-			this.display();
-		});
-		modal.open();
-	}
-
-	/**
 	 * Smart edit router — clicking an existing rule decides which editor
 	 * to open based on whether the rule fits the typed model.
 	 *
@@ -878,6 +800,14 @@ export class SettingsTab extends PluginSettingTab {
 		modal.open();
 	}
 
+	private openWorkbenchRoute(route: WorkbenchRoute): void {
+		const setting = (
+			this.app as unknown as { setting?: { close?: () => void } }
+		).setting;
+		setting?.close?.();
+		void this.plugin.activateTaxonomyWorkbench(route);
+	}
+
 	private displayImportExportSection(containerEl: HTMLElement) {
 		// Same divider class as the Mapping rules section above; the
 		// dtf-import-export class is preserved so the textarea-specific
@@ -887,12 +817,12 @@ export class SettingsTab extends PluginSettingTab {
 
 		new Setting(section)
 			.setName('Scan vault for organizational systems')
-			.setDesc('Detect known organizational patterns already present in your vault and apply matching rule packs.')
+			.setDesc('Open the workbench scope to detect known organizational patterns and choose where candidate rules should apply.')
 			.addButton(btn => btn
 				.setButtonText('Scan')
 				.setCta()
 				.onClick(() => {
-					this.openDetectVault();
+					this.openWorkbenchRoute('legacy-scan');
 				})
 			);
 

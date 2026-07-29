@@ -1,6 +1,9 @@
 import { describe, expect, test } from 'bun:test';
 import { compileTemplate } from '../engine/compileTemplate';
-import { detectPacks, type ManifestPackEntry } from '../engine/detectPacks';
+import {
+	detectPacks,
+	type ManifestPackEntry,
+} from '../engine/detectPacks';
 import { collectCrossPackHits } from '../engine/detectionTree';
 import { computeFolderRuleView } from '../engine/folderRuleView';
 import type {
@@ -461,6 +464,53 @@ describe('buildSupportBundle', () => {
 		expect(readableBefore.text).toContain('Secret Projects');
 		expect(anonymized.text).not.toContain('Secret Projects');
 		expect(anonymized.text).toContain('folder-');
+	});
+
+	test('anonymizes occurrence paths and keys in typed diagnostics and debug entries', () => {
+		const privateAnchor = 'QZ';
+		const privatePack: ManifestPackEntry = {
+			id: 'private-occurrence-pack',
+			name: 'Private occurrence pack',
+			detection: {
+				anyOf: [
+					{ folderRegex: '^Projects$', role: 'projects' },
+					{ folderRegex: '^Areas$', role: 'areas' },
+				],
+				occurrence: { countBy: 'roles', minEvidence: 2 },
+			},
+		};
+		const root = folder('', [
+			folder(privateAnchor, [
+				folder(`${privateAnchor}/Projects`),
+				folder(`${privateAnchor}/Areas`),
+			]),
+		]);
+		const collected = collectSupportSnapshot({
+			app: { vault: { getRoot: () => root, getMarkdownFiles: () => [] } },
+			settings: settings(),
+			pluginManifest: { version: '1.0.0' },
+			platform: { kind: 'unknown' },
+			packManifest: [privatePack],
+		});
+		const occurrence = collected.diagnostics.detection.details.results[0].occurrences?.[0];
+		if (!occurrence) throw new Error('Expected a nested occurrence');
+		collected.debugEntries.push({
+			occurrenceKey: occurrence.key,
+			parentOccurrenceKey: occurrence.key,
+			anchorPath: privateAnchor,
+			memberPaths: [`${privateAnchor}/Projects`, `${privateAnchor}/Areas`],
+			supportPaths: [`${privateAnchor}/Support`],
+		});
+
+		const result = buildSupportBundle(collected, {
+			generatedAt: '2026-07-23T00:00:00.000Z',
+			mode: 'anonymized',
+		});
+		expect(result.ok).toBe(true);
+		if (!result.ok) return;
+		expect(result.text).not.toContain(privateAnchor);
+		expect(result.text).not.toContain(occurrence.key);
+		expect(result.text).toContain('folder-');
 	});
 
 	test('drops logs before detailed diagnostics when the bundle exceeds the limit', () => {

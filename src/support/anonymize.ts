@@ -10,6 +10,7 @@ import type {
 	MappingRule,
 	TransformConfig,
 } from '../types/settings';
+import { detectionOccurrenceKey } from '../engine/detectPacks';
 import type { TransferOp } from '../types/typed';
 
 /**
@@ -48,6 +49,7 @@ class AliasRegistry {
 	private readonly templates = new Map<string, string>();
 	private readonly literals = new Map<string, string>();
 	private readonly descriptions = new Map<string, string>();
+	private readonly occurrenceKeys = new Map<string, string>();
 	private replacements: Array<[string, string]> | null = null;
 
 	registerFolders(values: Iterable<string>): void {
@@ -92,6 +94,22 @@ class AliasRegistry {
 
 	registerDescriptions(values: Iterable<string>): void {
 		registerSorted(this.descriptions, values, 'text');
+	}
+
+	registerOccurrenceKeys(
+		values: Iterable<{ key: string; packId: string; anchorPath: string }>,
+	): void {
+		const ordered = [...values].sort((a, b) => compareCodePoints(a.key, b.key));
+		for (const occurrence of ordered) {
+			this.occurrenceKeys.set(
+				occurrence.key,
+				detectionOccurrenceKey(
+					occurrence.packId,
+					this.folderPath(occurrence.anchorPath),
+				),
+			);
+		}
+		this.replacements = null;
 	}
 
 	folderPath(path: string): string {
@@ -141,6 +159,11 @@ class AliasRegistry {
 		return this.lookupOrAdd(this.descriptions, value, 'text');
 	}
 
+	occurrenceKey(value: string | undefined): string | undefined {
+		if (value === undefined) return undefined;
+		return this.lookupOrAdd(this.occurrenceKeys, value, 'occurrence');
+	}
+
 	debugValue(value: unknown, key = ''): unknown {
 		if (value === null || value === undefined) return value;
 		if (typeof value === 'string') return this.debugString(value, key);
@@ -155,7 +178,13 @@ class AliasRegistry {
 	}
 
 	private debugString(value: string, key: string): string {
-		const normalizedKey = key.toLowerCase();
+		const normalizedKey = key.toLowerCase().replace(/[^a-z]/g, '');
+		if (/^(?:occurrencekey|parentoccurrencekey)$/.test(normalizedKey)) {
+			return this.occurrenceKey(value) ?? value;
+		}
+		if (/^(?:anchorpath|memberpaths|supportpaths)$/.test(normalizedKey)) {
+			return this.folderPath(value);
+		}
 		if (/rule(?:id|name)?$/.test(normalizedKey)) return this.rule(value) ?? value;
 		if (/group(?:id|name)?$/.test(normalizedKey)) return this.group(value) ?? value;
 		if (/folder(?:path|name)?$/.test(normalizedKey)) return this.folderPath(value);
@@ -183,6 +212,7 @@ class AliasRegistry {
 		add(this.templates);
 		add(this.literals);
 		add(this.descriptions);
+		add(this.occurrenceKeys);
 
 		for (const [segment, alias] of this.folders) pairs.push([segment, alias]);
 		for (const [segment, alias] of this.tags) pairs.push([segment, alias]);
@@ -212,6 +242,7 @@ function buildAliases(snapshot: SupportSnapshot): AliasRegistry {
 	const templates = new Set<string>();
 	const literals = new Set<string>();
 	const descriptions = new Set<string>();
+	const occurrenceKeys: Array<{ key: string; packId: string; anchorPath: string }> = [];
 
 	const addFolderPath = (path: string | undefined): void => {
 		if (!path) return;
@@ -252,6 +283,24 @@ function buildAliases(snapshot: SupportSnapshot): AliasRegistry {
 			addRegex(signal.folderRegex);
 			for (const path of signal.exampleMatches) addFolderPath(path);
 		}
+		for (const evidence of result.rawEvidence ?? []) {
+			addFolderPath(evidence.folderPath);
+			addRegex(evidence.folderRegex);
+		}
+		for (const occurrence of result.occurrences ?? []) {
+			addFolderPath(occurrence.anchorPath);
+			occurrenceKeys.push({
+				key: occurrence.key,
+				packId: occurrence.packId,
+				anchorPath: occurrence.anchorPath,
+			});
+			for (const path of occurrence.memberPaths) addFolderPath(path);
+			for (const path of occurrence.supportPaths) addFolderPath(path);
+			for (const evidence of occurrence.evidence) {
+				addFolderPath(evidence.folderPath);
+				addRegex(evidence.folderRegex);
+			}
+		}
 	}
 	for (const signal of snapshot.diagnostics.detection.details.signals) addRegex(signal.regex);
 	for (const hit of snapshot.diagnostics.detection.details.hitsByFolder) {
@@ -272,6 +321,7 @@ function buildAliases(snapshot: SupportSnapshot): AliasRegistry {
 	aliases.registerTemplates(templates);
 	aliases.registerLiterals(literals);
 	aliases.registerDescriptions(descriptions);
+	aliases.registerOccurrenceKeys(occurrenceKeys);
 	return aliases;
 }
 
@@ -334,6 +384,15 @@ function anonymizeDetection(
 	detection: DetectionDiagnostics,
 	aliases: AliasRegistry,
 ): DetectionDiagnostics {
+	const anonymizeEvidence = <T extends {
+		folderPath: string;
+		folderRegex: string;
+	}>(evidence: T): T => ({
+		...cloneJsonish(evidence),
+		folderPath: aliases.folderPath(evidence.folderPath),
+		folderRegex: aliases.regex(evidence.folderRegex)!,
+	});
+
 	return {
 		summary: cloneJsonish(detection.summary),
 		details: {
@@ -343,6 +402,16 @@ function anonymizeDetection(
 					...cloneJsonish(signal),
 					folderRegex: aliases.regex(signal.folderRegex)!,
 					exampleMatches: signal.exampleMatches.map((path) => aliases.folderPath(path)),
+				})),
+				rawEvidence: result.rawEvidence?.map(anonymizeEvidence),
+				occurrences: result.occurrences?.map((occurrence) => ({
+					...cloneJsonish(occurrence),
+					key: aliases.occurrenceKey(occurrence.key)!,
+					anchorPath: aliases.folderPath(occurrence.anchorPath),
+					evidence: occurrence.evidence.map(anonymizeEvidence),
+					memberPaths: occurrence.memberPaths.map((path) => aliases.folderPath(path)),
+					supportPaths: occurrence.supportPaths.map((path) => aliases.folderPath(path)),
+					parentOccurrenceKey: aliases.occurrenceKey(occurrence.parentOccurrenceKey),
 				})),
 			})),
 			signals: detection.details.signals.map((signal) => ({

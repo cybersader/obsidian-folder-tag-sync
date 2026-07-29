@@ -3,15 +3,20 @@ import { buildCoverageReport, type VaultCoverageReport } from './engine/ruleCove
 import { DynamicTagsFoldersSettings, DEFAULT_SETTINGS, MappingRule } from './types/settings';
 import { SettingsTab } from './ui/SettingsTab';
 import { RulePackPickerModal } from './ui/RulePackPickerModal';
-import { DetectVaultModal } from './ui/DetectVaultModal';
-import { ScanAndSnapModal } from './ui/ScanAndSnapModal';
 import { OrgsysPreviewModal } from './ui/OrgsysPreviewModal';
 import { TaxonomyWorkbenchView, TAXONOMY_WORKBENCH_VIEW } from './ui/TaxonomyWorkbenchView';
 import { SupportBundleModal } from './ui/SupportBundleModal';
 import { DebugLogger } from './utils/debug';
 import { FolderToTagSync } from './sync/FolderToTagSync';
 import { TagToFolderSync } from './sync/TagToFolderSync';
-import { loadRulePackFromJSON, RulePack } from './engine/rulePackLoader';
+import type { RulePack } from './engine/rulePackLoader';
+import { buildRuleInstallPlan, type RuleInstallPlan } from './engine/ruleInstallPlan';
+import bundledRulePackRepository from './workbench/BundledRulePackRepository';
+import {
+	createDefaultWorkbenchState,
+	reduceWorkbenchRoute,
+	type WorkbenchRoute,
+} from './workbench/workbenchState';
 
 /**
  * Trailing-edge debounce window (ms) for auto-sync on file events. A single
@@ -47,6 +52,8 @@ export default class DynamicTagsFoldersPlugin extends Plugin {
 	 * timer. Cleared en masse in `onunload`.
 	 */
 	private pendingAutoSyncs = new Map<string, ReturnType<typeof setTimeout>>();
+	private workbenchSourceRevision = 0;
+	private readonly workbenchSourceListeners = new Set<(revision: number) => void>();
 
 	async onload() {
 		// Load settings
@@ -68,8 +75,9 @@ export default class DynamicTagsFoldersPlugin extends Plugin {
 		// Add settings tab
 		this.addSettingTab(new SettingsTab(this.app, this));
 
-		// Register the Taxonomy Workbench map — a large dockable pane that
-		// renders the full annotated vault hierarchy (read-only display).
+		// Register the persistent Taxonomy Workbench shell. The historical
+		// view type and command IDs remain stable while Map, Scope, and Candidates
+		// now share one main-area leaf.
 		this.registerView(
 			TAXONOMY_WORKBENCH_VIEW,
 			(leaf) => new TaxonomyWorkbenchView(leaf, this),
@@ -191,7 +199,9 @@ export default class DynamicTagsFoldersPlugin extends Plugin {
 		this.app.workspace.onLayoutReady(() => {
 			this.registerEvent(
 				this.app.vault.on('create', (file) => {
-					if (file instanceof TFile && file.extension === 'md') {
+					if (file instanceof TFolder) {
+						this.bumpWorkbenchSourceRevision();
+					} else if (file instanceof TFile && file.extension === 'md') {
 						void this.autoSyncOnEvent(file, 'create');
 					}
 				}),
@@ -199,9 +209,16 @@ export default class DynamicTagsFoldersPlugin extends Plugin {
 		});
 		this.registerEvent(
 			this.app.vault.on('rename', (file, oldPath) => {
-				if (file instanceof TFile && file.extension === 'md') {
+				if (file instanceof TFolder) {
+					this.bumpWorkbenchSourceRevision();
+				} else if (file instanceof TFile && file.extension === 'md') {
 					void this.autoSyncOnEvent(file, 'rename', oldPath);
 				}
+			}),
+		);
+		this.registerEvent(
+			this.app.vault.on('delete', (file) => {
+				if (file instanceof TFolder) this.bumpWorkbenchSourceRevision();
 			}),
 		);
 	}
@@ -265,6 +282,7 @@ export default class DynamicTagsFoldersPlugin extends Plugin {
 		// torn-down plugin instance.
 		for (const handle of this.pendingAutoSyncs.values()) clearTimeout(handle);
 		this.pendingAutoSyncs.clear();
+		this.workbenchSourceListeners.clear();
 		void this.debugLogger.info('Plugin unloaded');
 	}
 
@@ -277,6 +295,65 @@ export default class DynamicTagsFoldersPlugin extends Plugin {
 			this.debugLogger.setEnabled(this.settings.options.debugMode);
 		}
 		await this.saveData(this.settings);
+		this.bumpWorkbenchSourceRevision();
+	}
+
+	getWorkbenchSourceRevision(): number {
+		return this.workbenchSourceRevision;
+	}
+
+	subscribeWorkbenchSourceChanges(listener: (revision: number) => void): () => void {
+		this.workbenchSourceListeners.add(listener);
+		return () => this.workbenchSourceListeners.delete(listener);
+	}
+
+	private bumpWorkbenchSourceRevision(): void {
+		this.workbenchSourceRevision++;
+		for (const listener of this.workbenchSourceListeners) {
+			listener(this.workbenchSourceRevision);
+		}
+	}
+
+	/** Persist selected Workbench candidates atomically and return exact accounting. */
+	async installWorkbenchRules(
+		selectedCandidates: readonly MappingRule[],
+	): Promise<RuleInstallPlan> {
+		const plan = buildRuleInstallPlan(selectedCandidates, this.settings.rules);
+		const counts = {
+			requestedCount: plan.requestedCount,
+			uniqueCount: plan.uniqueCount,
+			addedCount: plan.addedRuleIds.length,
+			skippedExistingCount: plan.skippedExistingIds.length,
+			skippedDuplicateCount: plan.skippedDuplicateCount,
+		};
+
+		if (!plan.needsPersistence) {
+			await this.debugLogger.info('Taxonomy Workbench rule installation completed', {
+				...counts,
+				persisted: false,
+			});
+			return plan;
+		}
+
+		const previousRules = this.settings.rules;
+		this.settings.rules = [...previousRules, ...plan.addedRules];
+		try {
+			await this.saveSettings();
+		} catch (error) {
+			this.settings.rules = previousRules;
+			await this.debugLogger.error('Taxonomy Workbench rule installation failed', {
+				...counts,
+				persisted: false,
+				error: error instanceof Error ? error.message : String(error),
+			});
+			throw error;
+		}
+
+		await this.debugLogger.info('Taxonomy Workbench rule installation completed', {
+			...counts,
+			persisted: true,
+		});
+		return plan;
 	}
 
 	openSupportBundle(): void {
@@ -322,50 +399,14 @@ export default class DynamicTagsFoldersPlugin extends Plugin {
 		}
 	}
 
-	/**
-	 * Sync tags to folder location for a file
-	 */
-	/**
-	 * Open the Detect-mode modal — scans the vault for organizational
-	 * patterns, lists detected packs ranked by confidence, applies on click.
-	 */
+	/** Compatibility route for the historical detect command. */
 	scanVaultForSystems(): void {
-		const modal = new DetectVaultModal(this.app, async (newRules) => {
-			const existingIds = new Set(this.settings.rules.map((r) => r.id));
-			const toAdd = newRules.filter((r) => !existingIds.has(r.id));
-			this.settings.rules = [...this.settings.rules, ...toAdd];
-			await this.saveSettings();
-			await this.debugLogger.info('Detect-mode pack applied', {
-				rulesAdded: toAdd.length,
-				skippedDuplicates: newRules.length - toAdd.length,
-			});
-		});
-		modal.open();
+		void this.activateTaxonomyWorkbench('legacy-scan');
 	}
 
-	/**
-	 * Open the Scan & Snap modal — drafts scoped candidate rules from the
-	 * organizational systems already detected in the vault, lets the user
-	 * triage them (coverage / bijectivity / conflicts), and commits the
-	 * selected ones into settings. Read-only on the vault: only rules change.
-	 */
+	/** Compatibility route for the historical Scan & Snap drafting command. */
 	scanAndSnapDraftRules(): void {
-		const modal = new ScanAndSnapModal(
-			this.app,
-			this.settings.rules,
-			this.settings.groupPrecedence,
-			async (newRules) => {
-				const existingIds = new Set(this.settings.rules.map((r) => r.id));
-				const toAdd = newRules.filter((r) => !existingIds.has(r.id));
-				this.settings.rules = [...this.settings.rules, ...toAdd];
-				await this.saveSettings();
-				await this.debugLogger.info('Scan & snap rules applied', {
-					rulesAdded: toAdd.length,
-					skippedDuplicates: newRules.length - toAdd.length,
-				});
-			},
-		);
-		modal.open();
+		void this.activateTaxonomyWorkbench('legacy-draft');
 	}
 
 	/**
@@ -379,76 +420,72 @@ export default class DynamicTagsFoldersPlugin extends Plugin {
 		modal.open();
 	}
 
-	/**
-	 * Open the Taxonomy Workbench map — a large dockable pane (ItemView) that
-	 * renders the full annotated vault hierarchy. Detaches any existing leaves
-	 * of this type first so re-invoking focuses one pane rather than stacking
-	 * duplicates. Opens in a main-area tab (roomy — the whole point vs. the
-	 * cramped detect modal) and reveals it.
-	 */
-	async activateWorkbenchMap(): Promise<void> {
+	/** Reveal the single persistent Workbench leaf and merge the requested route. */
+	async activateTaxonomyWorkbench(route: WorkbenchRoute): Promise<void> {
 		const { workspace } = this.app;
-		// Detach existing leaves of this type to avoid duplicates.
-		workspace.detachLeavesOfType(TAXONOMY_WORKBENCH_VIEW);
+		const existingLeaf = workspace.getLeavesOfType(TAXONOMY_WORKBENCH_VIEW)[0];
+		if (existingLeaf) {
+			if (existingLeaf.view instanceof TaxonomyWorkbenchView) {
+				await existingLeaf.view.applyRoute(route);
+			} else {
+				const next = reduceWorkbenchRoute(existingLeaf.view.getState(), route);
+				await existingLeaf.view.setState(next, { history: true });
+			}
+			workspace.revealLeaf(existingLeaf);
+			return;
+		}
 
-		// Open in a main-area tab so the hierarchy gets the full editor width.
 		const leaf = workspace.getLeaf('tab');
-		await leaf.setViewState({ type: TAXONOMY_WORKBENCH_VIEW, active: true });
+		const state = reduceWorkbenchRoute(createDefaultWorkbenchState(), route);
+		await leaf.setViewState({
+			type: TAXONOMY_WORKBENCH_VIEW,
+			active: true,
+			state: state as unknown as Record<string, unknown>,
+		});
 		workspace.revealLeaf(leaf);
 	}
 
-	/**
-	 * Discover every `*.json` file under `rule-packs/` inside the plugin's
-	 * own directory, parse each with `loadRulePackFromJSON`, and open a
-	 * picker. On select, prompt replace-vs-append and merge into settings.
-	 */
+	/** Compatibility route for callers that open the historical Map entry point. */
+	async activateWorkbenchMap(): Promise<void> {
+		await this.activateTaxonomyWorkbench('map');
+	}
+
+	/** Open the picker over build-embedded rule packs (no release-time filesystem). */
 	async browseRulePacks(): Promise<void> {
-		const adapter = this.app.vault.adapter;
-		const pluginDir = `${this.app.vault.configDir}/plugins/${this.manifest.id}`;
-		const rulePacksDir = `${pluginDir}/rule-packs`;
-
-		let entries: string[];
-		try {
-			const listing = await adapter.list(rulePacksDir);
-			entries = listing.files;
-		} catch (err) {
-			new Notice(`No rule-packs/ folder found at ${rulePacksDir}`);
-			await this.debugLogger.error('Rule pack discovery failed', {
-				error: (err as Error).message,
-				dir: rulePacksDir
-			});
-			return;
-		}
-
-		const packs: RulePack[] = [];
-		const errors: string[] = [];
-		for (const path of entries) {
-			if (!path.endsWith('.json')) continue;
-			try {
-				const json = await adapter.read(path);
-				const result = loadRulePackFromJSON(json);
-				if (result.ok) {
-					packs.push(result.pack);
-				} else {
-					errors.push(`${path}: ${result.errors[0]}`);
-				}
-			} catch (err) {
-				errors.push(`${path}: ${(err as Error).message}`);
-			}
-		}
+		const packs: RulePack[] = bundledRulePackRepository
+			.list()
+			.map((entry) => entry.pack);
+		const errors = bundledRulePackRepository.getErrors();
 
 		if (packs.length === 0) {
-			new Notice(`No valid rule packs found. ${errors.length} parse errors.`);
-			if (errors.length) {
-				await this.debugLogger.error('Rule pack parse errors', { errors });
+			new Notice(`No valid bundled rule packs are available. ${errors.length} validation error(s).`);
+			if (errors.length > 0) {
+				await this.debugLogger.error('Bundled rule pack validation failed', {
+					errors: errors.map((error) => ({
+						code: error.code,
+						packId: error.packId,
+						message: error.message,
+						details: error.details,
+					})),
+				});
 			}
 			return;
 		}
 
-		const picker = new RulePackPickerModal(this.app, packs, (pack) => {
+		if (errors.length > 0) {
+			new Notice(`${errors.length} invalid bundled rule pack(s) were skipped.`);
+			await this.debugLogger.warn('Invalid bundled rule packs skipped', {
+				errors: errors.map((error) => ({
+					code: error.code,
+					packId: error.packId,
+					message: error.message,
+				})),
+			});
+		}
+
+		new RulePackPickerModal(this.app, packs, (pack) => {
 			this.confirmImportRulePack(pack);
-		});
-		picker.open();
+		}).open();
 	}
 
 	/**
@@ -490,20 +527,36 @@ export default class DynamicTagsFoldersPlugin extends Plugin {
 	}
 
 	private async applyRulePack(pack: RulePack, mode: 'append' | 'replace'): Promise<void> {
+		const previousCount = this.settings.rules.length;
+		let addedCount = 0;
+		let skippedExistingCount = 0;
 		if (mode === 'replace') {
-			this.settings.rules = pack.rules;
+			const replacement = cloneMappingRules(pack.rules);
+			this.settings.rules = replacement;
+			addedCount = replacement.length;
 		} else {
-			const existingIds = new Set(this.settings.rules.map((r: MappingRule) => r.id));
-			const toAdd = pack.rules.filter((r) => !existingIds.has(r.id));
-			this.settings.rules = [...this.settings.rules, ...toAdd];
+			const existingIds = new Set(this.settings.rules.map((rule) => rule.id));
+			const toAdd = pack.rules.filter((rule) => !existingIds.has(rule.id));
+			const additions = cloneMappingRules(toAdd);
+			this.settings.rules = [...this.settings.rules, ...additions];
+			addedCount = additions.length;
+			skippedExistingCount = pack.rules.length - additions.length;
 		}
 		await this.saveSettings();
 		await this.debugLogger.info('Rule pack imported', {
 			pack: pack.name,
 			mode,
-			rulesAdded: pack.rules.length
+			packRuleCount: pack.rules.length,
+			previousRuleCount: previousCount,
+			resultingRuleCount: this.settings.rules.length,
+			rulesAdded: addedCount,
+			skippedExistingCount,
 		});
-		new Notice(`Imported ${pack.name}: ${pack.rules.length} rules (${mode})`);
+		if (mode === 'replace') {
+			new Notice(`Imported ${pack.name}: replaced all rules with ${addedCount} rule(s).`);
+		} else {
+			new Notice(`Imported ${pack.name}: ${addedCount} added, ${skippedExistingCount} already present.`);
+		}
 	}
 
 	async syncTagsToFolder(file: TFile) {
@@ -1308,6 +1361,10 @@ class RuleCoverageModal extends Modal {
 		closeBtn.style.marginTop = '1em';
 		closeBtn.addEventListener('click', () => this.close());
 	}
+}
+
+function cloneMappingRules(rules: readonly MappingRule[]): MappingRule[] {
+	return JSON.parse(JSON.stringify(rules)) as MappingRule[];
 }
 
 // ─── Hierarchical tree-view helpers for the vault sync preview ─────────

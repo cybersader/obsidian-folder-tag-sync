@@ -37,8 +37,16 @@
  */
 
 import type { MappingRule } from '../types/settings';
-import type { DetectionResult } from './detectPacks';
+import {
+	isSurfacedDetection,
+	type DetectionResult,
+} from './detectPacks';
 import { extractInstances } from './detectionTree';
+import {
+	buildScopePackPlan,
+	type ScopePackDeployment,
+	type ScopePackPlacement,
+} from './scopePackPlan';
 import { scopeRules } from './scopeRules';
 import { previewRule } from './rulePreview';
 import { computeConflicts } from './ruleCoverage';
@@ -51,10 +59,12 @@ import { computeBijectivity } from './compileTemplate';
 export type BijectivityVerdict = 'total' | 'conditional' | 'lossy' | 'unknown';
 
 export interface CandidateCoverage {
-	/** How many vault folders this candidate's pattern matches (from previewRule). */
+	/** How many vault folders this candidate's forward pattern matches. */
 	matchCount: number;
 	/** A few illustrative folder→tag(s) emissions (capped, sorted). */
 	sampleEmissions: Array<{ folder: string; tags: string[] }>;
+	/** Folder-side coverage cannot be computed for an inverse-only rule. */
+	previewUnavailableReason?: 'inverse-only';
 }
 
 export interface CandidateConflict {
@@ -77,10 +87,14 @@ export interface CandidateConflict {
 	 * than just reporting a raw overlap.
 	 */
 	predictedWinnerId: string | null;
+	/** Tag-side overlaps are not inferred without a tag inventory. */
+	analysisUnavailableReason?: 'inverse-only';
 }
 
 export interface CandidateRow {
-	/** The scoped rule's id — also the row's stable identity. */
+	/** Stable composite UI identity for this pack + placement + rule row. */
+	key: string;
+	/** Persisted rule id. Kept separate from `key` for commit compatibility. */
 	id: string;
 	/** The scoped rule itself — this is exactly what gets committed on accept. */
 	rule: MappingRule;
@@ -88,6 +102,8 @@ export interface CandidateRow {
 	sourcePackId: string;
 	/** Display name of the source pack (falls back to packId if not supplied). */
 	sourcePackName: string;
+	/** Stable source occurrence identity retained from detection/scope planning. */
+	occurrenceKey: string;
 	/** Anchor branch this candidate is scoped to. '' = vault root. */
 	anchorPath: string;
 	coverage: CandidateCoverage;
@@ -115,11 +131,21 @@ export interface ScanAndSnapPlan {
 	summary: ScanAndSnapSummary;
 }
 
+type CandidateScaffoldRow = Omit<CandidateRow, 'coverage' | 'bijectivity' | 'conflict'>;
+
 export interface ScanAndSnapInput {
 	/** Vault folder paths (relative, slash-separated, no leading slash). */
 	folderPaths: string[];
-	/** Detection results from `detectPacks()`. Suppressed packs are skipped. */
-	detectionResults: DetectionResult[];
+	/**
+	 * Detection results from `detectPacks()`. Only surfaced results are actionable.
+	 * Optional when the caller supplies explicit `deployments`.
+	 */
+	detectionResults?: DetectionResult[];
+	/**
+	 * Explicit pack placements from `buildScopePackPlan`. When present (including
+	 * an empty array), these replace detected-instance inference.
+	 */
+	deployments?: ScopePackPlacement[];
 	/** Already-loaded pack rules keyed by pack id (caller parses the JSON). */
 	packRulesById: Map<string, MappingRule[]>;
 	/** Rules already installed in settings — the union-conflict baseline. */
@@ -142,13 +168,87 @@ interface SourcedRule {
 // ─── Main entry point ───────────────────────────────────────────────────────
 
 /**
+ * Stable, collision-resistant UI identity for one candidate placement. The
+ * persisted rule id remains unchanged and lives separately on CandidateRow.id.
+ */
+export function candidatePlacementKey(
+	packId: string,
+	anchorPath: string,
+	persistedRuleId: string,
+	occurrenceKey?: string,
+): string {
+	const key = `candidate:${encodeKeyPart(packId)}:${encodeKeyPart(occurrenceKey ?? anchorPath)}:${encodeKeyPart(anchorPath)}:${encodeKeyPart(persistedRuleId)}`;
+	return key === persistedRuleId ? `${key}:placement` : key;
+}
+
+function encodeKeyPart(value: string): string {
+	return `${value.length}:${value}`;
+}
+
+/**
+ * Scope slugs are intentionally readable, so distinct anchors such as `A+B`
+ * and `A B` can collapse to the same scoped rule id. Pack authors can also
+ * reuse a rule id across different packs. Candidate keys remain distinct in
+ * both cases, but persisted MappingRule ids must also be unique or installation
+ * silently drops one as a duplicate. Disambiguate only colliding ids so normal
+ * root/scoped ids stay backwards-compatible.
+ */
+function disambiguateCollidingCandidateRuleIds(rows: CandidateScaffoldRow[]): void {
+	const rowsByRuleId = new Map<string, CandidateScaffoldRow[]>();
+	const reservedIds = new Set(rows.map((row) => row.rule.id));
+	const assignedIds = new Set<string>();
+	for (const row of rows) {
+		const group = rowsByRuleId.get(row.rule.id);
+		if (group) group.push(row);
+		else rowsByRuleId.set(row.rule.id, [row]);
+	}
+
+	for (const [collidingId, group] of rowsByRuleId) {
+		if (group.length < 2) {
+			assignedIds.add(collidingId);
+			continue;
+		}
+		for (const row of group) {
+			const placementIdentity = [
+				row.sourcePackId,
+				row.occurrenceKey,
+				row.anchorPath,
+			].map(encodeKeyPart).join(':');
+			let persistedId = `${collidingId}__placement-${encodeUtf16Hex(placementIdentity)}`;
+			while (reservedIds.has(persistedId) || assignedIds.has(persistedId)) {
+				persistedId += '_';
+			}
+			assignedIds.add(persistedId);
+			row.rule = { ...row.rule, id: persistedId };
+			row.id = persistedId;
+			row.key = candidatePlacementKey(
+				row.sourcePackId,
+				row.anchorPath,
+				persistedId,
+				row.occurrenceKey,
+			);
+		}
+	}
+}
+
+/** Fixed-width UTF-16 encoding is deterministic and injective for JS strings. */
+function encodeUtf16Hex(value: string): string {
+	let encoded = '';
+	for (let index = 0; index < value.length; index++) {
+		encoded += value.charCodeAt(index).toString(16).padStart(4, '0');
+	}
+	return encoded || '0000';
+}
+
+/**
  * Build the Scan & Snap plan: candidate rule rows from detected packs, each
  * annotated with coverage, bijectivity, and union-aware conflict info.
  */
 export function buildScanAndSnapPlan(input: ScanAndSnapInput): ScanAndSnapPlan {
 	const {
 		folderPaths,
-		detectionResults,
+		detectionResults = [],
+		deployments,
 		packRulesById,
 		existingRules,
 		packNamesById,
@@ -156,36 +256,74 @@ export function buildScanAndSnapPlan(input: ScanAndSnapInput): ScanAndSnapPlan {
 	} = input;
 
 	// 1. Produce the scoped candidate rules — one CandidateRow scaffold per
-	//    (non-suppressed pack, anchored instance, produced scoped rule).
+	//    explicit deployment when supplied, otherwise per surfaced detected
+	//    anchored instance (the legacy Scan & Snap behavior).
 	interface Scaffold {
-		row: Omit<CandidateRow, 'coverage' | 'bijectivity' | 'conflict'>;
+		row: CandidateScaffoldRow;
 	}
 	const scaffolds: Scaffold[] = [];
 
-	for (const result of detectionResults) {
-		if (result.suppressedByMissingParent) continue;
-		const packRules = packRulesById.get(result.packId);
-		if (!packRules || packRules.length === 0) continue;
+	const addDeployment = (deployment: ScopePackDeployment): void => {
+		const packRules = packRulesById.get(deployment.packId);
+		if (!packRules || packRules.length === 0) return;
 
-		const packName = packNamesById?.get(result.packId) ?? result.packId;
-		const instances = extractInstances(folderPaths, result);
+		const packName = packNamesById?.get(deployment.packId) ?? deployment.packId;
+		// Pack authors may intentionally ship rules disabled-by-default. Candidate
+		// analysis still needs to show their real coverage/conflicts, so analyze
+		// enabled COPIES while leaving the source pack objects untouched.
+		const enabledCopies = packRules.map((rule) => ({ ...rule, enabled: true }));
+		const scoped = scopeRules(enabledCopies, deployment.anchorPath, {
+			entryPointMode: 'prepend',
+		});
+		for (const rule of scoped) {
+			scaffolds.push({
+				row: {
+					key: candidatePlacementKey(
+						deployment.packId,
+						deployment.anchorPath,
+						rule.id,
+						deployment.occurrenceKey,
+					),
+					id: rule.id,
+					rule,
+					sourcePackId: deployment.packId,
+					sourcePackName: packName,
+					occurrenceKey: deployment.occurrenceKey,
+					anchorPath: deployment.anchorPath,
+				},
+			});
+		}
+	};
 
-		for (const instance of instances) {
-			const scoped = scopeRules(packRules, instance.anchorPath);
-			for (const rule of scoped) {
-				scaffolds.push({
-					row: {
-						id: rule.id,
-						rule,
-						sourcePackId: result.packId,
-						sourcePackName: packName,
-						anchorPath: instance.anchorPath,
-					},
+	if (deployments !== undefined) {
+		for (const deployment of buildScopePackPlan(deployments).deployments) {
+			addDeployment(deployment);
+		}
+	} else {
+		for (const result of detectionResults) {
+			if (result.occurrences !== undefined) {
+				for (const occurrence of result.occurrences) {
+					if (occurrence.status !== 'actionable') continue;
+					addDeployment({
+						packId: occurrence.packId,
+						occurrenceKey: occurrence.key,
+						anchorPath: occurrence.anchorPath,
+					});
+				}
+				continue;
+			}
+			if (!isSurfacedDetection(result)) continue;
+			for (const instance of extractInstances(folderPaths, result)) {
+				addDeployment({
+					packId: result.packId,
+					occurrenceKey: instance.occurrenceKey,
+					anchorPath: instance.anchorPath,
 				});
 			}
 		}
 	}
 
+	disambiguateCollidingCandidateRuleIds(scaffolds.map((scaffold) => scaffold.row));
 	const candidateRules = scaffolds.map((s) => s.row.rule);
 
 	// 2. Build the SOURCED union: candidate rules + existing rules, each tagged
@@ -231,14 +369,21 @@ export function buildScanAndSnapPlan(input: ScanAndSnapInput): ScanAndSnapPlan {
 	const candidates: CandidateRow[] = scaffolds.map(({ row }) => {
 		const rule = row.rule;
 
-		// Coverage — delegate to previewRule (never throws; invalidRegex/opaque
-		// are surfaced via matchCount 0 + empty samples, which is the right
-		// "no-op" representation for the planner).
-		const preview = previewRule(rule, folderPaths);
-		const coverage: CandidateCoverage = {
-			matchCount: preview.matchCount,
-			sampleEmissions: preview.samples.map((s) => ({ folder: s.folder, tags: s.tags })),
-		};
+		// Coverage is a folder→tag preview. An inverse-only rule has no honest
+		// folder-side question to answer, so do not feed it through previewRule's
+		// permissive forward fallback and fabricate all-folder matches/emissions.
+		const supportsForward = rule.direction !== 'tag-to-folder';
+		const preview = supportsForward ? previewRule(rule, folderPaths) : null;
+		const coverage: CandidateCoverage = preview
+			? {
+				matchCount: preview.matchCount,
+				sampleEmissions: preview.samples.map((s) => ({ folder: s.folder, tags: s.tags })),
+			}
+			: {
+				matchCount: 0,
+				sampleEmissions: [],
+				previewUnavailableReason: 'inverse-only',
+			};
 
 		// Bijectivity — per-rule verdict, with graceful fallback to 'unknown'.
 		const bijectivity = bijectivityVerdictFor(rule);
@@ -281,13 +426,16 @@ export function buildScanAndSnapPlan(input: ScanAndSnapInput): ScanAndSnapPlan {
 			collidesWithExisting,
 			overlappingFolderSample,
 			predictedWinnerId,
+			...(supportsForward ? {} : { analysisUnavailableReason: 'inverse-only' as const }),
 		};
 
 		return {
+			key: row.key,
 			id: row.id,
 			rule,
 			sourcePackId: row.sourcePackId,
 			sourcePackName: row.sourcePackName,
+			occurrenceKey: row.occurrenceKey,
 			anchorPath: row.anchorPath,
 			coverage,
 			bijectivity,
@@ -396,20 +544,22 @@ export function sortCandidatesByNoise(candidates: CandidateRow[]): CandidateRow[
 		if (a.coverage.matchCount !== b.coverage.matchCount) {
 			return a.coverage.matchCount - b.coverage.matchCount;
 		}
-		return a.id.localeCompare(b.id);
+		return a.key.localeCompare(b.key);
 	});
 }
 
 /**
  * A small ordinal capturing "how junky" a candidate is. Lower = junkier (sorts
  * first). Zero-match rows are the junkiest; rows that match but emit no tags
- * are next; rows that emit tags are "real".
+ * are next; inverse-only rows are legitimate but have no folder preview; rows
+ * with real forward emissions sort last.
  */
 function noiseScore(c: CandidateRow): number {
+	if (c.coverage.previewUnavailableReason === 'inverse-only') return 2;
 	if (c.coverage.matchCount === 0) return 0;
 	const emitsAnything = c.coverage.sampleEmissions.some((e) => e.tags.length > 0);
 	if (!emitsAnything) return 1;
-	return 2;
+	return 3;
 }
 
 /**
@@ -423,7 +573,7 @@ export function sortCandidatesByConflict(candidates: CandidateRow[]): CandidateR
 		const ar = conflictRank(a);
 		const br = conflictRank(b);
 		if (ar !== br) return ar - br;
-		return a.id.localeCompare(b.id);
+		return a.key.localeCompare(b.key);
 	});
 }
 

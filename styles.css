@@ -326,37 +326,109 @@
 	min-height: 44px;
 }
 
-.dtf-workbench-connectors {
-	position: absolute;
-	inset: 0;
-	z-index: 4;
-	pointer-events: none;
-	overflow: visible;
-}
-
-.dtf-workbench-connectors path {
-	fill: none;
-	stroke: var(--interactive-accent);
-	stroke-width: 1.5;
-	stroke-dasharray: 4 4;
-	opacity: 0.5;
-	vector-effect: non-scaling-stroke;
-}
-
-.dtf-workbench-persistent-deck {
-	position: relative;
-	z-index: 2;
-	flex: 0 1 auto;
-	display: grid;
-	grid-template-columns: minmax(0, 2fr) minmax(220px, 1fr);
+.dtf-workbench-systems-summary {
+	flex: 0 0 auto;
+	display: flex;
+	align-items: center;
 	gap: 0.65em;
-	max-height: 46%;
+	min-width: 0;
+	padding: 0.45em 0.6em;
+	background: var(--background-secondary);
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-s);
+}
+
+.dtf-systems-summary-identity {
+	display: flex;
+	align-items: baseline;
+	gap: 0.55em;
+	min-width: 0;
+	flex: 1 1 auto;
+}
+
+.dtf-systems-summary-label {
+	flex: 0 0 auto;
+	font-weight: 650;
+}
+
+.dtf-systems-summary-counts,
+.dtf-systems-summary-detail {
+	min-width: 0;
+	font-size: var(--font-ui-smaller);
+	color: var(--text-muted);
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.dtf-systems-summary-detail {
+	flex: 1 1 auto;
+}
+
+.dtf-workbench-systems-summary > button {
+	flex: 0 0 auto;
+	min-height: 36px;
+}
+
+.dtf-workbench-body {
+	position: relative;
+	flex: 1 1 auto;
+	display: grid;
+	grid-template-columns: minmax(280px, 340px) minmax(0, 1fr);
+	gap: 0.65em;
+	min-width: 0;
 	min-height: 0;
-	padding: 0.65em;
+}
+
+.dtf-workbench-systems-browser {
+	display: none;
+	min-width: 0;
+	min-height: 0;
 	overflow: auto;
+	padding: 0.6em;
 	background: var(--background-secondary);
 	border: 1px solid var(--background-modifier-border);
 	border-radius: var(--radius-m);
+}
+
+.dtf-workbench-systems-browser.is-open {
+	display: block;
+}
+
+.dtf-systems-browser-toolbar {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 0.5em;
+	margin-bottom: 0.55em;
+	font-weight: 650;
+}
+
+.dtf-systems-browser-toolbar button {
+	min-height: 36px;
+}
+
+.dtf-workbench-systems-scrim {
+	display: none;
+}
+
+.dtf-workbench-active-panel {
+	grid-column: 2;
+	min-width: 0;
+	min-height: 0;
+	overflow: auto;
+}
+
+.dtf-workbench-shell:not(.is-systems-browser-open) .dtf-workbench-body {
+	grid-template-columns: minmax(0, 1fr);
+}
+
+.dtf-workbench-shell:not(.is-systems-browser-open) .dtf-workbench-active-panel {
+	grid-column: 1;
+}
+
+.dtf-workbench-persistent-deck {
+	min-width: 0;
 }
 
 .dtf-organizational-systems,
@@ -404,12 +476,9 @@
 
 .dtf-orgsys-card-list {
 	display: grid;
-	grid-auto-flow: column;
-	grid-auto-columns: minmax(210px, 1fr);
+	grid-template-columns: minmax(0, 1fr);
 	gap: 0.45em;
 	padding: 2px;
-	overflow-x: auto;
-	overflow-y: hidden;
 }
 
 button.dtf-orgsys-card {
@@ -563,8 +632,37 @@ button.dtf-folder-occurrence-chip.is-selected {
 	font-size: var(--font-ui-smaller);
 }
 
-.dtf-rule-layers-heading {
+.dtf-rule-layers {
+	margin-top: 0.65em;
+	padding-top: 0.55em;
+	border-top: 1px solid var(--background-modifier-border);
+}
+
+.dtf-rule-layers-summary {
+	display: flex;
+	align-items: center;
+	gap: 0.5em;
+	min-height: 36px;
+	cursor: pointer;
+	font-weight: 650;
+}
+
+.dtf-rule-layers-summary-count {
+	margin-left: auto;
+	font-size: var(--font-ui-smaller);
+	font-weight: 500;
+	color: var(--text-muted);
+}
+
+.dtf-rule-layers-body {
+	padding-top: 0.4em;
+}
+
+.dtf-rule-layers-description {
 	margin-bottom: 0.45em;
+	font-size: var(--font-ui-smaller);
+	line-height: 1.35;
+	color: var(--text-muted);
 }
 
 .dtf-rule-layer-list {
@@ -634,27 +732,77 @@ button.dtf-candidate-occurrence-header {
 	padding: 0 0.35em;
 }
 
-@media (max-width: 600px) {
-	.dtf-workbench-persistent-deck {
+/* A short Obsidian split must preserve the hierarchy, not spend its remaining
+ * height on duplicated headings and diagnostic counters. Height is observed on
+ * the Workbench itself, so this also works in horizontally stacked splits. */
+.dtf-workbench-shell.is-short-workbench {
+	gap: 0.35em !important;
+	padding-block: 0.4em !important;
+}
+
+.dtf-workbench-shell.is-short-workbench .dtf-workbench-view {
+	padding-block: 0.2em !important;
+}
+
+.dtf-workbench-shell.is-short-workbench .dtf-workbench-map-header {
+	justify-content: flex-end !important;
+	margin-bottom: 0.35em !important;
+}
+
+.dtf-workbench-shell.is-short-workbench .dtf-workbench-map-title,
+.dtf-workbench-shell.is-short-workbench .dtf-workbench-map-stats {
+	display: none !important;
+}
+
+.dtf-workbench-shell.is-short-workbench [data-dtf-workbench-map='1'] {
+	min-height: 120px !important;
+}
+
+@container dtf-workbench (max-width: 750px) {
+	.dtf-workbench-body,
+	.dtf-workbench-shell:not(.is-systems-browser-open) .dtf-workbench-body {
 		grid-template-columns: minmax(0, 1fr);
-		max-height: 52%;
+	}
+
+	.dtf-workbench-active-panel,
+	.dtf-workbench-shell:not(.is-systems-browser-open) .dtf-workbench-active-panel {
+		grid-column: 1;
+	}
+
+	.dtf-workbench-systems-browser {
+		position: absolute;
+		inset: 0 auto 0 0;
+		z-index: 8;
+		width: min(380px, 100%);
+		border-radius: var(--radius-m);
+		box-shadow: var(--shadow-l);
+	}
+
+	.dtf-workbench-systems-scrim {
+		position: absolute;
+		inset: 0;
+		z-index: 7;
+		width: 100%;
+		height: 100%;
+		padding: 0;
+		background: rgba(0, 0, 0, 0.28);
+		border: 0;
+		border-radius: 0;
+		box-shadow: none;
+	}
+
+	.dtf-workbench-shell.is-systems-browser-open .dtf-workbench-systems-scrim {
+		display: block;
+	}
+
+	.dtf-orgsys-heading-description,
+	.dtf-rule-layers-description {
+		display: none;
 	}
 
 	.dtf-orgsys-heading-row {
 		align-items: stretch;
 		flex-direction: column;
-	}
-
-	.dtf-orgsys-card-list {
-		grid-auto-flow: row;
-		grid-auto-columns: auto;
-		grid-template-columns: minmax(0, 1fr);
-		overflow-x: hidden;
-		overflow-y: auto;
-	}
-
-	.dtf-rule-layer-list {
-		grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
 	}
 
 	.dtf-folder-occurrence-relations,
@@ -664,58 +812,37 @@ button.dtf-candidate-occurrence-header {
 	}
 }
 
-@container dtf-workbench (max-width: 750px) {
-	.dtf-orgsys-heading-description,
-	.dtf-rule-layers-heading > div {
-		display: none;
-	}
-
-	.dtf-orgsys-heading-row {
-		align-items: center;
-	}
-}
-
 @container dtf-workbench (max-width: 480px) {
-	.dtf-workbench-connectors {
-		display: none !important;
-	}
-
-	.dtf-workbench-persistent-deck {
-		grid-template-columns: minmax(0, 1fr);
-		max-height: 52%;
-	}
-
-	.dtf-orgsys-heading-row {
-		align-items: stretch;
-		flex-direction: column;
-	}
-
-	.dtf-orgsys-card-list {
-		grid-auto-flow: row;
-		grid-auto-columns: auto;
-		grid-template-columns: minmax(0, 1fr);
-		overflow-x: hidden;
-		overflow-y: auto;
-	}
-
-	.dtf-rule-layer-list {
-		grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-	}
-}
-
-@media (max-width: 380px) {
 	.dtf-workbench-shell {
 		padding: 0.45em !important;
+		gap: 0.4em !important;
 	}
 
-	.dtf-workbench-persistent-deck {
-		max-height: 56%;
+	.dtf-workbench-systems-summary {
+		display: grid;
+		grid-template-columns: minmax(0, 1fr) auto;
+		gap: 0.4em;
+		padding: 0.4em 0.5em;
+	}
+
+	.dtf-systems-summary-identity {
+		display: grid;
+		grid-template-columns: auto minmax(0, 1fr);
+		gap: 0.1em 0.45em;
+	}
+
+	.dtf-systems-summary-detail {
+		grid-column: 1 / -1;
+	}
+
+	.dtf-workbench-systems-browser {
+		width: 100%;
 		padding: 0.5em;
 	}
 
-	.dtf-orgsys-heading-description,
-	.dtf-rule-layers-heading > div {
-		display: none;
+	.dtf-folder-occurrence-relations,
+	.dtf-scope-occurrence-relations {
+		margin-left: 0;
 	}
 
 	button.dtf-candidate-occurrence-header {
@@ -725,5 +852,15 @@ button.dtf-candidate-occurrence-header {
 
 	.dtf-candidate-occurrence-count {
 		margin-left: 0;
+	}
+}
+
+@container dtf-workbench (max-width: 360px) {
+	.dtf-systems-summary-counts {
+		display: none;
+	}
+
+	.dtf-workbench-systems-summary > button {
+		padding-inline: 0.55em;
 	}
 }

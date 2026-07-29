@@ -36,11 +36,11 @@ Occurrence confidence is local: evidence under unrelated parents cannot combine 
 *Lives in:* rule-pack `detection.anyOf` metadata plus `src/engine/detectPacks.ts` · *Related:* signal, organizational-system occurrence, incomplete occurrence
 
 ### Organizational systems deck
-**In plain terms:** The persistent group-level deck above Map, Scope, and Candidates. It renders one selectable card per anchored occurrence, shows shape/evidence before actions, preserves the selected occurrence across surfaces, and shows incomplete occurrences by default as inspect-only.
+**In plain terms:** The occurrence-card content inside the responsive **Organizational systems** browser. A compact summary remains visible above Map, Scope, and Candidates; the full browser sits beside the active surface at wide Workbench widths and opens as a temporary drawer at narrow widths. It renders one selectable card per anchored occurrence, shows shape/evidence before actions, preserves selection across surfaces, and shows incomplete occurrences by default as inspect-only.
 
-Folder rows and candidate-group headers carry typed textual relation chips back to exact occurrence keys. On desktop, a decorative selected-only connector overlay reinforces those relationships; narrow panes retain the chips and omit connectors.
+Folder rows and candidate-group headers carry typed textual relation chips back to exact occurrence keys. Those chips are the complete relationship language: decorative cross-panel connectors were removed after visual testing showed that they crossed content and recreated unexplained line noise.
 
-*Lives in:* `src/ui/workbench/OrganizationalSystemsDeck.ts`, `ConnectorOverlay.ts`, and `src/workbench/organizationalSystemsProjection.ts` · *Related:* organizational-system occurrence, typed relation, Workbench Map, Workbench Candidates
+*Lives in:* shell/summary/browser ownership in `src/ui/TaxonomyWorkbenchView.ts`; cards in `src/ui/workbench/OrganizationalSystemsDeck.ts`; projection in `src/workbench/organizationalSystemsProjection.ts` · *Related:* organizational-system occurrence, typed relation, Workbench Map, Workbench Candidates
 
 ### Rule layers
 **In plain terms:** The separate persistent view of installed rules grouped by `MappingRule.group` in runtime precedence order, with Ungrouped last. A Rule layer is execution structure, not proof that one organizational system owns those rules.
@@ -53,7 +53,7 @@ Folder rows and candidate-group headers carry typed textual relation chips back 
 *Lives in:* `src/workbench/organizationalSystemsProjection.ts`; rendered by the persistent deck and folder/candidate chips · *Related:* Rule layers, organizational-system occurrence, candidate provenance
 
 ### Workbench Map
-**In plain terms:** The read-only sensing surface. It overlays detected organizational-system rails and the effects of enabled installed rules onto the vault folder hierarchy, with Detected / My rules / Both modes and a folder detail panel.
+**In plain terms:** The read-only sensing surface. It overlays explicit occurrence-specific Member/Support chips and the neutral results of enabled installed rules onto the vault folder hierarchy, with Detected / My rules / Both modes and a folder detail panel. Rows do not use arbitrary pack-colour rails or inherited tints; multiple rule matches are labelled with textual **Conflict** badges.
 
 *Lives in:* `src/ui/workbench/WorkbenchMapPanel.ts`; sparse rendering in `src/ui/annotatedTreeRender.ts`; installed-rule sensing in `src/engine/folderRuleView.ts` · *Related:* Taxonomy Workbench, detection tree, cross-pack hit map
 
@@ -88,7 +88,7 @@ Installation deduplicates selected rule IDs, skips IDs already installed in eith
 ### Hierarchy-first detection view
 **In plain terms:** Workbench Scope shows your vault as one folder tree with detection chips on each folder, instead of a list of “packs found.”
 
-The original detect UI was pack-centric (a card per pack definition with its signals listed inside), which didn't match how users inspect a vault. Scope therefore keeps the unified sparse folder tree as its action surface. The newer persistent Organizational systems deck complements that tree at a different semantic level: it groups evidence into anchored occurrences so users can inspect and focus `PARA at Work` as one coordinated object rather than treating every matched folder as a standalone taxonomy.
+The original detect UI was pack-centric (a card per pack definition with its signals listed inside), which didn't match how users inspect a vault. Scope therefore keeps the unified sparse folder tree as its action surface. The responsive Organizational systems summary/browser complements that tree at a different semantic level: it groups evidence into anchored occurrences so users can inspect and focus `PARA at Work` as one coordinated object rather than treating every matched folder as a standalone taxonomy.
 
 **Example:** A folder row `📁 01 - Active` can carry two textual relations (`Member · Johnny Decimal @ Cybersader`, `Member · PARA`) because it contributes to two occurrences. Selecting its ancestor can deploy both actionable occurrences; selecting either relation focuses the matching group card.
 

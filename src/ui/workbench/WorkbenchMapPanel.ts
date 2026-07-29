@@ -81,7 +81,7 @@ export class WorkbenchMapPanel {
 	}
 
 	private renderHeader(root: HTMLElement, snapshot: WorkbenchSessionSnapshot): void {
-		const header = root.createDiv();
+		const header = root.createDiv({ cls: 'dtf-workbench-map-header' });
 		header.style.display = 'flex';
 		header.style.alignItems = 'center';
 		header.style.justifyContent = 'space-between';
@@ -90,10 +90,13 @@ export class WorkbenchMapPanel {
 		header.style.marginBottom = '0.6em';
 		header.style.flex = '0 0 auto';
 
-		const title = header.createEl('h3', { text: 'Taxonomy Workbench map' });
+		const title = header.createEl('h3', {
+			cls: 'dtf-workbench-map-title',
+			text: 'Taxonomy Workbench map',
+		});
 		title.style.margin = '0';
 
-		const controls = header.createDiv();
+		const controls = header.createDiv({ cls: 'dtf-workbench-map-controls' });
 		controls.style.display = 'flex';
 		controls.style.alignItems = 'center';
 		controls.style.gap = '0.4em';
@@ -149,7 +152,7 @@ export class WorkbenchMapPanel {
 	}
 
 	private renderStats(root: HTMLElement, snapshot: WorkbenchSessionSnapshot): void {
-		const statBar = root.createDiv();
+		const statBar = root.createDiv({ cls: 'dtf-workbench-map-stats' });
 		statBar.style.display = 'grid';
 		statBar.style.gridTemplateColumns = 'repeat(auto-fit, minmax(120px, 1fr))';
 		statBar.style.gap = '0.5em';

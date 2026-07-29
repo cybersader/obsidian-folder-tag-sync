@@ -52,7 +52,7 @@ async function clickSurface(surface: 'map' | 'scope' | 'candidates'): Promise<vo
 	await waitForSurface(surface);
 }
 
-describe('Taxonomy Workbench — persistent Organizational systems deck', function () {
+describe('Taxonomy Workbench — responsive Organizational systems browser', function () {
 	this.timeout(120_000);
 
 	before(async function () {
@@ -118,6 +118,11 @@ describe('Taxonomy Workbench — persistent Organizational systems deck', functi
 		}, FIXTURE);
 		originalSettings = setup.original;
 		leftWasCollapsed = setup.leftCollapsed;
+		await browser.executeObsidian(({ app }) => {
+			(app.workspace as unknown as { leftSplit?: { collapse?(): void } }).leftSplit?.collapse?.();
+			window.resizeTo(1440, 1000);
+		});
+		await browser.pause(250);
 	});
 
 	after(async function () {
@@ -139,7 +144,7 @@ describe('Taxonomy Workbench — persistent Organizational systems deck', functi
 		await browser.executeObsidian((_context, size) => window.resizeTo(size.width, size.height), originalWindowSize);
 	});
 
-	it('renders separate complete and incomplete occurrences with persistent Rule layers', async function () {
+	it('renders separate complete and incomplete occurrences in the wide systems browser', async function () {
 		await runCommand('folder-tag-sync:taxonomy-workbench-open-map');
 		await waitForSurface('map');
 
@@ -156,6 +161,11 @@ describe('Taxonomy Workbench — persistent Organizational systems deck', functi
 				incompleteKey: incomplete?.dataset.dtfSystemOccurrenceKey ?? '',
 				showIncomplete: document.querySelector<HTMLInputElement>('[data-dtf-show-incomplete-systems="1"]')?.checked ?? false,
 				ruleLayerText: document.querySelector('[data-dtf-rule-layers="1"]')?.textContent ?? '',
+				ruleLayersOpen: document.querySelector<HTMLDetailsElement>('[data-dtf-rule-layers-disclosure="1"]')?.open ?? true,
+				hasSummary: Boolean(document.querySelector('[data-dtf-systems-summary="1"]')),
+				browserOpen: document.querySelector('[data-dtf-systems-browser="1"]')?.classList.contains('is-open') ?? false,
+				browserAriaHidden: document.querySelector('[data-dtf-systems-browser="1"]')?.getAttribute('aria-hidden') ?? null,
+				toggleExpanded: document.querySelector('[data-dtf-systems-browser-toggle="1"]')?.getAttribute('aria-expanded') ?? null,
 				tabRoles: Array.from(document.querySelectorAll('[data-dtf-workbench-surface-button]'))
 					.map((tab) => [tab.getAttribute('role'), tab.getAttribute('aria-selected')]),
 			};
@@ -166,6 +176,11 @@ describe('Taxonomy Workbench — persistent Organizational systems deck', functi
 		expect(cards.showIncomplete).toBe(true);
 		expect(cards.ruleLayerText).toContain('para');
 		expect(cards.ruleLayerText).toContain('Inferred association');
+		expect(cards.ruleLayersOpen).toBe(false);
+		expect(cards.hasSummary).toBe(true);
+		expect(cards.browserOpen).toBe(true);
+		expect(cards.browserAriaHidden).toBe('false');
+		expect(cards.toggleExpanded).toBe('true');
 		expect(cards.tabRoles.every(([role]) => role === 'tab')).toBe(true);
 		completeOccurrenceKey = cards.completeKey;
 		incompleteOccurrenceKey = cards.incompleteKey;
@@ -283,7 +298,7 @@ describe('Taxonomy Workbench — persistent Organizational systems deck', functi
 		expect(result.selected).toBeNull();
 	});
 
-	it('draws selected-only desktop connectors and removes them for narrow panes', async function () {
+	it('uses a collapsible side browser without decorative cross-panel connectors', async function () {
 		await clickSurface('map');
 		await browser.executeObsidian((_context, key) => {
 			const show = document.querySelector<HTMLInputElement>('[data-dtf-show-incomplete-systems="1"]');
@@ -295,57 +310,281 @@ describe('Taxonomy Workbench — persistent Organizational systems deck', functi
 				`[data-dtf-system-occurrence-key="${CSS.escape(key)}"]`,
 			)?.click();
 		}, completeOccurrenceKey);
-		await browser.pause(250);
+		await browser.waitUntil(async () => browser.executeObsidian(() =>
+			document.querySelector('[data-dtf-systems-browser-toggle="1"]')?.getAttribute('aria-expanded') === 'true'
+			&& document.querySelector('[data-dtf-system-occurrence-key][aria-selected="true"]') !== null,
+		), { timeout: 5_000, timeoutMsg: 'Wide systems browser did not retain the selected occurrence' });
 
-		const desktop = await browser.executeObsidian((_context, key) => ({
-			connectors: document.querySelectorAll('[data-dtf-connector="1"]').length,
-			matchingEndpoints: Array.from(document.querySelectorAll<HTMLElement>('[data-dtf-occurrence-key]'))
-				.filter((element) => element.dataset.dtfOccurrenceKey === key).length,
-			overlayAriaHidden: document.querySelector('[data-dtf-connector-overlay="1"]')
-				?.getAttribute('aria-hidden') ?? null,
-		}), completeOccurrenceKey);
+		const desktop = await browser.executeObsidian((_context, key) => {
+			const shell = document.querySelector<HTMLElement>('[data-dtf-workbench-shell="1"]');
+			const body = document.querySelector<HTMLElement>('[data-dtf-workbench-body="1"]');
+			const browser = document.querySelector<HTMLElement>('[data-dtf-systems-browser="1"]');
+			const panel = document.querySelector<HTMLElement>('.dtf-workbench-active-panel');
+			const deck = document.querySelector<HTMLElement>('[data-dtf-workbench-persistent-deck="1"]');
+			const bodyRect = body?.getBoundingClientRect();
+			const browserRect = browser?.getBoundingClientRect();
+			const panelRect = panel?.getBoundingClientRect();
+			return {
+				width: shell?.clientWidth ?? 0,
+				browserBesidePanel: Boolean(browserRect && panelRect
+					&& browserRect.right <= panelRect.left + 1
+					&& Math.abs(browserRect.top - panelRect.top) <= 1),
+				browserFillsBody: Boolean(bodyRect && browserRect
+					&& browserRect.height >= bodyRect.height - 2),
+				panelFillsBody: Boolean(bodyRect && panelRect
+					&& panelRect.height >= bodyRect.height - 2),
+				browserOverflow: browser ? getComputedStyle(browser).overflowY : null,
+				deckOverflow: deck ? getComputedStyle(deck).overflowY : null,
+				connectors: document.querySelectorAll('[data-dtf-connector="1"]').length,
+				hasConnectorOverlay: document.querySelector('[data-dtf-connector-overlay="1"]') !== null,
+				matchingEndpoints: Array.from(document.querySelectorAll<HTMLElement>('[data-dtf-occurrence-key]'))
+					.filter((element) => element.dataset.dtfOccurrenceKey === key).length,
+				toggleExpanded: document.querySelector('[data-dtf-systems-browser-toggle="1"]')
+					?.getAttribute('aria-expanded') ?? null,
+			};
+		}, completeOccurrenceKey);
+		expect(desktop.width).toBeGreaterThan(750);
+		expect(desktop.browserBesidePanel).toBe(true);
+		expect(desktop.browserFillsBody).toBe(true);
+		expect(desktop.panelFillsBody).toBe(true);
+		expect(desktop.browserOverflow).toBe('auto');
+		expect(desktop.deckOverflow).not.toBe('auto');
 		expect(desktop.matchingEndpoints).toBeGreaterThan(0);
-		expect(desktop.connectors).toBeGreaterThan(0);
-		expect(desktop.overlayAriaHidden).toBe('true');
-		await snap('organizational-systems-deck-desktop-selected');
+		expect(desktop.connectors).toBe(0);
+		expect(desktop.hasConnectorOverlay).toBe(false);
+		expect(desktop.toggleExpanded).toBe('true');
+		await snap('organizational-systems-browser-desktop-selected');
 
-		await browser.executeObsidian(({ app }) => {
-			(app.workspace as unknown as { leftSplit?: { collapse?(): void } }).leftSplit?.collapse?.();
-			window.resizeTo(520, 800);
+		await browser.executeObsidian(() => {
+			document.querySelector<HTMLButtonElement>('[data-dtf-systems-browser-toggle="1"]')?.click();
 		});
-		await browser.pause(300);
-		const narrow = await browser.executeObsidian(() => {
-			const shell = document.querySelector<HTMLElement>('[data-dtf-workbench-shell="1"]');
-			const overlay = document.querySelector<HTMLElement>('[data-dtf-connector-overlay="1"]');
+		await browser.waitUntil(async () => browser.executeObsidian(() =>
+			document.querySelector('[data-dtf-systems-browser-toggle="1"]')?.getAttribute('aria-expanded') === 'false',
+		), { timeout: 3_000, timeoutMsg: 'Wide systems browser did not collapse' });
+		const collapsed = await browser.executeObsidian(() => {
+			const body = document.querySelector<HTMLElement>('[data-dtf-workbench-body="1"]');
+			const panel = document.querySelector<HTMLElement>('.dtf-workbench-active-panel');
+			const bodyRect = body?.getBoundingClientRect();
+			const panelRect = panel?.getBoundingClientRect();
 			return {
-				width: shell?.clientWidth ?? 0,
+				browserDisplay: getComputedStyle(document.querySelector<HTMLElement>('[data-dtf-systems-browser="1"]')!).display,
+				browserAriaHidden: document.querySelector('[data-dtf-systems-browser="1"]')?.getAttribute('aria-hidden'),
+				panelUsesBodyWidth: Boolean(bodyRect && panelRect
+					&& Math.abs(panelRect.left - bodyRect.left) <= 1
+					&& Math.abs(panelRect.right - bodyRect.right) <= 1),
 				connectors: document.querySelectorAll('[data-dtf-connector="1"]').length,
-				overlayDisplay: overlay ? getComputedStyle(overlay).display : null,
-				overflow: shell ? shell.scrollWidth - shell.clientWidth : 1,
 			};
 		});
-		expect(narrow.width).toBeLessThanOrEqual(520);
-		expect(narrow.connectors).toBe(0);
-		expect(narrow.overlayDisplay).toBe('none');
-		expect(narrow.overflow).toBeLessThanOrEqual(1);
-		await snap('organizational-systems-deck-480-pane');
+		expect(collapsed.browserDisplay).toBe('none');
+		expect(collapsed.browserAriaHidden).toBe('true');
+		expect(collapsed.panelUsesBodyWidth).toBe(true);
+		expect(collapsed.connectors).toBe(0);
 
-		await browser.executeObsidian(() => window.resizeTo(376, 800));
-		await browser.pause(250);
-		const compact = await browser.executeObsidian(() => {
-			const shell = document.querySelector<HTMLElement>('[data-dtf-workbench-shell="1"]');
-			return {
-				width: shell?.clientWidth ?? 0,
-				connectors: document.querySelectorAll('[data-dtf-connector="1"]').length,
-				overflow: shell ? shell.scrollWidth - shell.clientWidth : 1,
-				selectedCard: document.querySelector('[data-dtf-system-occurrence-key][aria-selected="true"]') !== null,
-			};
+		await browser.executeObsidian(() => {
+			document.querySelector<HTMLButtonElement>('[data-dtf-systems-browser-toggle="1"]')?.click();
 		});
-		expect(compact.width).toBeLessThanOrEqual(376);
-		expect(compact.connectors).toBe(0);
-		expect(compact.overflow).toBeLessThanOrEqual(1);
-		expect(compact.selectedCard).toBe(true);
-		await snap('organizational-systems-deck-320-pane');
+		await browser.waitUntil(async () => browser.executeObsidian(() =>
+			document.querySelector('[data-dtf-systems-browser-toggle="1"]')?.getAttribute('aria-expanded') === 'true',
+		), { timeout: 5_000, timeoutMsg: 'Wide systems browser did not reopen' });
+	});
+
+	it('responds to Workbench container width with a temporary narrow drawer', async function () {
+		await clickSurface('map');
+		try {
+			await browser.executeObsidian(() => {
+				const shell = document.querySelector<HTMLElement>('[data-dtf-workbench-shell="1"]');
+				if (!shell) return;
+				shell.style.width = '480px';
+				shell.style.maxWidth = '480px';
+				shell.style.alignSelf = 'flex-start';
+			});
+			await browser.waitUntil(async () => browser.executeObsidian(() => {
+				const shell = document.querySelector<HTMLElement>('[data-dtf-workbench-shell="1"]');
+				const toggle = document.querySelector('[data-dtf-systems-browser-toggle="1"]');
+				return Boolean(shell && shell.clientWidth <= 480
+					&& toggle?.getAttribute('aria-expanded') === 'false');
+			}), { timeout: 5_000, timeoutMsg: 'Workbench container did not enter narrow layout' });
+
+			const narrowClosed = await browser.executeObsidian(() => {
+				const shell = document.querySelector<HTMLElement>('[data-dtf-workbench-shell="1"]');
+				const body = document.querySelector<HTMLElement>('[data-dtf-workbench-body="1"]');
+				const summary = document.querySelector<HTMLElement>('[data-dtf-systems-summary="1"]');
+				const browser = document.querySelector<HTMLElement>('[data-dtf-systems-browser="1"]');
+				const panel = document.querySelector<HTMLElement>('.dtf-workbench-active-panel');
+				return {
+					outerWidth: window.outerWidth,
+					width: shell?.clientWidth ?? 0,
+					summaryVisible: Boolean(summary?.offsetParent),
+					browserDisplay: browser ? getComputedStyle(browser).display : null,
+					activeHeightRatio: body && panel && body.clientHeight > 0
+						? panel.clientHeight / body.clientHeight
+						: 0,
+					overflow: shell ? shell.scrollWidth - shell.clientWidth : 1,
+					connectors: document.querySelectorAll('[data-dtf-connector="1"]').length,
+				};
+			});
+			expect(narrowClosed.outerWidth).toBeGreaterThan(1000);
+			expect(narrowClosed.width).toBeLessThanOrEqual(480);
+			expect(narrowClosed.summaryVisible).toBe(true);
+			expect(narrowClosed.browserDisplay).toBe('none');
+			expect(narrowClosed.activeHeightRatio).toBeGreaterThan(0.9);
+			expect(narrowClosed.overflow).toBeLessThanOrEqual(1);
+			expect(narrowClosed.connectors).toBe(0);
+
+			await browser.executeObsidian(() => {
+				document.querySelector<HTMLButtonElement>('[data-dtf-systems-browser-toggle="1"]')?.click();
+			});
+			await browser.waitUntil(async () => browser.executeObsidian(() =>
+				document.querySelector('[data-dtf-systems-browser-toggle="1"]')?.getAttribute('aria-expanded') === 'true',
+			), { timeout: 3_000, timeoutMsg: 'Narrow systems drawer did not open' });
+			const drawer = await browser.executeObsidian(() => {
+				const body = document.querySelector<HTMLElement>('[data-dtf-workbench-body="1"]');
+				const browser = document.querySelector<HTMLElement>('[data-dtf-systems-browser="1"]');
+				const panel = document.querySelector<HTMLElement>('.dtf-workbench-active-panel');
+				const scrim = document.querySelector<HTMLElement>('.dtf-workbench-systems-scrim');
+				const bodyRect = body?.getBoundingClientRect();
+				const browserRect = browser?.getBoundingClientRect();
+				return {
+					position: browser ? getComputedStyle(browser).position : null,
+					coversBodyHeight: Boolean(bodyRect && browserRect
+						&& browserRect.height >= bodyRect.height - 2),
+					panelAriaHidden: panel?.getAttribute('aria-hidden') ?? null,
+					panelInert: panel?.hasAttribute('inert') ?? false,
+					scrimDisplay: scrim ? getComputedStyle(scrim).display : null,
+					connectors: document.querySelectorAll('[data-dtf-connector="1"]').length,
+				};
+			});
+			expect(drawer.position).toBe('absolute');
+			expect(drawer.coversBodyHeight).toBe(true);
+			expect(drawer.panelAriaHidden).toBe('true');
+			expect(drawer.panelInert).toBe(true);
+			expect(drawer.scrimDisplay).toBe('block');
+			expect(drawer.connectors).toBe(0);
+			await snap('organizational-systems-browser-480-drawer');
+
+			await browser.executeObsidian(() => {
+				document.querySelector<HTMLButtonElement>('[data-dtf-systems-browser-close="1"]')?.click();
+			});
+			await browser.waitUntil(async () => browser.executeObsidian(() =>
+				document.querySelector('[data-dtf-systems-browser-toggle="1"]')?.getAttribute('aria-expanded') === 'false',
+			), { timeout: 3_000, timeoutMsg: 'Narrow systems drawer close button did not close it' });
+
+			await browser.executeObsidian(() => {
+				document.querySelector<HTMLButtonElement>('[data-dtf-systems-browser-toggle="1"]')?.click();
+			});
+			await browser.waitUntil(async () => browser.executeObsidian(() =>
+				document.querySelector('[data-dtf-systems-browser-toggle="1"]')?.getAttribute('aria-expanded') === 'true',
+			), { timeout: 3_000, timeoutMsg: 'Narrow systems drawer did not reopen' });
+			await browser.executeObsidian(() => {
+				document.querySelector<HTMLElement>('[data-dtf-systems-browser="1"]')?.dispatchEvent(
+					new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }),
+				);
+			});
+			await browser.waitUntil(async () => browser.executeObsidian(() =>
+				document.querySelector('[data-dtf-systems-browser-toggle="1"]')?.getAttribute('aria-expanded') === 'false',
+			), { timeout: 3_000, timeoutMsg: 'Escape did not close the narrow systems drawer' });
+			await browser.executeObsidian(() => {
+				document.querySelector<HTMLButtonElement>('[data-dtf-systems-browser-toggle="1"]')?.click();
+			});
+			await browser.waitUntil(async () => browser.executeObsidian(() =>
+				document.querySelector('[data-dtf-systems-browser-toggle="1"]')?.getAttribute('aria-expanded') === 'true',
+			), { timeout: 3_000, timeoutMsg: 'Narrow systems drawer did not reopen for selection' });
+			await browser.executeObsidian((_context, key) => {
+				document.querySelector<HTMLButtonElement>(
+					`[data-dtf-system-occurrence-key="${CSS.escape(key)}"]`,
+				)?.click();
+			}, completeOccurrenceKey);
+			await browser.waitUntil(async () => browser.executeObsidian(() =>
+				document.querySelector('[data-dtf-systems-browser-toggle="1"]')?.getAttribute('aria-expanded') === 'false',
+			), { timeout: 3_000, timeoutMsg: 'Selecting a narrow occurrence did not close the drawer' });
+			const selected = await browser.executeObsidian(({ app }, key, fixture) => {
+				const state = app.workspace.getLeavesOfType('taxonomy-workbench-map')[0]?.view.getState() as unknown as {
+					selectedSystemInstanceKey?: string | null;
+				};
+				return {
+					key: state.selectedSystemInstanceKey ?? null,
+					summary: document.querySelector('[data-dtf-systems-summary="1"]')?.textContent ?? '',
+					panelAriaHidden: document.querySelector('.dtf-workbench-active-panel')?.getAttribute('aria-hidden') ?? null,
+					surface: document.querySelector<HTMLElement>('[data-dtf-workbench-shell="1"]')
+						?.dataset.dtfWorkbenchCurrentSurface ?? null,
+					hasAnchor: (document.querySelector('[data-dtf-systems-summary="1"]')?.textContent ?? '')
+						.includes(`${fixture}/Work`),
+				};
+			}, completeOccurrenceKey, FIXTURE);
+			expect(selected.key).toBe(completeOccurrenceKey);
+			expect(selected.hasAnchor).toBe(true);
+			expect(selected.panelAriaHidden).toBeNull();
+			expect(selected.surface).toBe('map');
+
+			await browser.executeObsidian(() => {
+				const shell = document.querySelector<HTMLElement>('[data-dtf-workbench-shell="1"]');
+				if (!shell) return;
+				shell.style.width = '320px';
+				shell.style.maxWidth = '320px';
+			});
+			await browser.waitUntil(async () => browser.executeObsidian(() =>
+				(document.querySelector<HTMLElement>('[data-dtf-workbench-shell="1"]')?.clientWidth ?? 999) <= 320,
+			), { timeout: 3_000, timeoutMsg: 'Workbench container did not reach 320 px layout' });
+			const compact = await browser.executeObsidian(() => {
+				const shell = document.querySelector<HTMLElement>('[data-dtf-workbench-shell="1"]');
+				const body = document.querySelector<HTMLElement>('[data-dtf-workbench-body="1"]');
+				const panel = document.querySelector<HTMLElement>('.dtf-workbench-active-panel');
+				const counts = document.querySelector<HTMLElement>('.dtf-systems-summary-counts');
+				return {
+					width: shell?.clientWidth ?? 0,
+					overflow: shell ? shell.scrollWidth - shell.clientWidth : 1,
+					activeHeightRatio: body && panel && body.clientHeight > 0
+						? panel.clientHeight / body.clientHeight
+						: 0,
+					countsDisplay: counts ? getComputedStyle(counts).display : null,
+				};
+			});
+			expect(compact.width).toBeLessThanOrEqual(320);
+			expect(compact.overflow).toBeLessThanOrEqual(1);
+			expect(compact.activeHeightRatio).toBeGreaterThan(0.9);
+			expect(compact.countsDisplay).toBe('none');
+			await snap('organizational-systems-browser-320-pane');
+
+			await browser.executeObsidian(() => {
+				const shell = document.querySelector<HTMLElement>('[data-dtf-workbench-shell="1"]');
+				if (shell) shell.style.height = '420px';
+			});
+			await browser.pause(100);
+			const short = await browser.executeObsidian(() => {
+				const shell = document.querySelector<HTMLElement>('[data-dtf-workbench-shell="1"]');
+				const body = document.querySelector<HTMLElement>('[data-dtf-workbench-body="1"]');
+				const panel = document.querySelector<HTMLElement>('.dtf-workbench-active-panel');
+				const mapTree = document.querySelector<HTMLElement>('[data-dtf-workbench-map="1"]');
+				return {
+					bodyHeight: body?.clientHeight ?? 0,
+					panelHeight: panel?.clientHeight ?? 0,
+					mapTreeHeight: mapTree?.clientHeight ?? 0,
+					mapTreeVisible: Boolean(mapTree?.offsetParent),
+					shortClass: shell?.classList.contains('is-short-workbench') ?? false,
+					statsDisplay: getComputedStyle(document.querySelector<HTMLElement>('.dtf-workbench-map-stats')!).display,
+					browserOpen: document.querySelector('[data-dtf-systems-browser-toggle="1"]')
+						?.getAttribute('aria-expanded') ?? null,
+				};
+			});
+			expect(short.bodyHeight).toBeGreaterThan(150);
+			expect(short.panelHeight).toBeGreaterThanOrEqual(short.bodyHeight - 2);
+			expect(short.mapTreeVisible).toBe(true);
+			expect(short.mapTreeHeight).toBeGreaterThanOrEqual(120);
+			expect(short.shortClass).toBe(true);
+			expect(short.statsDisplay).toBe('none');
+			expect(short.browserOpen).toBe('false');
+			await snap('organizational-systems-browser-short-pane');
+		} finally {
+			await browser.executeObsidian(() => {
+				const shell = document.querySelector<HTMLElement>('[data-dtf-workbench-shell="1"]');
+				if (!shell) return;
+				shell.style.width = '';
+				shell.style.maxWidth = '';
+				shell.style.alignSelf = '';
+				shell.style.height = '100%';
+			});
+			await browser.pause(250);
+		}
 	});
 
 	it('marks candidate snapshots stale immediately and refreshes before installation', async function () {

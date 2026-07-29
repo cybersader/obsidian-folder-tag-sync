@@ -27,14 +27,23 @@ export class RuleLayersSection {
 		this.container.addClass('dtf-rule-layers');
 		this.container.dataset.dtfRuleLayers = '1';
 
-		const heading = this.container.createDiv({ cls: 'dtf-rule-layers-heading' });
-		heading.createEl('h3', { text: 'Rule layers' });
-		heading.createDiv({
-			text: 'Installed rules grouped by runtime precedence. Links to organizational systems are current-snapshot inferences, not ownership.',
+		const disclosure = this.container.createEl('details', { cls: 'dtf-rule-layers-disclosure' });
+		disclosure.dataset.dtfRuleLayersDisclosure = '1';
+		const summary = disclosure.createEl('summary', { cls: 'dtf-rule-layers-summary' });
+		summary.createSpan({ text: 'Rule layers' });
+		const layerCount = this.snapshot.organizationalSystems.ruleLayers.length;
+		summary.createSpan({
+			cls: 'dtf-rule-layers-summary-count',
+			text: `${layerCount} layer${layerCount === 1 ? '' : 's'}`,
 		});
 
-		const layers = this.container.createDiv({ cls: 'dtf-rule-layer-list' });
-		if (this.snapshot.organizationalSystems.ruleLayers.length === 0) {
+		const body = disclosure.createDiv({ cls: 'dtf-rule-layers-body' });
+		body.createDiv({
+			cls: 'dtf-rule-layers-description',
+			text: 'Installed rules grouped by runtime precedence. System links are current-snapshot inferences, not ownership.',
+		});
+		const layers = body.createDiv({ cls: 'dtf-rule-layer-list' });
+		if (layerCount === 0) {
 			layers.createDiv({
 				cls: 'dtf-rule-layer-empty',
 				text: 'No installed rule layers.',

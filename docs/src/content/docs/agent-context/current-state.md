@@ -1,6 +1,6 @@
 ---
 title: Current state
-description: The "drop a fresh agent (or returning human) here and be oriented in two minutes" snapshot — the v0.1.38 BRAT release, its occurrence-first Workbench, and the next open wall.
+description: The "drop a fresh agent (or returning human) here and be oriented in two minutes" snapshot — the v0.1.39 BRAT release, responsive occurrence-first Workbench, and next open wall.
 sidebar:
   label: "Current state"
   order: 0.5
@@ -10,7 +10,7 @@ sidebar:
 This is the fast-orientation page. If you're a fresh agent or a human returning after time away, read this top-to-bottom, then skim the [Glossary](/obsidian-folder-tag-sync/agent-context/glossary/) for any unfamiliar term. It's kept current deliberately — if it's stale, fix it.
 :::
 
-**As of:** v0.1.38 released via BRAT with the occurrence-first Map/Scope/Candidates Workbench · not yet in the Obsidian community catalog.
+**As of:** v0.1.39 is the current BRAT release and includes the responsive Workbench usability repair described below · not yet in the Obsidian community catalog.
 
 ## What this plugin is, in one paragraph
 
@@ -18,13 +18,13 @@ Folders are a rigid single hierarchy; tags are a flexible overlapping (polyhiera
 
 ## Where we are right now
 
-The released v0.1.38 baseline includes both sync directions, the typed rule model, Path Lens templates, specificity-aware matching, group precedence, the frontmatter witness, bulk sync, known-system detection, `.orgsys` preview/composition, preview-first production support bundles with bounded structured debug logging, and the occurrence-first Taxonomy Workbench.
+The released v0.1.39 baseline includes both sync directions, the typed rule model, Path Lens templates, specificity-aware matching, group precedence, the frontmatter witness, bulk sync, known-system detection, `.orgsys` preview/composition, preview-first production support bundles with bounded structured debug logging, and the occurrence-first Taxonomy Workbench.
 
-The release consolidates the previously separate detect and Scan & Snap workflows into **one persistent Taxonomy Workbench** and makes the Workbench occurrence-first:
+The release consolidates the previously separate detect and Scan & Snap workflows into **one persistent Taxonomy Workbench**, makes the Workbench occurrence-first, and includes the responsive usability repair that changes how it occupies space:
 
-- **Organizational systems** — a shell-owned deck remains visible across every surface. One card represents one anchored occurrence such as `PARA at Work`; repeated anchors stay separate. Cards lead with local shape/evidence, incomplete occurrences are shown by default as inspect-only, and a local preference can hide them.
-- **Rule layers** — installed rules are grouped separately by runtime `MappingRule.group` and precedence. Current-snapshot links to system occurrences are visibly labelled inferred or unknown because no durable deployment provenance exists yet.
-- **Map** — read the vault hierarchy with detected-system rails, typed member/support relation chips, selected-only desktop connectors, and the effects of enabled installed rules. Overlapping folders relate to every applicable occurrence. Detected / My rules / Both modes, folder detail, emitted-tag preview, Settings handoff, and “Choose this branch in scope” remain available.
+- **Organizational systems** — a compact shell-owned summary remains visible across every surface. The full occurrence browser is a collapsible side column at wide Workbench widths and a temporary overlay/drawer at narrow widths. One card still represents one anchored occurrence such as `PARA at Work`; repeated anchors stay separate. Incomplete occurrences remain visible by default as inspect-only, and a local preference can hide them.
+- **Rule layers** — installed rules are grouped separately by runtime `MappingRule.group` and precedence inside a collapsed disclosure in the systems browser. Current-snapshot links to occurrences remain visibly labelled inferred or unknown because no durable deployment provenance exists yet.
+- **Map** — read the vault hierarchy with neutral rows, explicit occurrence-specific Member/Support chips, neutral installed-rule results, and textual **Conflict** badges. Pack-colour rails/tints and decorative cross-panel connectors are removed. Overlapping folders still relate to every applicable occurrence. Detected / My rules / Both modes, folder detail, emitted-tag preview, Settings handoff, and “Choose this branch in scope” remain available. Short panes hide supplementary Map counters so the hierarchy retains usable height.
 - **Scope** — inspect all complete/incomplete/suppressed evidence in one hierarchy, but select only branches containing actionable occurrences. Scope tint and absorbed selections reduce choices to a deterministic minimal cover. Deployments stay anchored at `occurrence.anchorPath`, preventing duplicated shapes such as `Projects/Projects`.
 - **Candidates** — preview scoped or automatically detected rules grouped by exact occurrence, with coverage, sample emissions, bijectivity/lossiness, conflicts, predicted winners, and exact selection counts. Sorting happens inside each occurrence group. Adding drafts is confirmed and **always persists new rules disabled for review**.
 
@@ -50,21 +50,22 @@ The v0.1.22–0.1.27 campaign solved the **“where do my rules apply / what wil
 - **0.1.27** — [auto-scope](/obsidian-folder-tag-sync/agent-context/glossary/) and [scope tint](/obsidian-folder-tag-sync/agent-context/glossary/).
 - **0.1.29 onward** — Scan & Snap candidate drafting, `.orgsys`, composition preview, the dockable Workbench Map, installed-rule sensing, and production support bundles.
 - **2026-07-28 unreleased consolidation** — the proven detect, scope, preview, and install seams were connected inside the Workbench instead of competing as separate product surfaces.
-- **2026-07-29 unreleased occurrence/deck redesign** — detection became occurrence-local, the persistent Organizational systems / Rule layers deck made groups tangible, candidates became occurrence-grouped, and stale-source guards were added.
+- **2026-07-29 occurrence/deck redesign (released in 0.1.38)** — detection became occurrence-local, the Organizational systems / Rule layers read model made groups tangible, candidates became occurrence-grouped, and stale-source guards were added.
+- **2026-07-29 responsive repair (released in 0.1.39)** — the always-expanded vertical deck became a compact summary plus wide side browser / narrow drawer; Map rails, pack tints, and decorative connectors were removed; short panes now prioritize the hierarchy over supplementary counters.
 
 ## Verification status
 
-The v0.1.38 release was verified with these measured gates:
+The released baseline plus the unreleased responsive repair pass these measured local gates:
 
-- **Bun unit suite:** 1,152 passing, 0 failing, 2,765 assertions across 47 files.
-- **Production build / TypeScript:** clean; generated embedded catalog contains 8 validated packs (53.9 KiB source payload).
+- **Bun unit suite:** 1,150 passing, 0 failing, 2,754 assertions across 47 files.
+- **Production build / TypeScript:** clean; the generated embedded catalog contains 8 validated packs (approximately 53.9 KiB source payload).
 - **Obsidian-community lint:** clean.
-- **Real Obsidian 1.12.7:** all 10 serial WDIO specs pass, **68 tests total**, including occurrence-group rendering, keyboard tabs, cross-surface selection, incomplete inspect-only behavior, selected-only connectors, stale-install prevention, command-route recollection, Scope occurrence anchoring, three-file release parity, disabled installation, no fixture mutation, idempotent reinstall, deliberate enablement, touch actions, support privacy, and narrow-pane overflow.
-- **Docs:** 76 static pages build successfully; route/content smoke is 33/33 green.
-- **Repository hygiene:** legacy `DetectVaultModal.ts` and `ScanAndSnapModal.ts` are deleted; the CRLF-aware diff check is clean.
-- **Visual inspection:** final desktop, 480 px, and approximately 320 px Workbench screenshots were inspected alongside Scope minimal-cover, grouped Candidates, post-install, and enabled-sensing states. Narrow panes omit decorative connectors and remain free of page-level horizontal overflow.
+- **Real Obsidian 1.12.7:** all 10 serial WDIO specs pass, **68 tests total**. Coverage includes occurrence-group rendering, keyboard tabs, cross-surface selection, incomplete inspect-only behavior, stale-install prevention, command-route recollection, Scope occurrence anchoring, three-file release parity, disabled installation, no fixture mutation, idempotent reinstall, deliberate enablement, support privacy, and the responsive repair's neutral folder rows, textual conflicts, wide side browser, narrow drawer, container-width switching, collapsed Rule layers, short-pane hierarchy preservation, and zero decorative connectors.
+- **Docs:** 77 static pages build successfully; route/content smoke is 33/33 green.
+- **Repository hygiene:** legacy `DetectVaultModal.ts` and `ScanAndSnapModal.ts` remain deleted; the now-unused `ConnectorOverlay.ts` is deleted; the CRLF-aware diff check is clean.
+- **Visual inspection:** fresh desktop, 480 px, approximately 320 px, and short-height Workbench screenshots were inspected directly. The side browser leaves the active surface usable, the drawer does not permanently consume task height, short panes show the hierarchy immediately, and narrow panes remain free of page-level horizontal overflow.
 
-The release still installs Workbench-generated rules disabled for deliberate review; publication does not weaken the non-destructive installation boundary.
+The repair does not change the installation safety boundary: Workbench-generated rules are still added disabled for deliberate review, and no folders, notes, tags, or frontmatter are modified by drafting or installation.
 
 ## Next open wall
 

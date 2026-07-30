@@ -188,7 +188,7 @@ describe('Taxonomy Workbench map — consolidated shell and routing', function (
 		expect(final.hasDetectTree).toBe(false);
 	});
 
-	it('renders detected-system swimlane rails in Map Both and captures the desktop surface', async function () {
+	it('renders explicit occurrence relations on neutral Map rows and captures the desktop surface', async function () {
 		const bothClicked = await browser.executeObsidian(() => {
 			const button = document.querySelector<HTMLButtonElement>('[data-dtf-mode="both"]');
 			button?.click();
@@ -204,30 +204,31 @@ describe('Taxonomy Workbench map — consolidated shell and routing', function (
 					hasMap: false,
 					hasDetectTree: false,
 					railCount: 0,
-					hasPackId: false,
-					maxRailsInARow: 0,
+					tintedRowCount: 0,
 					maxOccurrenceRelationsInARow: 0,
 					folderCount: 0,
 					mode: null,
 				};
 			}
-			const rails = Array.from(map.querySelectorAll<HTMLElement>('[data-dtf-system-rail]'));
-			let maxRailsInARow = 0;
 			let maxOccurrenceRelationsInARow = 0;
+			let tintedRowCount = 0;
 			map.querySelectorAll<HTMLElement>('[data-dtf-folder-path]').forEach((row) => {
-				maxRailsInARow = Math.max(maxRailsInARow, row.querySelectorAll('[data-dtf-system-rail]').length);
 				maxOccurrenceRelationsInARow = Math.max(
 					maxOccurrenceRelationsInARow,
 					new Set(Array.from(row.querySelectorAll<HTMLElement>('[data-dtf-occurrence-key]'))
 						.map((chip) => chip.dataset.dtfOccurrenceKey)).size,
 				);
+				const content = row.querySelector<HTMLElement>('[data-dtf-folder-row-content="1"]');
+				if (content?.style.background
+					&& content.style.background !== 'var(--background-modifier-hover)') {
+					tintedRowCount++;
+				}
 			});
 			return {
 				hasMap: true,
 				hasDetectTree: Boolean(map.querySelector('[data-dtf-detect-tree="1"]')),
-				railCount: rails.length,
-				hasPackId: rails.some((rail) => (rail.dataset.packId ?? '') !== ''),
-				maxRailsInARow,
+				railCount: map.querySelectorAll('[data-dtf-system-rail]').length,
+				tintedRowCount,
 				maxOccurrenceRelationsInARow,
 				folderCount: map.querySelectorAll('[data-dtf-folder-path]').length,
 				mode: document.querySelector<HTMLButtonElement>('[data-dtf-mode="both"]')
@@ -237,9 +238,8 @@ describe('Taxonomy Workbench map — consolidated shell and routing', function (
 		expect(info.hasMap).toBe(true);
 		expect(info.hasDetectTree).toBe(false);
 		expect(info.folderCount).toBeGreaterThanOrEqual(1);
-		expect(info.railCount).toBeGreaterThanOrEqual(1);
-		expect(info.hasPackId).toBe(true);
-		expect(info.maxRailsInARow).toBeGreaterThanOrEqual(2);
+		expect(info.railCount).toBe(0);
+		expect(info.tintedRowCount).toBe(0);
 		expect(info.maxOccurrenceRelationsInARow).toBeGreaterThanOrEqual(2);
 		expect(info.mode).toBe('true');
 

@@ -9,8 +9,8 @@ declare const before: (fn: () => Promise<void> | void) => void;
 declare const after: (fn: () => Promise<void> | void) => void;
 
 /**
- * E2E for the Workbench Map "my rules" layer. In addition to the rail/sensing
- * assertions, this proves that the context-menu actions have visible button
+ * E2E for the Workbench Map "my rules" layer. In addition to neutral emission
+ * and explicit conflict assertions, this proves that context-menu actions have visible button
  * equivalents for click/touch users and that the consolidated shell remains
  * usable at a narrow desktop/mobile-like width.
  */
@@ -63,6 +63,14 @@ const RULE = {
 		createFolders: true, addTags: true, removeOrphanedTags: false,
 		syncOnFileCreate: true, syncOnFileMove: true, syncOnFileRename: true,
 	},
+};
+
+const CONFLICT_RULE = {
+	...RULE,
+	id: 'e2e-sensing-conflict-rule',
+	name: 'E2E secondary sensing rule',
+	priority: 50,
+	tagEntryPoint: 'sensing-secondary',
 };
 
 describe('Taxonomy Workbench map — "my rules" sensing and touch actions', function () {
@@ -184,16 +192,32 @@ describe('Taxonomy Workbench map — "my rules" sensing and touch actions', func
 			const map = document.querySelector<HTMLElement>('[data-dtf-workbench-map="1"]');
 			const row = map?.querySelector<HTMLElement>('[data-dtf-folder-path="SensingTest"]');
 			const emission = row?.querySelector<HTMLElement>('[data-dtf-rule-emission="1"]');
+			const probe = document.createElement('span');
+			probe.style.background = 'var(--background-secondary-alt)';
+			probe.style.color = 'var(--text-muted)';
+			probe.style.border = '1px solid var(--background-modifier-border)';
+			document.body.appendChild(probe);
+			const emissionStyle = emission ? getComputedStyle(emission) : null;
+			const probeStyle = getComputedStyle(probe);
+			const neutralStyle = Boolean(emissionStyle)
+				&& emissionStyle!.backgroundColor === probeStyle.backgroundColor
+				&& emissionStyle!.color === probeStyle.color
+				&& emissionStyle!.borderColor === probeStyle.borderColor;
+			probe.remove();
 			row?.click();
 			return {
 				hasMap: Boolean(map),
 				hasEmission: Boolean(emission),
 				emissionText: emission?.textContent ?? '',
+				neutralStyle,
+				hasConflict: Boolean(row?.querySelector('[data-dtf-rule-conflict="1"]')),
 			};
 		});
 		expect(info.hasMap).toBe(true);
 		expect(info.hasEmission).toBe(true);
 		expect(info.emissionText).toContain('#sensingtest');
+		expect(info.neutralStyle).toBe(true);
+		expect(info.hasConflict).toBe(false);
 
 		await browser.waitUntil(async () => browser.executeObsidian(() => {
 			const detail = document.querySelector<HTMLElement>('[data-dtf-folder-detail="1"]');
@@ -212,6 +236,60 @@ describe('Taxonomy Workbench map — "my rules" sensing and touch actions', func
 		expect(detail.detailPath).toBe(FOLDER);
 		expect(detail.text).toContain('Winning rule: E2E sensing rule');
 		expect(detail.text).toContain('Would emit: #sensingtest');
+	});
+
+	it('labels multiple matching rules with explicit Conflict text', async function () {
+		await browser.executeObsidian(async ({ app }, conflictRule) => {
+			const plugin = (app as unknown as {
+				plugins: { plugins: Record<string, {
+					settings: { rules: unknown[] };
+					saveSettings: () => Promise<void>;
+				}> };
+				commands: { executeCommandById: (id: string) => boolean };
+			}).plugins.plugins['folder-tag-sync'];
+			plugin.settings.rules = [plugin.settings.rules[0], conflictRule];
+			await plugin.saveSettings();
+			(app as unknown as { commands: { executeCommandById: (id: string) => boolean } })
+				.commands.executeCommandById('folder-tag-sync:taxonomy-workbench-open-map');
+		}, CONFLICT_RULE);
+
+		await browser.waitUntil(async () => browser.executeObsidian(() =>
+			Boolean(document.querySelector('[data-dtf-folder-path="SensingTest"] [data-dtf-rule-conflict="1"]')),
+		), { timeout: 8_000, timeoutMsg: 'Conflict badge did not appear after adding a second matching rule' });
+
+		const conflict = await browser.executeObsidian(() => {
+			const badge = document.querySelector<HTMLElement>(
+				'[data-dtf-folder-path="SensingTest"] [data-dtf-rule-conflict="1"]',
+			);
+			return {
+				text: badge?.textContent?.trim() ?? '',
+				ariaLabel: badge?.getAttribute('aria-label') ?? '',
+				color: badge?.style.color ?? '',
+			};
+		});
+		expect(conflict.text).toBe('Conflict');
+		expect(conflict.ariaLabel).toContain('e2e-sensing-rule');
+		expect(conflict.ariaLabel).toContain('e2e-sensing-conflict-rule');
+		expect(conflict.ariaLabel).toContain('Predicted winner: E2E sensing rule');
+		expect(conflict.color).toBe('var(--text-warning)');
+
+		await browser.executeObsidian(async ({ app }) => {
+			const plugin = (app as unknown as {
+				plugins: { plugins: Record<string, {
+					settings: { rules: unknown[] };
+					saveSettings: () => Promise<void>;
+				}> };
+				commands: { executeCommandById: (id: string) => boolean };
+			}).plugins.plugins['folder-tag-sync'];
+			plugin.settings.rules = plugin.settings.rules.filter((rule) =>
+				(rule as { id?: string }).id !== 'e2e-sensing-conflict-rule');
+			await plugin.saveSettings();
+			(app as unknown as { commands: { executeCommandById: (id: string) => boolean } })
+				.commands.executeCommandById('folder-tag-sync:taxonomy-workbench-open-map');
+		});
+		await browser.waitUntil(async () => browser.executeObsidian(() =>
+			!document.querySelector('[data-dtf-folder-path="SensingTest"] [data-dtf-rule-conflict="1"]'),
+		), { timeout: 8_000, timeoutMsg: 'Conflict badge remained after restoring one matching rule' });
 	});
 
 	it('keeps the Open settings header affordance and exposes every context-menu action', async function () {
@@ -384,6 +462,8 @@ describe('Taxonomy Workbench map — "my rules" sensing and touch actions', func
 				document.querySelectorAll('.notice').forEach((notice) => notice.remove());
 				const shell = document.querySelector<HTMLElement>('[data-dtf-workbench-shell="1"]');
 				const nav = shell?.querySelector<HTMLElement>('[data-dtf-workbench-surface-nav="1"]');
+				const body = shell?.querySelector<HTMLElement>('[data-dtf-workbench-body="1"]');
+				const panel = shell?.querySelector<HTMLElement>('.dtf-workbench-active-panel');
 				const map = shell?.querySelector<HTMLElement>('[data-dtf-workbench-map="1"]');
 				const row = map?.querySelector<HTMLElement>(`[data-dtf-folder-path="${longFolder}"]`);
 				const detail = shell?.querySelector<HTMLElement>('[data-dtf-folder-detail="1"]');
@@ -413,6 +493,12 @@ describe('Taxonomy Workbench map — "my rules" sensing and touch actions', func
 					innerWidth: window.innerWidth,
 					hasShell: Boolean(shell),
 					hasMap: Boolean(map),
+					hasSummary: Boolean(shell?.querySelector('[data-dtf-systems-summary="1"]')),
+					browserExpanded: shell?.querySelector('[data-dtf-systems-browser-toggle="1"]')
+						?.getAttribute('aria-expanded') ?? null,
+					activeHeightRatio: body && panel && body.clientHeight > 0
+						? panel.clientHeight / body.clientHeight
+						: 0,
 					hasDetectTree: Boolean(map?.querySelector('[data-dtf-detect-tree="1"]')),
 					shellFits: Boolean(shell && shell.scrollWidth <= shell.clientWidth + 1),
 					mapInsideShell: Boolean(shellRect && mapRect && mapRect.right <= shellRect.right + 1),
@@ -433,6 +519,9 @@ describe('Taxonomy Workbench map — "my rules" sensing and touch actions', func
 			expect(layout.innerWidth).toBeLessThanOrEqual(520);
 			expect(layout.hasShell).toBe(true);
 			expect(layout.hasMap).toBe(true);
+				expect(layout.hasSummary).toBe(true);
+				expect(layout.browserExpanded).toBe('false');
+				expect(layout.activeHeightRatio).toBeGreaterThan(0.9);
 			expect(layout.hasDetectTree).toBe(false);
 			expect(layout.shellFits).toBe(true);
 			expect(layout.mapInsideShell).toBe(true);

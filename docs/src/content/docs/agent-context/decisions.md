@@ -111,13 +111,15 @@ These decisions came out of making the plugin usable on real, large vaults. Full
 
 ### Organizational systems are lifecycle-shaped occurrence objects; Rule layers stay separate
 
-**Decided:** The persistent Workbench shell renders one card per anchored organizational-system occurrence across Map, Scope, and Candidates. Folder rows carry typed member/support relations to every applicable occurrence. Candidate provenance is exact by `occurrenceKey`; installed rules remain grouped separately by runtime `MappingRule.group` as **Rule layers**.
+**Decided:** The persistent Workbench shell keeps a compact occurrence summary available across Map, Scope, and Candidates. Full cards live in a responsive browser: a collapsible side column at wide Workbench widths and a temporary drawer at narrow widths. Folder rows carry typed member/support relations to every applicable occurrence. Candidate provenance is exact by `occurrenceKey`; installed rules remain grouped separately by runtime `MappingRule.group` as **Rule layers** inside a collapsed disclosure.
 
 **Why:** A folder such as `Projects` is evidence for a PARA role, not independently “a PARA.” Users need to inspect and act on the coordinated group (`PARA at Work`) while still navigating through folders. Runtime rule precedence and system identity are related but not equivalent.
 
 **Honesty boundary:** Installed rules do not yet carry durable deployment provenance. Associations from a Rule layer to occurrences are labelled **inferred** or **unknown**, never ownership. The deck is a current-snapshot read model, not a durable deployment registry.
 
-**Interaction boundary:** Incomplete occurrences are shown by default for inspection but cannot create Scope deployments or Candidates. Selected-only SVG connectors are decorative and disappear in narrow panes; textual relation chips remain the semantic source.
+**Interaction boundary:** Incomplete occurrences are shown by default for inspection but cannot create Scope deployments or Candidates. Textual relation chips are the semantic and visual relationship source. Arbitrary pack-colour folder rails/tints and selected-only SVG connectors are rejected because visual testing showed that they introduced unexplained line noise and crossed content.
+
+**Responsive boundary:** “Persistent” means the summary, selection, and access remain available—not that the full card deck permanently consumes vertical height. Workbench width controls side-browser versus drawer behavior; short Workbench height hides supplementary Map counters so the hierarchy remains usable.
 
 **Freshness boundary:** The plugin increments a monotonic Workbench source revision after successful settings saves and folder create/delete/rename events. Open views mark snapshots stale immediately, pause candidate installation, debounce recollection, and recheck the revision before persistence.
 

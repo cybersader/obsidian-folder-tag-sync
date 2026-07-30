@@ -25,7 +25,6 @@ import {
 	type WorkbenchSurface,
 } from '../workbench/workbenchState';
 import type DynamicTagsFoldersPlugin from '../main';
-import { ConnectorOverlay } from './workbench/ConnectorOverlay';
 import { OrganizationalSystemsDeck } from './workbench/OrganizationalSystemsDeck';
 import { RuleLayersSection } from './workbench/RuleLayersSection';
 import { WorkbenchCandidatePanel } from './workbench/WorkbenchCandidatePanel';
@@ -48,11 +47,17 @@ export class TaxonomyWorkbenchView extends ItemView {
 	private activePanelSurface: WorkbenchSurface | null = null;
 	private navigationEl: HTMLElement | null = null;
 	private statusEl: HTMLElement | null = null;
+	private systemsSummaryEl: HTMLElement | null = null;
+	private systemsToggleEl: HTMLButtonElement | null = null;
+	private systemsBrowserEl: HTMLElement | null = null;
+	private systemsScrimEl: HTMLButtonElement | null = null;
 	private deckEl: HTMLElement | null = null;
 	private panelEl: HTMLElement | null = null;
 	private systemsDeck: OrganizationalSystemsDeck | null = null;
 	private ruleLayersSection: RuleLayersSection | null = null;
-	private connectorOverlay: ConnectorOverlay | null = null;
+	private layoutObserver: ResizeObserver | null = null;
+	private systemsBrowserOpen = false;
+	private narrowLayout = false;
 	private collectionGeneration = 0;
 	private opened = false;
 	private scanning = false;
@@ -141,15 +146,22 @@ export class TaxonomyWorkbenchView extends ItemView {
 		this.refreshTimer = null;
 		this.destroyActivePanel();
 		this.destroyPersistentDeck();
-		this.connectorOverlay?.destroy();
-		this.connectorOverlay = null;
+		this.layoutObserver?.disconnect();
+		this.layoutObserver = null;
 		this.snapshot = null;
 		this.navigationEl = null;
 		this.statusEl = null;
+		this.systemsSummaryEl = null;
+		this.systemsToggleEl = null;
+		this.systemsBrowserEl = null;
+		this.systemsScrimEl = null;
 		this.deckEl = null;
 		this.panelEl = null;
+		this.systemsBrowserOpen = false;
+		this.narrowLayout = false;
 		this.contentEl.empty();
 		this.contentEl.removeClass('dtf-workbench-shell');
+		this.contentEl.removeClass('is-short-workbench');
 	}
 
 	private buildShell(): void {
@@ -191,18 +203,138 @@ export class TaxonomyWorkbenchView extends ItemView {
 		this.statusEl.setAttr('aria-live', 'polite');
 		this.renderStatus();
 
-		this.deckEl = root.createDiv({ cls: 'dtf-workbench-persistent-deck' });
+		this.systemsSummaryEl = root.createDiv({ cls: 'dtf-workbench-systems-summary' });
+		this.systemsSummaryEl.dataset.dtfSystemsSummary = '1';
+		this.renderSystemsSummary();
+
+		const body = root.createDiv({ cls: 'dtf-workbench-body' });
+		body.dataset.dtfWorkbenchBody = '1';
+
+		this.systemsScrimEl = body.createEl('button', {
+			cls: 'dtf-workbench-systems-scrim',
+			attr: { 'aria-label': 'Close organizational systems browser' },
+		});
+		this.systemsScrimEl.addEventListener('click', () => this.setSystemsBrowserOpen(false));
+
+		this.systemsBrowserEl = body.createDiv({ cls: 'dtf-workbench-systems-browser' });
+		this.systemsBrowserEl.id = 'dtf-workbench-systems-browser';
+		this.systemsBrowserEl.dataset.dtfSystemsBrowser = '1';
+		const browserToolbar = this.systemsBrowserEl.createDiv({ cls: 'dtf-systems-browser-toolbar' });
+		browserToolbar.createDiv({ text: 'Systems browser' });
+		const closeBrowser = browserToolbar.createEl('button', { text: 'Close' });
+		closeBrowser.dataset.dtfSystemsBrowserClose = '1';
+		closeBrowser.setAttr('aria-label', 'Close organizational systems browser');
+		closeBrowser.addEventListener('click', () => this.setSystemsBrowserOpen(false));
+		this.systemsBrowserEl.addEventListener('keydown', (event) => {
+			if (event.key !== 'Escape' || !this.systemsBrowserOpen) return;
+			event.preventDefault();
+			this.setSystemsBrowserOpen(false);
+		});
+
+		this.deckEl = this.systemsBrowserEl.createDiv({ cls: 'dtf-workbench-persistent-deck' });
 		this.deckEl.dataset.dtfWorkbenchPersistentDeck = '1';
 
-		this.panelEl = root.createDiv();
+		this.panelEl = body.createDiv({ cls: 'dtf-workbench-active-panel' });
 		this.panelEl.id = 'dtf-workbench-active-panel';
 		this.panelEl.setAttr('role', 'tabpanel');
 		this.panelEl.dataset.dtfWorkbenchCurrentSurface = this.state.surface;
-		this.panelEl.style.flex = '1 1 auto';
-		this.panelEl.style.minHeight = '0';
-		this.panelEl.style.overflow = 'auto';
 
-		this.connectorOverlay = new ConnectorOverlay(root);
+		const initialWidth = root.clientWidth;
+		const initialHeight = root.clientHeight;
+		this.narrowLayout = initialWidth === 0 || initialWidth <= 750;
+		root.toggleClass('is-short-workbench', initialHeight > 0 && initialHeight <= 560);
+		this.systemsBrowserOpen = !this.narrowLayout;
+		this.updateSystemsBrowserState();
+		this.layoutObserver = new ResizeObserver((entries) => {
+			const width = entries[0]?.contentRect.width ?? root.clientWidth;
+			const height = entries[0]?.contentRect.height ?? root.clientHeight;
+			root.toggleClass('is-short-workbench', height > 0 && height <= 560);
+			const narrow = width <= 750;
+			if (narrow === this.narrowLayout) return;
+			this.narrowLayout = narrow;
+			this.systemsBrowserOpen = !narrow;
+			this.updateSystemsBrowserState();
+		});
+		this.layoutObserver.observe(root);
+		this.updateSystemsBrowserState();
+	}
+
+	private renderSystemsSummary(): void {
+		const summary = this.systemsSummaryEl;
+		if (!summary) return;
+		summary.empty();
+
+		const snapshot = this.snapshot;
+		const identity = summary.createDiv({ cls: 'dtf-systems-summary-identity' });
+		identity.createSpan({ cls: 'dtf-systems-summary-label', text: 'Organizational systems' });
+		if (!snapshot) {
+			identity.createSpan({ cls: 'dtf-systems-summary-detail', text: 'Collecting…' });
+		} else {
+			const selected = snapshot.organizationalSystems.cards.find((card) =>
+				card.occurrenceKey === this.state.selectedSystemInstanceKey);
+			const counts = `${snapshot.occurrenceStats.actionableCount} complete · `
+				+ `${snapshot.occurrenceStats.incompleteCount} incomplete`;
+			identity.createSpan({ cls: 'dtf-systems-summary-counts', text: counts });
+			identity.createSpan({
+				cls: 'dtf-systems-summary-detail',
+				text: selected
+					? `${selected.packName} at ${selected.anchorPath || 'vault root'} · ${selected.status === 'actionable' ? 'Complete' : selected.status === 'suppressed' ? 'Suppressed' : 'Incomplete'}`
+					: 'No system selected',
+			});
+		}
+
+		this.systemsToggleEl = summary.createEl('button', { text: 'Browse systems' });
+		this.systemsToggleEl.dataset.dtfSystemsBrowserToggle = '1';
+		this.systemsToggleEl.setAttr('aria-controls', 'dtf-workbench-systems-browser');
+		this.systemsToggleEl.disabled = snapshot === null;
+		this.systemsToggleEl.addEventListener('click', () => {
+			this.setSystemsBrowserOpen(!this.systemsBrowserOpen);
+		});
+		this.updateSystemsBrowserState();
+	}
+
+	private setSystemsBrowserOpen(open: boolean): void {
+		if (this.systemsBrowserOpen === open) return;
+		this.systemsBrowserOpen = open;
+		this.updateSystemsBrowserState();
+		if (open) {
+			requestAnimationFrame(() => {
+				this.systemsBrowserEl?.querySelector<HTMLElement>('.dtf-systems-browser-toolbar button')?.focus();
+			});
+		} else {
+			requestAnimationFrame(() => this.systemsToggleEl?.focus());
+		}
+	}
+
+	private updateSystemsBrowserState(): void {
+		const open = this.systemsBrowserOpen;
+		const overlayOpen = open && this.narrowLayout;
+		if (open) this.contentEl.addClass('is-systems-browser-open');
+		else this.contentEl.removeClass('is-systems-browser-open');
+
+		this.systemsBrowserEl?.toggleClass('is-open', open);
+		this.systemsBrowserEl?.setAttr('aria-hidden', String(!open));
+		if (this.systemsBrowserEl) {
+			if (open) this.systemsBrowserEl.removeAttribute('inert');
+			else this.systemsBrowserEl.setAttribute('inert', '');
+		}
+		this.systemsToggleEl?.setAttr('aria-expanded', String(open));
+		if (this.systemsToggleEl) {
+			this.systemsToggleEl.setText(
+				open ? (this.narrowLayout ? 'Close systems' : 'Hide systems') : 'Browse systems',
+			);
+		}
+		this.systemsScrimEl?.setAttr('aria-hidden', String(!overlayOpen));
+		if (this.systemsScrimEl) this.systemsScrimEl.tabIndex = overlayOpen ? 0 : -1;
+		if (this.panelEl) {
+			if (overlayOpen) {
+				this.panelEl.setAttribute('inert', '');
+				this.panelEl.setAttr('aria-hidden', 'true');
+			} else {
+				this.panelEl.removeAttribute('inert');
+				this.panelEl.removeAttribute('aria-hidden');
+			}
+		}
 	}
 
 	private renderNavigation(): void {
@@ -389,7 +521,7 @@ export class TaxonomyWorkbenchView extends ItemView {
 	}
 
 	private renderPersistentDeck(): void {
-		this.connectorOverlay?.update(this.state.selectedSystemInstanceKey);
+		this.renderSystemsSummary();
 		const container = this.deckEl;
 		const snapshot = this.snapshot;
 		if (!container || !snapshot) return;
@@ -404,14 +536,16 @@ export class TaxonomyWorkbenchView extends ItemView {
 		const systemsEl = container.createDiv();
 		const layersEl = container.createDiv();
 		this.systemsDeck = new OrganizationalSystemsDeck(systemsEl, snapshot, {
-			onSelectSystem: (occurrenceKey) => this.selectSystemInstance(occurrenceKey),
+			onSelectSystem: (occurrenceKey) => {
+				this.selectSystemInstance(occurrenceKey);
+				if (this.narrowLayout) this.setSystemsBrowserOpen(false);
+			},
 			onShowIncompleteChange: (show) => this.setShowIncompleteSystems(show),
 		});
 		this.ruleLayersSection = new RuleLayersSection(layersEl, snapshot);
 	}
 
 	private renderActivePanel(): void {
-		this.connectorOverlay?.update(this.state.selectedSystemInstanceKey);
 		const container = this.panelEl;
 		const snapshot = this.snapshot;
 		if (!container || !snapshot) return;

@@ -107,6 +107,8 @@ describe('Taxonomy Workbench — responsive Organizational systems browser', fun
 				`${fixture}/Work/Archive`,
 				`${fixture}/Home`,
 				`${fixture}/Home/Projects`,
+				`${fixture}/An intentionally long organizational context name/Home`,
+				`${fixture}/An intentionally long organizational context name/Home/Projects`,
 			]) {
 				if (!app.vault.getAbstractFileByPath(folder)) await app.vault.createFolder(folder);
 			}
@@ -159,6 +161,8 @@ describe('Taxonomy Workbench — responsive Organizational systems browser', fun
 			return {
 				completeKey: complete?.dataset.dtfSystemOccurrenceKey ?? '',
 				incompleteKey: incomplete?.dataset.dtfSystemOccurrenceKey ?? '',
+				longAnchorVisible: all.some((card) =>
+					(card.textContent ?? '').includes('An intentionally long organizational context name/Home')),
 				showIncomplete: document.querySelector<HTMLInputElement>('[data-dtf-show-incomplete-systems="1"]')?.checked ?? false,
 				ruleLayerText: document.querySelector('[data-dtf-rule-layers="1"]')?.textContent ?? '',
 				ruleLayersOpen: document.querySelector<HTMLDetailsElement>('[data-dtf-rule-layers-disclosure="1"]')?.open ?? true,
@@ -173,6 +177,7 @@ describe('Taxonomy Workbench — responsive Organizational systems browser', fun
 		expect(cards.completeKey).not.toBe('');
 		expect(cards.incompleteKey).not.toBe('');
 		expect(cards.completeKey).not.toBe(cards.incompleteKey);
+		expect(cards.longAnchorVisible).toBe(true);
 		expect(cards.showIncomplete).toBe(true);
 		expect(cards.ruleLayerText).toContain('para');
 		expect(cards.ruleLayerText).toContain('Inferred association');
@@ -321,6 +326,8 @@ describe('Taxonomy Workbench — responsive Organizational systems browser', fun
 			const browser = document.querySelector<HTMLElement>('[data-dtf-systems-browser="1"]');
 			const panel = document.querySelector<HTMLElement>('.dtf-workbench-active-panel');
 			const deck = document.querySelector<HTMLElement>('[data-dtf-workbench-persistent-deck="1"]');
+			const cards = Array.from(document.querySelectorAll<HTMLElement>('[data-dtf-system-occurrence-key]'));
+			const cardRects = cards.map((card) => card.getBoundingClientRect());
 			const bodyRect = body?.getBoundingClientRect();
 			const browserRect = browser?.getBoundingClientRect();
 			const panelRect = panel?.getBoundingClientRect();
@@ -335,6 +342,19 @@ describe('Taxonomy Workbench — responsive Organizational systems browser', fun
 					&& panelRect.height >= bodyRect.height - 2),
 				browserOverflow: browser ? getComputedStyle(browser).overflowY : null,
 				deckOverflow: deck ? getComputedStyle(deck).overflowY : null,
+				cardContentOverflow: cards.filter((card) =>
+					card.scrollHeight > card.clientHeight + 1).length,
+				cardHorizontalOverflow: cards.filter((card) =>
+					card.scrollWidth > card.clientWidth + 1).length,
+				cardChildOverflow: cards.filter((card, index) => {
+					const rect = cardRects[index];
+					return Array.from(card.children).some((child) => {
+						const childRect = child.getBoundingClientRect();
+						return childRect.top < rect.top - 1 || childRect.bottom > rect.bottom + 1;
+					});
+				}).length,
+				cardIntersections: cardRects.slice(0, -1).filter((rect, index) =>
+					rect.bottom > cardRects[index + 1].top + 1).length,
 				connectors: document.querySelectorAll('[data-dtf-connector="1"]').length,
 				hasConnectorOverlay: document.querySelector('[data-dtf-connector-overlay="1"]') !== null,
 				matchingEndpoints: Array.from(document.querySelectorAll<HTMLElement>('[data-dtf-occurrence-key]'))
@@ -349,11 +369,39 @@ describe('Taxonomy Workbench — responsive Organizational systems browser', fun
 		expect(desktop.panelFillsBody).toBe(true);
 		expect(desktop.browserOverflow).toBe('auto');
 		expect(desktop.deckOverflow).not.toBe('auto');
+		expect(desktop.cardContentOverflow).toBe(0);
+		expect(desktop.cardHorizontalOverflow).toBe(0);
+		expect(desktop.cardChildOverflow).toBe(0);
+		expect(desktop.cardIntersections).toBe(0);
 		expect(desktop.matchingEndpoints).toBeGreaterThan(0);
 		expect(desktop.connectors).toBe(0);
 		expect(desktop.hasConnectorOverlay).toBe(false);
 		expect(desktop.toggleExpanded).toBe('true');
 		await snap('organizational-systems-browser-desktop-selected');
+
+		const expandedLayers = await browser.executeObsidian(() => {
+			const disclosure = document.querySelector<HTMLDetailsElement>('[data-dtf-rule-layers-disclosure="1"]');
+			if (disclosure) disclosure.open = true;
+			const browser = document.querySelector<HTMLElement>('[data-dtf-systems-browser="1"]');
+			const detail = document.querySelector<HTMLElement>('[data-dtf-selected-system-detail="1"]');
+			const layers = document.querySelector<HTMLElement>('[data-dtf-rule-layers="1"]');
+			const cards = Array.from(document.querySelectorAll<HTMLElement>('[data-dtf-rule-layer-key]'));
+			return {
+				open: disclosure?.open ?? false,
+				cardContentOverflow: cards.filter((card) =>
+					card.scrollHeight > card.clientHeight + 1).length,
+				cardHorizontalOverflow: cards.filter((card) =>
+					card.scrollWidth > card.clientWidth + 1).length,
+				detailOverlapsLayers: Boolean(detail && layers
+					&& detail.getBoundingClientRect().bottom > layers.getBoundingClientRect().top + 1),
+				browserHorizontalOverflow: browser ? browser.scrollWidth - browser.clientWidth : 1,
+			};
+		});
+		expect(expandedLayers.open).toBe(true);
+		expect(expandedLayers.cardContentOverflow).toBe(0);
+		expect(expandedLayers.cardHorizontalOverflow).toBe(0);
+		expect(expandedLayers.detailOverlapsLayers).toBe(false);
+		expect(expandedLayers.browserHorizontalOverflow).toBeLessThanOrEqual(1);
 
 		await browser.executeObsidian(() => {
 			document.querySelector<HTMLButtonElement>('[data-dtf-systems-browser-toggle="1"]')?.click();
@@ -442,6 +490,8 @@ describe('Taxonomy Workbench — responsive Organizational systems browser', fun
 				const browser = document.querySelector<HTMLElement>('[data-dtf-systems-browser="1"]');
 				const panel = document.querySelector<HTMLElement>('.dtf-workbench-active-panel');
 				const scrim = document.querySelector<HTMLElement>('.dtf-workbench-systems-scrim');
+				const cards = Array.from(document.querySelectorAll<HTMLElement>('[data-dtf-system-occurrence-key]'));
+				const cardRects = cards.map((card) => card.getBoundingClientRect());
 				const bodyRect = body?.getBoundingClientRect();
 				const browserRect = browser?.getBoundingClientRect();
 				return {
@@ -451,6 +501,19 @@ describe('Taxonomy Workbench — responsive Organizational systems browser', fun
 					panelAriaHidden: panel?.getAttribute('aria-hidden') ?? null,
 					panelInert: panel?.hasAttribute('inert') ?? false,
 					scrimDisplay: scrim ? getComputedStyle(scrim).display : null,
+					cardContentOverflow: cards.filter((card) =>
+						card.scrollHeight > card.clientHeight + 1).length,
+					cardHorizontalOverflow: cards.filter((card) =>
+						card.scrollWidth > card.clientWidth + 1).length,
+					cardChildOverflow: cards.filter((card, index) => {
+						const rect = cardRects[index];
+						return Array.from(card.children).some((child) => {
+							const childRect = child.getBoundingClientRect();
+							return childRect.top < rect.top - 1 || childRect.bottom > rect.bottom + 1;
+						});
+					}).length,
+					cardIntersections: cardRects.slice(0, -1).filter((rect, index) =>
+						rect.bottom > cardRects[index + 1].top + 1).length,
 					connectors: document.querySelectorAll('[data-dtf-connector="1"]').length,
 				};
 			});
@@ -459,6 +522,10 @@ describe('Taxonomy Workbench — responsive Organizational systems browser', fun
 			expect(drawer.panelAriaHidden).toBe('true');
 			expect(drawer.panelInert).toBe(true);
 			expect(drawer.scrimDisplay).toBe('block');
+			expect(drawer.cardContentOverflow).toBe(0);
+			expect(drawer.cardHorizontalOverflow).toBe(0);
+			expect(drawer.cardChildOverflow).toBe(0);
+			expect(drawer.cardIntersections).toBe(0);
 			expect(drawer.connectors).toBe(0);
 			await snap('organizational-systems-browser-480-drawer');
 

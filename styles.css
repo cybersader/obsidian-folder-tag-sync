@@ -326,6 +326,14 @@
 	min-height: 44px;
 }
 
+/* Obsidian themes commonly give buttons a fixed input height. These controls
+ * contain wrapped, multi-line content, so their block size must follow it. */
+.dtf-workbench-shell button.dtf-orgsys-card,
+.dtf-workbench-shell button.dtf-candidate-occurrence-header {
+	height: auto;
+	max-height: none;
+}
+
 .dtf-workbench-systems-summary {
 	flex: 0 0 auto;
 	display: flex;
@@ -438,9 +446,9 @@
 
 .dtf-orgsys-heading-row {
 	display: flex;
-	align-items: flex-start;
-	justify-content: space-between;
-	gap: 0.75em;
+	align-items: stretch;
+	flex-direction: column;
+	gap: 0.35em;
 	margin-bottom: 0.35em;
 }
 
@@ -484,8 +492,10 @@
 button.dtf-orgsys-card {
 	display: grid;
 	grid-template-columns: minmax(0, 1fr);
+	align-content: start;
 	gap: 0.22em;
 	width: 100%;
+	min-width: 0;
 	padding: 0.55em 0.65em;
 	text-align: left;
 	white-space: normal;
@@ -520,15 +530,26 @@ button.dtf-orgsys-card.is-selected {
 .dtf-orgsys-card-title,
 .dtf-rule-layer-title {
 	display: flex;
-	align-items: center;
-	justify-content: space-between;
+	align-items: flex-start;
+	flex-wrap: wrap;
 	gap: 0.4em;
+	min-width: 0;
 	font-weight: 650;
+}
+
+.dtf-orgsys-card-title > span:first-child,
+.dtf-orgsys-detail-title > span:first-child,
+.dtf-rule-layer-title > span:first-child {
+	flex: 1 1 150px;
+	min-width: 0;
+	overflow-wrap: anywhere;
 }
 
 .dtf-orgsys-status,
 .dtf-orgsys-inspect-only,
 .dtf-rule-layer-rank {
+	flex: 0 0 auto;
+	margin-left: auto;
 	padding: 0.12em 0.42em;
 	border: 1px solid var(--background-modifier-border);
 	border-radius: 999px;
@@ -568,6 +589,7 @@ button.dtf-orgsys-card.is-selected {
 }
 
 .dtf-orgsys-selected-detail {
+	min-width: 0;
 	margin-top: 0.55em;
 	padding: 0.55em 0.65em;
 	background: var(--background-primary);
@@ -577,9 +599,10 @@ button.dtf-orgsys-card.is-selected {
 
 .dtf-orgsys-detail-title {
 	display: flex;
-	align-items: center;
-	justify-content: space-between;
+	align-items: flex-start;
+	flex-wrap: wrap;
 	gap: 0.5em;
+	min-width: 0;
 	font-weight: 650;
 }
 
@@ -620,8 +643,14 @@ button.dtf-folder-occurrence-chip.is-selected {
 }
 
 .dtf-orgsys-relation-kind {
+	flex: 0 0 auto;
 	font-weight: 650;
 	color: var(--text-accent);
+}
+
+.dtf-orgsys-relation-chip > span:last-child {
+	min-width: 0;
+	overflow-wrap: anywhere;
 }
 
 .dtf-orgsys-detail-empty,

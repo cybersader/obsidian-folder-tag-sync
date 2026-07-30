@@ -16,6 +16,7 @@ import {
 	type SignalFilterIdentity,
 	type WorkbenchScopeState,
 } from '../../workbench/workbenchState';
+import { renderSemanticPath } from './SemanticPath';
 
 export interface WorkbenchScopePanelCallbacks {
 	onSelectedPathsChange(selectedPaths: string[]): void;
@@ -125,8 +126,13 @@ export class WorkbenchScopePanel {
 		header.style.gap = '0.5em';
 		header.style.flexWrap = 'wrap';
 
-		const heading = header.createEl('h3', { text: 'Choose branches to include' });
+		const headingWrap = header.createDiv();
+		const heading = headingWrap.createEl('h3', { text: 'Scope: choose what to include' });
 		heading.style.margin = '0';
+		headingWrap.createDiv({
+			cls: 'dtf-workbench-surface-intro',
+			text: 'Checked folders are inclusion boundaries. They include complete system occurrences beneath them, while each system keeps its own detected anchor.',
+		});
 
 		const refresh = header.createEl('button', { text: 'Refresh' });
 		refresh.setAttr('aria-label', 'Re-scan the vault');
@@ -142,8 +148,8 @@ export class WorkbenchScopePanel {
 		this.makeStat(statBar, 'Folders matched', tree.totalHitFolders);
 		this.makeStat(statBar, 'Surfaced systems', this.snapshot.surfacedResults.length);
 		this.makeStat(statBar, 'Selected folders', this.selectedPaths.size);
-		this.makeStat(statBar, 'Minimal scopes', plan.scopePaths.length);
-		this.makeStat(statBar, 'Deployments', plan.deployments.length);
+		this.makeStat(statBar, 'Inclusion boundaries', plan.scopePaths.length);
+		this.makeStat(statBar, 'System occurrences', plan.deployments.length);
 	}
 
 	private renderDetectionNotices(parent: HTMLElement): void {
@@ -162,7 +168,7 @@ export class WorkbenchScopePanel {
 			warning.createSpan({ text: `Conflicting systems detected: ${names}. ` })
 				.style.fontWeight = '600';
 			warning.createSpan({
-				text: 'A scope containing hits from both systems creates deployments for both.',
+				text: 'An inclusion boundary containing both complete occurrences generates candidates for both.',
 			});
 		}
 
@@ -368,7 +374,7 @@ export class WorkbenchScopePanel {
 		text.style.flex = '1 1 auto';
 		text.createDiv({ text: 'Vault root' }).style.fontWeight = '600';
 		const description = text.createDiv({
-			text: 'Select this to include every surfaced detected instance in the vault.',
+			text: 'Select this inclusion boundary to include every complete system occurrence in the vault. Each system keeps its own anchor.',
 		});
 		description.style.fontSize = '0.78em';
 		description.style.color = 'var(--text-muted)';
@@ -513,14 +519,22 @@ export class WorkbenchScopePanel {
 		name.style.fontWeight = isDirectHit ? '600' : '400';
 		if (!isDirectHit) name.style.color = 'var(--text-muted)';
 
+		if (!hasActionableEvidence) {
+			const inspectOnly = row.createSpan({
+				cls: 'dtf-scope-inspect-only',
+				text: 'Inspect only',
+			});
+			inspectOnly.dataset.dtfScopeInspectOnly = '1';
+			inspectOnly.title = 'This branch contains only incomplete or suppressed evidence and cannot create candidates.';
+		}
 		if (isScopePoint) this.makeScopeBadge(row, scopeColor, node.fullPath);
 		else if (isAbsorbed) {
-			const badge = row.createSpan({ text: '↑ absorbed' });
+			const badge = row.createSpan({ text: 'Covered by parent boundary' });
 			badge.style.fontSize = '0.65em';
 			badge.style.color = 'var(--text-muted)';
 			badge.style.marginLeft = '0.35em';
 			badge.style.fontStyle = 'italic';
-			badge.title = 'A selected ancestor already covers this folder.';
+			badge.title = 'A selected ancestor is already the inclusion boundary for this folder.';
 		}
 
 		if (isDirectHit) this.renderFolderSignalChips(row, node.hits);
@@ -586,12 +600,27 @@ export class WorkbenchScopePanel {
 				? '0.35'
 				: '1';
 			const fullAnchor = hit.occurrenceAnchorPath || 'vault root';
-			const compactAnchor = hit.occurrenceAnchorPath
-				? ` @ ${hit.occurrenceAnchorPath.split('/').at(-1)}`
-				: '';
-			chip.setText(hit.occurrenceKey
-				? `${relation === 'support' ? 'Support' : 'Member'} · ${signal.packName}${compactAnchor}`
-				: `Signal · ${signal.label}`);
+			if (hit.occurrenceKey) {
+				chip.createSpan({
+					cls: 'dtf-folder-occurrence-relation',
+					text: relation === 'support' ? 'Support for' : 'Member of',
+				});
+				chip.createSpan({
+					cls: 'dtf-folder-occurrence-system',
+					text: signal.packName,
+				});
+				renderSemanticPath(chip, hit.occurrenceAnchorPath || '', {
+					role: 'scope-occurrence-anchor',
+					focusLabel: 'System anchor',
+					variant: 'compact',
+				});
+				chip.setAttr(
+					'aria-label',
+					`${relation === 'support' ? 'Support' : 'Member'} evidence for ${signal.packName}. System anchor: ${fullAnchor}.`,
+				);
+			} else {
+				chip.setText(`Signal · ${signal.label}`);
+			}
 			chip.title = hit.occurrenceKey
 				? `${signal.label}; ${signal.packName} occurrence at ${fullAnchor}`
 				: `${signal.label} (${signal.packName})`;
@@ -608,39 +637,51 @@ export class WorkbenchScopePanel {
 	}
 
 	private renderPlanSummary(parent: HTMLElement, plan: ScopePackPlan): void {
-		const summary = parent.createDiv();
-		summary.style.padding = '0.55em 0.7em';
-		summary.style.background = 'var(--background-secondary)';
-		summary.style.borderRadius = '6px';
-		summary.style.fontSize = '0.86em';
-
-		const title = summary.createDiv({
-			text: `${plan.scopePaths.length} minimal scope${plan.scopePaths.length === 1 ? '' : 's'} · `
-				+ `${plan.deployments.length} deployment${plan.deployments.length === 1 ? '' : 's'}`,
+		const summary = parent.createDiv({ cls: 'dtf-scope-plan-summary' });
+		summary.dataset.dtfScopePlanSummary = '1';
+		summary.createDiv({
+			cls: 'dtf-scope-plan-title',
+			text: 'Selection plan',
 		});
-		title.style.fontWeight = '600';
 
 		if (plan.deployments.length === 0) {
-			const empty = summary.createDiv({
-				text: 'Select a surfaced hit or one of its ancestors to create deployments.',
+			summary.createDiv({
+				cls: 'dtf-workbench-consequence',
+				text: 'Select a complete system occurrence or one of its ancestor branches. Incomplete and suppressed evidence remains inspect only.',
 			});
-			empty.style.color = 'var(--text-muted)';
-			empty.style.marginTop = '0.2em';
 			return;
 		}
 
-		const deploymentsByScope = new Map<string, string[]>();
-		for (const deployment of plan.deployments) {
-			const names = deploymentsByScope.get(deployment.anchorPath) ?? [];
-			names.push(this.packName(deployment.packId));
-			deploymentsByScope.set(deployment.anchorPath, names);
+		const boundaries = summary.createDiv({ cls: 'dtf-scope-plan-section' });
+		boundaries.createDiv({
+			cls: 'dtf-scope-plan-section-title',
+			text: `Inclusion boundaries (${plan.scopePaths.length})`,
+		});
+		for (const path of plan.scopePaths) {
+			renderSemanticPath(boundaries, path, {
+				role: 'scope-inclusion-boundary',
+				focusLabel: 'Selected branch',
+				variant: 'stacked',
+			});
 		}
-		for (const [anchorPath, names] of deploymentsByScope) {
-			const line = summary.createDiv();
-			line.style.marginTop = '0.2em';
-			line.createSpan({ text: `${displayScopePath(anchorPath)}: ` })
-				.style.fontFamily = 'var(--font-monospace)';
-			line.createSpan({ text: names.join(', ') });
+
+		const deployments = summary.createDiv({ cls: 'dtf-scope-plan-section' });
+		deployments.createDiv({
+			cls: 'dtf-scope-plan-section-title',
+			text: `System anchors that will generate candidates (${plan.deployments.length})`,
+		});
+		for (const deployment of plan.deployments) {
+			const row = deployments.createDiv({ cls: 'dtf-scope-deployment-row' });
+			row.dataset.dtfScopeDeployment = deployment.occurrenceKey;
+			row.createDiv({
+				cls: 'dtf-scope-deployment-system',
+				text: this.packName(deployment.packId),
+			});
+			renderSemanticPath(row, deployment.anchorPath, {
+				role: 'scope-system-anchor',
+				focusLabel: 'System anchor',
+				variant: 'stacked',
+			});
 		}
 	}
 
@@ -653,8 +694,8 @@ export class WorkbenchScopePanel {
 
 		const draft = actions.createEl('button', {
 			text: plan.deployments.length === 0
-				? 'Draft candidates (no deployments)'
-				: `Draft candidates (${plan.deployments.length})`,
+				? 'Review candidates (no complete systems included)'
+				: `Review candidates from ${plan.deployments.length} system occurrence${plan.deployments.length === 1 ? '' : 's'}`,
 		});
 		draft.addClass('mod-cta');
 		draft.disabled = plan.deployments.length === 0;
@@ -678,7 +719,7 @@ export class WorkbenchScopePanel {
 	}
 
 	private makeScopeBadge(parent: HTMLElement, color: string, path: string): void {
-		const badge = parent.createSpan({ text: 'scope' });
+		const badge = parent.createSpan({ text: 'Inclusion boundary' });
 		badge.style.fontSize = '0.65em';
 		badge.style.padding = '0.05em 0.4em';
 		badge.style.background = color;
@@ -686,11 +727,10 @@ export class WorkbenchScopePanel {
 		badge.style.borderRadius = '999px';
 		badge.style.marginLeft = '0.35em';
 		badge.style.fontWeight = '600';
-		badge.style.letterSpacing = '0.04em';
-		badge.style.textTransform = 'uppercase';
+		badge.style.letterSpacing = '0.02em';
 		badge.title = path === ''
-			? 'Includes every surfaced detected instance in the vault.'
-			: `Includes surfaced detected instances at or below "${path}". Rules stay anchored at each detected instance parent.`;
+			? 'Includes every complete system occurrence in the vault. Each system keeps its own anchor.'
+			: `Includes complete system occurrences at or below "${path}". Each system keeps its own detected anchor.`;
 	}
 
 	private branchHasActionableEvidence(path: string): boolean {
@@ -812,10 +852,6 @@ function findContainingScope(path: string, cover: readonly string[]): string | n
 		}
 	}
 	return best;
-}
-
-function displayScopePath(path: string): string {
-	return path === '' ? '(vault root)' : path;
 }
 
 function scopeColorForIndex(index: number): string {

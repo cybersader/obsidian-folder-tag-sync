@@ -6,6 +6,7 @@ import type {
 	CandidateSort,
 	WorkbenchCandidateState,
 } from '../../workbench/workbenchState';
+import { renderSemanticPath } from './SemanticPath';
 
 /** The persistence callback returns the same exact accounting as the pure install planner. */
 export type WorkbenchCandidateInstallResult = RuleInstallPlan;
@@ -127,14 +128,18 @@ export class WorkbenchCandidatePanel {
 		header.style.flexWrap = 'wrap';
 
 		const heading = header.createDiv();
-		heading.createEl('h3', { text: 'Review candidate rules' }).style.margin = '0';
+		heading.createEl('h3', { text: 'Candidates: review disabled drafts' }).style.margin = '0';
 		const source = heading.createDiv({
 			text: this.snapshot.state.candidates.source === 'scope-selection'
-				? 'Drafted from the current scope selection'
-				: 'Drafted from detected system instances',
+				? 'Generated from the current inclusion boundaries'
+				: 'Generated from complete detected system occurrences',
 		});
 		source.style.color = 'var(--text-muted)';
 		source.style.fontSize = '0.82em';
+		heading.createDiv({
+			cls: 'dtf-workbench-surface-intro',
+			text: 'Checking a candidate queues a disabled rule draft. Nothing syncs until that rule is reviewed and explicitly enabled in Settings.',
+		});
 
 		const actions = header.createDiv();
 		actions.style.display = 'flex';
@@ -182,7 +187,7 @@ export class WorkbenchCandidatePanel {
 		banner.style.border = '1px solid rgba(40, 140, 70, 0.38)';
 
 		const summary = banner.createDiv({
-			text: `Install complete: ${result.addedRuleIds.length} added, ${result.skippedExistingIds.length} already installed, ${result.skippedDuplicateCount} duplicate selection${result.skippedDuplicateCount === 1 ? '' : 's'} skipped.`,
+			text: `Disabled drafts added: ${result.addedRuleIds.length} new, ${result.skippedExistingIds.length} already installed, ${result.skippedDuplicateCount} duplicate selection${result.skippedDuplicateCount === 1 ? '' : 's'} skipped.`,
 		});
 		summary.style.fontWeight = '600';
 		summary.style.color = 'var(--text-success, rgb(40, 140, 70))';
@@ -233,11 +238,11 @@ export class WorkbenchCandidatePanel {
 		statBar.style.display = 'grid';
 		statBar.style.gridTemplateColumns = 'repeat(auto-fit, minmax(120px, 1fr))';
 		statBar.style.gap = '0.5em';
-		this.makeStat(statBar, 'Candidates', summary.totalCandidates);
+		this.makeStat(statBar, 'Candidate rules', summary.totalCandidates);
 		this.makeStat(statBar, 'With matches', summary.touchingCandidates);
 		this.makeStat(statBar, 'Conflicts', summary.conflictingCandidates);
 		this.makeStat(statBar, 'Overlap existing', summary.collidingWithExistingCandidates);
-		this.makeStat(statBar, 'Systems', summary.distinctSourcePacks.length);
+		this.makeStat(statBar, 'Source systems', summary.distinctSourcePacks.length);
 	}
 
 	private makeStat(parent: HTMLElement, label: string, value: number): void {
@@ -287,7 +292,7 @@ export class WorkbenchCandidatePanel {
 		const spacer = toolbar.createDiv();
 		spacer.style.flex = '1 1 auto';
 
-		this.renderSortButton(toolbar, 'noise', 'Sort: junk first');
+		this.renderSortButton(toolbar, 'noise', 'Sort: low-signal first');
 		this.renderSortButton(toolbar, 'conflict', 'Sort: conflicts first');
 	}
 
@@ -333,19 +338,24 @@ export class WorkbenchCandidatePanel {
 			header.dataset.dtfCandidateGroupHeader = '1';
 			header.setAttr(
 				'aria-label',
-				`Select ${group.provenance.sourcePackName} at ${group.provenance.anchorPath || 'vault root'} in the Organizational systems deck`,
+				`Focus the ${group.provenance.sourcePackName} system occurrence at ${group.provenance.anchorPath || 'vault root'}. This does not select candidate rules.`,
 			);
+			header.createSpan({
+				cls: 'dtf-workbench-object-kind',
+				text: 'System occurrence',
+			});
 			header.createSpan({
 				cls: 'dtf-candidate-occurrence-name',
 				text: group.provenance.sourcePackName,
 			});
-			header.createSpan({
-				cls: 'dtf-candidate-occurrence-anchor',
-				text: `At ${group.provenance.anchorPath || 'vault root'}`,
+			renderSemanticPath(header, group.provenance.anchorPath, {
+				role: 'candidate-source-system-anchor',
+				focusLabel: 'System anchor',
+				variant: 'compact',
 			});
 			header.createSpan({
 				cls: 'dtf-candidate-occurrence-count',
-				text: `${group.rows.length} candidate${group.rows.length === 1 ? '' : 's'}`,
+				text: `${group.rows.length} candidate rule${group.rows.length === 1 ? '' : 's'}`,
 			});
 			header.addEventListener('click', () => {
 				void this.options.onSelectSystem?.(group.occurrenceKey);
@@ -380,12 +390,16 @@ export class WorkbenchCandidatePanel {
 		head.style.gap = '0.4em';
 		head.style.flexWrap = 'wrap';
 
+		head.createSpan({
+			cls: 'dtf-workbench-object-kind dtf-candidate-rule-kind',
+			text: 'Candidate rule',
+		});
 		const checkbox = head.createEl('input', { type: 'checkbox' });
 		checkbox.checked = !installed && this.selectedKeys.has(candidate.key);
 		checkbox.disabled = installed || this.installing;
 		checkbox.setAttr('aria-label', installed
 			? `Rule ${candidate.rule.name} is already installed`
-			: `Select candidate rule ${candidate.rule.name}`);
+			: `Queue ${candidate.rule.name} as a disabled rule draft`);
 		checkbox.addEventListener('change', () => {
 			this.toggleCandidate(candidate.key, checkbox.checked);
 		});
@@ -405,11 +419,12 @@ export class WorkbenchCandidatePanel {
 		provenance.style.paddingLeft = '1.65em';
 		provenance.style.fontSize = '0.78em';
 		provenance.style.color = 'var(--text-muted)';
-		provenance.createSpan({ text: `Source: ${candidate.sourcePackName}` });
-		const scope = provenance.createSpan({
-			text: `Scope: ${candidate.anchorPath || '(vault root)'}`,
+		provenance.createSpan({ text: `Exact source: ${candidate.sourcePackName} system occurrence` });
+		renderSemanticPath(provenance, candidate.anchorPath, {
+			role: 'candidate-rule-anchor',
+			focusLabel: 'Rule anchor',
+			variant: 'compact',
 		});
-		scope.style.fontFamily = 'var(--font-monospace)';
 
 		this.renderConflictDetails(row, candidate);
 		this.renderSampleEmissions(row, candidate);
@@ -426,13 +441,13 @@ export class WorkbenchCandidatePanel {
 			chip.style.color = 'var(--text-muted)';
 			chip.style.border = '1px solid var(--background-modifier-border)';
 		} else if (count > 0) {
-			chip.setText(`${count} folder${count === 1 ? '' : 's'}`);
+			chip.setText(`Matches ${count} folder${count === 1 ? '' : 's'}`);
 			chip.title = 'Folders this rule matches. Notes in each matched folder receive the emitted tag on sync.';
 			chip.style.background = 'rgba(40, 140, 70, 0.15)';
 			chip.style.color = 'var(--text-success, rgb(40, 140, 70))';
 			chip.style.border = '1px solid rgba(40, 140, 70, 0.35)';
 		} else {
-			chip.setText('0 — no match');
+			chip.setText('Matches 0 folders');
 			chip.style.background = 'var(--background-modifier-form-field)';
 			chip.style.color = 'var(--text-muted)';
 			chip.style.border = '1px solid var(--background-modifier-border)';
@@ -446,17 +461,17 @@ export class WorkbenchCandidatePanel {
 		chip.style.background = 'var(--background-modifier-form-field)';
 		chip.style.border = '1px solid var(--background-modifier-border)';
 		if (verdict === 'lossy') {
-			chip.setText('Lossy');
+			chip.setText('Round trip: lossy');
 			chip.style.background = 'rgba(200, 140, 30, 0.15)';
 			chip.style.color = 'var(--text-warning, rgb(180, 120, 20))';
 			chip.style.border = '1px solid rgba(200, 140, 30, 0.4)';
 			chip.title = 'The tag does not fully reconstruct the folder. Inverse sync may not recover the original.';
 		} else if (verdict === 'total') {
-			chip.setText('1:1');
+			chip.setText('Round trip: 1:1');
 			chip.style.color = 'var(--text-muted)';
 			chip.title = 'Folder and tag round-trip exactly.';
 		} else {
-			chip.setText('Conditional');
+			chip.setText('Round trip: conditional');
 			chip.style.color = 'var(--text-muted)';
 			chip.title = 'The rule round-trips for some inputs but not all.';
 		}
@@ -518,8 +533,8 @@ export class WorkbenchCandidatePanel {
 			? 'var(--text-error, rgb(190, 50, 50))'
 			: 'var(--text-muted)';
 		const kind = conflict.collidesWithExisting
-			? 'Candidate versus installed-rule conflict.'
-			: 'Candidate versus candidate conflict.';
+			? 'Conflict analysis: candidate versus installed rule.'
+			: 'Conflict analysis: candidate versus candidate.';
 		const winner = conflict.predictedWinnerId
 			? ` Predicted winner: ${conflict.predictedWinnerId}.`
 			: ' No winner could be predicted.';
@@ -538,6 +553,10 @@ export class WorkbenchCandidatePanel {
 		sampleWrap.style.color = 'var(--text-muted)';
 		sampleWrap.style.paddingLeft = '1.65em';
 		sampleWrap.style.lineHeight = '1.5';
+		sampleWrap.createDiv({
+			cls: 'dtf-candidate-sample-heading',
+			text: 'Examples: folder → tag',
+		});
 		for (const sample of samples) {
 			const line = sampleWrap.createDiv();
 			line.createSpan({ text: sample.folder });
@@ -578,10 +597,10 @@ export class WorkbenchCandidatePanel {
 		preview.style.border = '1px solid var(--background-modifier-border)';
 		preview.style.borderRadius = '6px';
 
-		const title = preview.createDiv({ text: 'Final preview' });
+		const title = preview.createDiv({ text: 'Disabled draft preview' });
 		title.style.fontWeight = '600';
 		const count = preview.createDiv({
-			text: `${chosen.length} of ${installableCount} installable candidate${installableCount === 1 ? '' : 's'} selected · ${uniqueRuleIds.size} unique rule ID${uniqueRuleIds.size === 1 ? '' : 's'} · ${systems.size} system${systems.size === 1 ? '' : 's'}.`,
+			text: `${chosen.length} of ${installableCount} available disabled draft${installableCount === 1 ? '' : 's'} selected · ${uniqueRuleIds.size} unique rule ID${uniqueRuleIds.size === 1 ? '' : 's'} · ${systems.size} source system${systems.size === 1 ? '' : 's'}.`,
 		});
 		count.style.marginTop = '0.25em';
 		count.style.fontSize = '0.86em';
@@ -607,7 +626,7 @@ export class WorkbenchCandidatePanel {
 		const stale = this.options.isSnapshotStale?.() ?? false;
 		if (stale) {
 			const staleNotice = preview.createDiv({
-				text: 'The vault or rule settings changed after these candidates were planned. Installation is paused until refresh completes.',
+				text: 'The vault or rule settings changed after these candidates were planned. Adding drafts is paused until refresh completes.',
 			});
 			staleNotice.dataset.dtfCandidateStale = '1';
 			staleNotice.style.marginTop = '0.4em';
@@ -616,7 +635,7 @@ export class WorkbenchCandidatePanel {
 		}
 
 		const safety = preview.createDiv({
-			text: 'Every added rule will be installed disabled. This action will not change files, folders, frontmatter, or current sync behavior.',
+			text: 'Every selected item will be added as a disabled rule draft. This action will not change files, folders, frontmatter, or current sync behavior.',
 		});
 		safety.style.marginTop = '0.4em';
 		safety.style.fontWeight = '600';
@@ -627,8 +646,8 @@ export class WorkbenchCandidatePanel {
 		actions.style.marginTop = '0.6em';
 		const installBtn = actions.createEl('button', {
 			text: chosen.length === 0
-				? 'Install selected rules'
-				: `Install ${chosen.length} selected rule${chosen.length === 1 ? '' : 's'}`,
+				? 'Add selected disabled drafts'
+				: `Add ${chosen.length} selected disabled draft${chosen.length === 1 ? '' : 's'}`,
 		});
 		installBtn.addClass('mod-cta');
 		installBtn.disabled = chosen.length === 0 || this.installing || stale;
@@ -655,10 +674,10 @@ export class WorkbenchCandidatePanel {
 		confirmation.style.borderRadius = '6px';
 		confirmation.style.background = 'var(--background-primary-alt)';
 
-		const title = confirmation.createDiv({ text: 'Confirm disabled rule installation' });
+		const title = confirmation.createDiv({ text: 'Confirm adding disabled drafts' });
 		title.style.fontWeight = '600';
 		confirmation.createEl('p', {
-			text: `Install ${chosen.length} selected candidate${chosen.length === 1 ? '' : 's'} from ${systems.size} system${systems.size === 1 ? '' : 's'}?`,
+			text: `Add ${chosen.length} selected disabled draft${chosen.length === 1 ? '' : 's'} from ${systems.size} source system${systems.size === 1 ? '' : 's'}?`,
 		});
 		if (colliding > 0) {
 			const warning = confirmation.createEl('p', {
@@ -675,7 +694,7 @@ export class WorkbenchCandidatePanel {
 			warning.style.fontSize = '0.86em';
 		}
 		const safety = confirmation.createEl('p', {
-			text: 'New rules are installed disabled. No files, folders, or frontmatter will change.',
+			text: 'New drafts are added disabled. No files, folders, tags, or frontmatter will change.',
 		});
 		safety.style.fontWeight = '600';
 		safety.style.fontSize = '0.88em';
@@ -694,8 +713,8 @@ export class WorkbenchCandidatePanel {
 
 		const confirmBtn = actions.createEl('button', {
 			text: this.installing
-				? 'Installing…'
-				: `Confirm ${chosen.length} rule${chosen.length === 1 ? '' : 's'}`,
+				? 'Adding disabled drafts…'
+				: `Confirm ${chosen.length} disabled draft${chosen.length === 1 ? '' : 's'}`,
 		});
 		confirmBtn.addClass('mod-cta');
 		confirmBtn.disabled = this.installing
@@ -764,14 +783,14 @@ export class WorkbenchCandidatePanel {
 		if (this.options.isSnapshotStale?.()) {
 			this.feedback = {
 				kind: 'error',
-				message: 'Installation paused because the candidate snapshot is stale. Wait for refresh and review the updated candidates.',
+				message: 'Adding drafts is paused because the candidate snapshot is stale. Wait for refresh and review the updated candidates.',
 			};
 			this.confirmationOpen = false;
 			this.render();
 			return;
 		}
 		this.installing = true;
-		this.feedback = { kind: 'info', message: 'Installing selected rules…' };
+		this.feedback = { kind: 'info', message: 'Adding selected disabled drafts…' };
 		this.render();
 
 		try {
@@ -791,7 +810,7 @@ export class WorkbenchCandidatePanel {
 			if (this.destroyed) return;
 			this.feedback = {
 				kind: 'error',
-				message: `Installation failed: ${errorMessage(error)} The panel remains open. Because the callback did not return a result, refresh before retrying if persistence may have partially completed.`,
+				message: `Adding disabled drafts failed: ${errorMessage(error)} The panel remains open. Because the callback did not return a result, refresh before retrying if persistence may have partially completed.`,
 			};
 		} finally {
 			this.installing = false;

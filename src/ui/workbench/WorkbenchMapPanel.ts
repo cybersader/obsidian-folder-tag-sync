@@ -12,6 +12,7 @@ import type {
 	WorkbenchState,
 } from '../../workbench/workbenchState';
 import { renderAnnotatedTree } from '../annotatedTreeRender';
+import { renderSemanticPath } from './SemanticPath';
 
 export interface WorkbenchMapPanelCallbacks {
 	/** Receives controlled Map state changes such as mode and folder detail. */
@@ -55,6 +56,7 @@ export class WorkbenchMapPanel {
 		root.style.padding = '0.6em 0.8em';
 
 		this.renderHeader(root, snapshot);
+		this.renderModeExplanation(root, snapshot.state.mapMode);
 		this.renderStats(root, snapshot);
 		this.renderTree(root, snapshot);
 
@@ -90,11 +92,16 @@ export class WorkbenchMapPanel {
 		header.style.marginBottom = '0.6em';
 		header.style.flex = '0 0 auto';
 
-		const title = header.createEl('h3', {
+		const heading = header.createDiv({ cls: 'dtf-workbench-map-heading' });
+		const title = heading.createEl('h3', {
 			cls: 'dtf-workbench-map-title',
-			text: 'Taxonomy Workbench map',
+			text: 'Map: understand this vault',
 		});
 		title.style.margin = '0';
+		heading.createDiv({
+			cls: 'dtf-workbench-surface-intro dtf-workbench-map-intro',
+			text: 'Read-only view: folder rows show detected system evidence, enabled installed-rule output, or both as separate layers.',
+		});
 
 		const controls = header.createDiv({ cls: 'dtf-workbench-map-controls' });
 		controls.style.display = 'flex';
@@ -149,6 +156,19 @@ export class WorkbenchMapPanel {
 			}
 			button.addEventListener('click', () => this.setMapMode(mode));
 		}
+	}
+
+	private renderModeExplanation(parent: HTMLElement, mode: WorkbenchMapMode): void {
+		const explanations: Record<WorkbenchMapMode, string> = {
+			detected: 'Detected systems shows Member and Support evidence for anchored system occurrences. Detection evidence is not an installed rule.',
+			rules: 'My rules shows predicted output from enabled installed rules. It does not show incomplete detection evidence.',
+			both: 'Both keeps detection evidence and enabled-rule output visible as separate annotations on the same folder rows.',
+		};
+		const explanation = parent.createDiv({
+			cls: 'dtf-workbench-map-mode-explanation',
+			text: explanations[mode],
+		});
+		explanation.dataset.dtfMapModeExplanation = mode;
 	}
 
 	private renderStats(root: HTMLElement, snapshot: WorkbenchSessionSnapshot): void {
@@ -238,15 +258,16 @@ export class WorkbenchMapPanel {
 		detail.style.borderRadius = '6px';
 		detail.style.borderLeft = '3px solid var(--interactive-accent)';
 
-		const headRow = detail.createDiv();
+		const headRow = detail.createDiv({ cls: 'dtf-workbench-folder-detail-head' });
 		headRow.style.display = 'flex';
 		headRow.style.justifyContent = 'space-between';
 		headRow.style.alignItems = 'baseline';
 		headRow.style.gap = '0.5em';
-		const pathEl = headRow.createEl('div', { text: displayPath(path) });
-		pathEl.style.fontWeight = '600';
-		pathEl.style.fontFamily = 'var(--font-monospace)';
-		pathEl.style.wordBreak = 'break-all';
+		renderSemanticPath(headRow, path, {
+			role: 'map-inspected-folder',
+			focusLabel: 'Folder inspected',
+			variant: 'stacked',
+		});
 		const closeBtn = headRow.createEl('button', { text: 'Close' });
 		closeBtn.style.flex = '0 0 auto';
 		closeBtn.addEventListener('click', () => this.setDetailPath(null));
@@ -271,7 +292,7 @@ export class WorkbenchMapPanel {
 		const winnerRow = parent.createDiv();
 		winnerRow.style.marginTop = '0.5em';
 		winnerRow.style.fontSize = '0.9em';
-		winnerRow.createSpan({ text: 'Winning rule: ' }).style.color = 'var(--text-muted)';
+		winnerRow.createSpan({ text: 'Enabled rule winner: ' }).style.color = 'var(--text-muted)';
 		winnerRow.createSpan({ text: entry.winnerRuleName ?? entry.winnerRuleId ?? '' }).style.fontWeight = '600';
 
 		const tagsRow = parent.createDiv();
@@ -281,7 +302,7 @@ export class WorkbenchMapPanel {
 		tagsRow.style.flexWrap = 'wrap';
 		tagsRow.style.alignItems = 'center';
 		tagsRow.style.gap = '0.3em';
-		tagsRow.createSpan({ text: 'Would emit: ' }).style.color = 'var(--text-muted)';
+		tagsRow.createSpan({ text: 'Predicted tag output: ' }).style.color = 'var(--text-muted)';
 		if (entry.emittedTags.length === 0) {
 			tagsRow.createSpan({ text: '(no tag — opaque)' }).style.color = 'var(--text-muted)';
 		} else {
@@ -299,7 +320,7 @@ export class WorkbenchMapPanel {
 		matchRow.style.fontSize = '0.9em';
 		const names = entry.matchingRuleIds.map((id) => snapshot.ruleNamesById.get(id) ?? id);
 		matchRow.createSpan({
-			text: `Matching rule${names.length === 1 ? '' : 's'} (${names.length}): `,
+			text: `Matching enabled rule${names.length === 1 ? '' : 's'} (${names.length}): `,
 		}).style.color = 'var(--text-muted)';
 		matchRow.createSpan({ text: names.join(', ') });
 
@@ -325,6 +346,10 @@ export class WorkbenchMapPanel {
 		actions.style.gap = '0.4em';
 		actions.style.flexWrap = 'wrap';
 		actions.style.marginTop = '0.5em';
+		actions.createDiv({
+			cls: 'dtf-workbench-action-heading',
+			text: 'For this folder',
+		});
 
 		const settingsBtn = actions.createEl('button', {
 			text: entry?.winnerRuleId ? 'Open settings for the winning rule' : 'Open settings',
@@ -337,7 +362,7 @@ export class WorkbenchMapPanel {
 		previewBtn.dataset.dtfPreviewEmittedTags = '1';
 		previewBtn.addEventListener('click', () => this.previewEmittedTags(path));
 
-		const scopeBtn = actions.createEl('button', { text: 'Choose this branch in scope' });
+		const scopeBtn = actions.createEl('button', { text: 'Use this branch as an inclusion boundary' });
 		scopeBtn.dataset.dtfChooseBranchInScope = '1';
 		scopeBtn.addEventListener('click', () => this.callbacks.onChooseBranchInScope?.(path));
 	}
@@ -366,7 +391,7 @@ export class WorkbenchMapPanel {
 		);
 		menu.addItem((item) =>
 			item
-				.setTitle('Choose this branch in scope')
+				.setTitle('Use this branch as an inclusion boundary')
 				.setIcon('folder-tree')
 				.onClick(() => this.callbacks.onChooseBranchInScope?.(path)),
 		);
@@ -447,8 +472,4 @@ export function buildWorkbenchMapTree(
 		}
 	}
 	return buildAnnotatedTree([...snapshot.folderPaths], hitMap);
-}
-
-function displayPath(path: string): string {
-	return path || '(vault root)';
 }

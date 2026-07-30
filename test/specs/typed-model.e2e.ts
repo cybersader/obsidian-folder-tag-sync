@@ -184,8 +184,11 @@ describe('folder-tag-sync — Phase 2 typed model E2E', function () {
       });
       await browser.pause(500);
 
-      const ruleListVisible = await browser.executeObsidian(() => {
-        return document.body.textContent?.includes('Mapping rules') ?? false;
+      const ruleListVisible = await browser.executeObsidian(({ app }) => {
+        const setting = (app as unknown as {
+          setting: { activeTab?: { containerEl?: HTMLElement } };
+        }).setting;
+        return setting.activeTab?.containerEl?.textContent?.includes('Mapping rules') ?? false;
       });
       expect(ruleListVisible).toBe(true);
 
@@ -211,10 +214,14 @@ describe('folder-tag-sync — Phase 2 typed model E2E', function () {
       });
       await browser.pause(500);
 
-      const browseButtonText = await browser.executeObsidian(() => {
+      const browseButtonText = await browser.executeObsidian(({ app }) => {
         // Find the Setting row whose name is "Browse bundled rule packs",
         // scroll its button into view, and return its text for assertion.
-        const headings = Array.from(document.querySelectorAll('.setting-item-name'));
+        const setting = (app as unknown as {
+          setting: { activeTab?: { containerEl?: HTMLElement } };
+        }).setting;
+        const headings = Array.from(setting.activeTab?.containerEl
+          ?.querySelectorAll('.setting-item-name') ?? []);
         const target = headings.find((h) =>
           (h.textContent ?? '').trim() === 'Browse bundled rule packs',
         );
@@ -497,9 +504,12 @@ describe('folder-tag-sync — Phase 2 typed model E2E', function () {
       });
       await browser.pause(500);
 
-      const result = await browser.executeObsidian(() => {
+      const result = await browser.executeObsidian(({ app }) => {
         // Find the first preview-toggle button and click it
-        const btn = document.querySelector(
+        const setting = (app as unknown as {
+          setting: { activeTab?: { containerEl?: HTMLElement } };
+        }).setting;
+        const btn = setting.activeTab?.containerEl?.querySelector(
           '.dtf-rule-preview-toggle',
         ) as HTMLButtonElement | null;
         if (!btn) return { found: false } as const;
@@ -512,8 +522,12 @@ describe('folder-tag-sync — Phase 2 typed model E2E', function () {
       // Wait for the lazy preview to render
       await browser.pause(300);
 
-      const previewVisible = await browser.executeObsidian(() => {
-        const panels = Array.from(document.querySelectorAll('.dtf-rule-preview-panel'));
+      const previewVisible = await browser.executeObsidian(({ app }) => {
+        const setting = (app as unknown as {
+          setting: { activeTab?: { containerEl?: HTMLElement } };
+        }).setting;
+        const panels = Array.from(setting.activeTab?.containerEl
+          ?.querySelectorAll('.dtf-rule-preview-panel') ?? []);
         return panels.some((p) => (p as HTMLElement).style.display !== 'none');
       });
       expect(previewVisible).toBe(true);
@@ -539,9 +553,19 @@ describe('folder-tag-sync — Phase 2 typed model E2E', function () {
         setting.openTabById('folder-tag-sync');
       });
       await browser.pause(400);
-      await browser.executeObsidian(() => {
-        const btns = Array.from(document.querySelectorAll('.dtf-add-rule-button'));
+      await browser.executeObsidian(({ app }) => {
+        const setting = (app as unknown as {
+          setting: { activeTab?: { containerEl?: HTMLElement } };
+        }).setting;
+        const container = setting.activeTab?.containerEl;
+        const btns = Array.from(container
+          ?.querySelectorAll('.dtf-add-rule-button') ?? []);
         const guidedBtn = btns[0] as HTMLButtonElement | undefined;
+        if (container) {
+          (globalThis as unknown as {
+            __dtfTypedUiDocument?: Document;
+          }).__dtfTypedUiDocument = container.ownerDocument;
+        }
         guidedBtn?.click();
       });
       await browser.pause(400);
@@ -552,6 +576,9 @@ describe('folder-tag-sync — Phase 2 typed model E2E', function () {
       await browser.pause(150);
       await browser.executeObsidian(({ app }) => {
         (app as unknown as { setting: { close(): void } }).setting.close();
+        delete (globalThis as unknown as {
+          __dtfTypedUiDocument?: Document;
+        }).__dtfTypedUiDocument;
       });
       await browser.pause(150);
     };
@@ -561,7 +588,7 @@ describe('folder-tag-sync — Phase 2 typed model E2E', function () {
       it('opens with empty form and shows the live preview scaffolding', async function () {
         await openGuided();
         const visible = await browser.executeObsidian(() => {
-          return Boolean(document.querySelector('.dtf-guided-derived'));
+          return Boolean(((globalThis as unknown as { __dtfTypedUiDocument?: Document }).__dtfTypedUiDocument ?? document).querySelector('.dtf-guided-derived'));
         });
         expect(visible).toBe(true);
         await snap('06-guided-empty');
@@ -571,7 +598,7 @@ describe('folder-tag-sync — Phase 2 typed model E2E', function () {
       it('CTA disabled with empty form, enables after fields filled', async function () {
         await openGuided();
         const disabledFirst = await browser.executeObsidian(() => {
-          const btns = Array.from(document.querySelectorAll('.dtf-guided-actions button'));
+          const btns = Array.from(((globalThis as unknown as { __dtfTypedUiDocument?: Document }).__dtfTypedUiDocument ?? document).querySelectorAll('.dtf-guided-actions button'));
           const cta = btns.find((b) => (b.textContent ?? '').includes('Create')) as
             | HTMLButtonElement
             | undefined;
@@ -582,12 +609,14 @@ describe('folder-tag-sync — Phase 2 typed model E2E', function () {
         // Fill the three required fields by populating modal state directly
         await browser.executeObsidian(() => {
           const inputs = Array.from(
-            document.querySelectorAll('.modal-content input[type="text"]'),
+            ((globalThis as unknown as { __dtfTypedUiDocument?: Document }).__dtfTypedUiDocument ?? document).querySelectorAll('.modal-content input[type="text"]'),
           ) as HTMLInputElement[];
           if (inputs.length >= 3) {
             const set = (el: HTMLInputElement, v: string) => {
+              const inputPrototype = el.ownerDocument.defaultView?.HTMLInputElement.prototype
+                ?? HTMLInputElement.prototype;
               const desc = Object.getOwnPropertyDescriptor(
-                HTMLInputElement.prototype,
+                inputPrototype,
                 'value',
               );
               desc?.set?.call(el, v);
@@ -604,7 +633,7 @@ describe('folder-tag-sync — Phase 2 typed model E2E', function () {
         await browser.pause(250);
 
         const enabledSecond = await browser.executeObsidian(() => {
-          const btns = Array.from(document.querySelectorAll('.dtf-guided-actions button'));
+          const btns = Array.from(((globalThis as unknown as { __dtfTypedUiDocument?: Document }).__dtfTypedUiDocument ?? document).querySelectorAll('.dtf-guided-actions button'));
           const cta = btns.find((b) => (b.textContent ?? '').includes('Create')) as
             | HTMLButtonElement
             | undefined;
@@ -621,7 +650,7 @@ describe('folder-tag-sync — Phase 2 typed model E2E', function () {
         // Switch transfer op by clicking the marker-only card. The form was
         // restructured in iter 2 to use cards instead of a dropdown.
         await browser.executeObsidian(() => {
-          const card = document.querySelector(
+          const card = ((globalThis as unknown as { __dtfTypedUiDocument?: Document }).__dtfTypedUiDocument ?? document).querySelector(
             '.dtf-guided-transfer-card[data-op="marker-only"]',
           ) as HTMLElement | null;
           card?.click();
@@ -630,7 +659,7 @@ describe('folder-tag-sync — Phase 2 typed model E2E', function () {
 
         // Scroll the warning element into the viewport so the screenshot captures it
         const warningVisible = await browser.executeObsidian(() => {
-          const w = document.querySelector('.dtf-guided-warning');
+          const w = ((globalThis as unknown as { __dtfTypedUiDocument?: Document }).__dtfTypedUiDocument ?? document).querySelector('.dtf-guided-warning');
           w?.scrollIntoView({ block: 'center', behavior: 'instant' as ScrollBehavior });
           return Boolean(w);
         });
@@ -648,11 +677,13 @@ describe('folder-tag-sync — Phase 2 typed model E2E', function () {
         // and would let the assertion below pass for the wrong reason).
         await browser.executeObsidian(() => {
           const inputs = Array.from(
-            document.querySelectorAll('.modal-content input[type="text"]'),
+            ((globalThis as unknown as { __dtfTypedUiDocument?: Document }).__dtfTypedUiDocument ?? document).querySelectorAll('.modal-content input[type="text"]'),
           ) as HTMLInputElement[];
           const setVal = (el: HTMLInputElement, v: string) => {
+            const inputPrototype = el.ownerDocument.defaultView?.HTMLInputElement.prototype
+              ?? HTMLInputElement.prototype;
             const desc = Object.getOwnPropertyDescriptor(
-              HTMLInputElement.prototype,
+              inputPrototype,
               'value',
             );
             desc?.set?.call(el, v);
@@ -667,7 +698,7 @@ describe('folder-tag-sync — Phase 2 typed model E2E', function () {
 
         // Scroll the vault-test panel into the viewport before snapping
         const matchText = await browser.executeObsidian(() => {
-          const el = document.querySelector('.dtf-guided-vault-test');
+          const el = ((globalThis as unknown as { __dtfTypedUiDocument?: Document }).__dtfTypedUiDocument ?? document).querySelector('.dtf-guided-vault-test');
           el?.scrollIntoView({ block: 'center', behavior: 'instant' as ScrollBehavior });
           return el?.textContent ?? '';
         });
@@ -681,7 +712,7 @@ describe('folder-tag-sync — Phase 2 typed model E2E', function () {
       it('full modal viewport — captures bottom (CTA + actions)', async function () {
         await openGuided();
         await browser.executeObsidian(() => {
-          const actions = document.querySelector('.dtf-guided-actions');
+          const actions = ((globalThis as unknown as { __dtfTypedUiDocument?: Document }).__dtfTypedUiDocument ?? document).querySelector('.dtf-guided-actions');
           actions?.scrollIntoView({ block: 'center', behavior: 'instant' as ScrollBehavior });
         });
         await browser.pause(150);
@@ -696,13 +727,15 @@ describe('folder-tag-sync — Phase 2 typed model E2E', function () {
         // Type into folder entry → suggester element should appear in DOM
         await browser.executeObsidian(() => {
           const inputs = Array.from(
-            document.querySelectorAll('.modal-content input[type="text"]'),
+            ((globalThis as unknown as { __dtfTypedUiDocument?: Document }).__dtfTypedUiDocument ?? document).querySelectorAll('.modal-content input[type="text"]'),
           ) as HTMLInputElement[];
           const folderInput = inputs.find((i) => i.placeholder.includes('Capture/Inbox'));
           if (folderInput) {
             folderInput.focus();
+            const inputPrototype = folderInput.ownerDocument.defaultView?.HTMLInputElement.prototype
+              ?? HTMLInputElement.prototype;
             const desc = Object.getOwnPropertyDescriptor(
-              HTMLInputElement.prototype,
+              inputPrototype,
               'value',
             );
             desc?.set?.call(folderInput, 'Cap');
@@ -714,7 +747,7 @@ describe('folder-tag-sync — Phase 2 typed model E2E', function () {
         const suggesterVisible = await browser.executeObsidian(() => {
           // Obsidian's AbstractInputSuggest creates a `.suggestion-container`
           // element (visible when the suggester is open).
-          const containers = Array.from(document.querySelectorAll('.suggestion-container'));
+          const containers = Array.from(((globalThis as unknown as { __dtfTypedUiDocument?: Document }).__dtfTypedUiDocument ?? document).querySelectorAll('.suggestion-container'));
           // Filter to ones currently visible (display !== 'none')
           return containers.some(
             (c) => (c as HTMLElement).style.display !== 'none' && c.children.length > 0,
@@ -737,10 +770,12 @@ describe('folder-tag-sync — Phase 2 typed model E2E', function () {
         await openGuided();
         await browser.executeObsidian(() => {
           const inputs = Array.from(
-            document.querySelectorAll('.modal-content input[type="text"]'),
+            ((globalThis as unknown as { __dtfTypedUiDocument?: Document }).__dtfTypedUiDocument ?? document).querySelectorAll('.modal-content input[type="text"]'),
           ) as HTMLInputElement[];
           const setVal = (el: HTMLInputElement, v: string) => {
-            const d = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value');
+            const inputPrototype = el.ownerDocument.defaultView?.HTMLInputElement.prototype
+              ?? HTMLInputElement.prototype;
+            const d = Object.getOwnPropertyDescriptor(inputPrototype, 'value');
             d?.set?.call(el, v);
             el.dispatchEvent(new Event('input', { bubbles: true }));
           };
@@ -751,7 +786,7 @@ describe('folder-tag-sync — Phase 2 typed model E2E', function () {
           if (tagInput) setVal(tagInput, 'edit-test-foo');
           // Click Create
           const ctas = Array.from(
-            document.querySelectorAll('.dtf-guided-actions button'),
+            ((globalThis as unknown as { __dtfTypedUiDocument?: Document }).__dtfTypedUiDocument ?? document).querySelectorAll('.dtf-guided-actions button'),
           ) as HTMLButtonElement[];
           const create = ctas.find((b) => b.textContent?.includes('Create'));
           create?.click();
@@ -769,8 +804,18 @@ describe('folder-tag-sync — Phase 2 typed model E2E', function () {
           setting.openTabById('folder-tag-sync');
         });
         await browser.pause(300);
-        await browser.executeObsidian(() => {
-          const items = Array.from(document.querySelectorAll('.dtf-rule-item'));
+        await browser.executeObsidian(({ app }) => {
+          const setting = (app as unknown as {
+            setting: { activeTab?: { containerEl?: HTMLElement } };
+          }).setting;
+          const container = setting.activeTab?.containerEl;
+          const items = Array.from(container
+            ?.querySelectorAll('.dtf-rule-item') ?? []);
+          if (container) {
+            (globalThis as unknown as {
+              __dtfTypedUiDocument?: Document;
+            }).__dtfTypedUiDocument = container.ownerDocument;
+          }
           const target = items.find((i) => (i.textContent ?? '').includes('Edit-test rule'));
           (target as HTMLElement)?.click();
         });
@@ -780,7 +825,7 @@ describe('folder-tag-sync — Phase 2 typed model E2E', function () {
         // the guided modal element so we don't pick up the Obsidian settings
         // tab's headings (which use the same .setting-item-name class).
         const editState = await browser.executeObsidian(() => {
-          const guidedModal = document.querySelector('.modal.dtf-guided-modal');
+          const guidedModal = ((globalThis as unknown as { __dtfTypedUiDocument?: Document }).__dtfTypedUiDocument ?? document).querySelector('.modal.dtf-guided-modal');
           if (!guidedModal) {
             return {
               guidedOpen: false,
@@ -867,8 +912,18 @@ describe('folder-tag-sync — Phase 2 typed model E2E', function () {
           setting.openTabById('folder-tag-sync');
         });
         await browser.pause(400);
-        const clicked = await browser.executeObsidian(() => {
-          const items = Array.from(document.querySelectorAll('.dtf-rule-item'));
+        const clicked = await browser.executeObsidian(({ app }) => {
+          const setting = (app as unknown as {
+            setting: { activeTab?: { containerEl?: HTMLElement } };
+          }).setting;
+          const container = setting.activeTab?.containerEl;
+          const items = Array.from(container
+            ?.querySelectorAll('.dtf-rule-item') ?? []);
+          if (container) {
+            (globalThis as unknown as {
+              __dtfTypedUiDocument?: Document;
+            }).__dtfTypedUiDocument = container.ownerDocument;
+          }
           const target = items.find((i) =>
             (i.textContent ?? '').includes('Legacy regex rule'),
           ) as HTMLElement | undefined;
@@ -879,7 +934,7 @@ describe('folder-tag-sync — Phase 2 typed model E2E', function () {
         await browser.pause(400);
 
         const routedState = await browser.executeObsidian(() => {
-          const guided = document.querySelector('.modal.dtf-guided-modal');
+          const guided = ((globalThis as unknown as { __dtfTypedUiDocument?: Document }).__dtfTypedUiDocument ?? document).querySelector('.modal.dtf-guided-modal');
           // Scope to the structural class — decouples test from copy.
           const hasBanner = Boolean(guided?.querySelector('.dtf-inferred-banner'));
           // The escape-hatch link should be visible in edit mode
@@ -916,8 +971,18 @@ describe('folder-tag-sync — Phase 2 typed model E2E', function () {
           setting.openTabById('folder-tag-sync');
         });
         await browser.pause(400);
-        await browser.executeObsidian(() => {
-          const items = Array.from(document.querySelectorAll('.dtf-rule-item'));
+        await browser.executeObsidian(({ app }) => {
+          const setting = (app as unknown as {
+            setting: { activeTab?: { containerEl?: HTMLElement } };
+          }).setting;
+          const container = setting.activeTab?.containerEl;
+          const items = Array.from(container
+            ?.querySelectorAll('.dtf-rule-item') ?? []);
+          if (container) {
+            (globalThis as unknown as {
+              __dtfTypedUiDocument?: Document;
+            }).__dtfTypedUiDocument = container.ownerDocument;
+          }
           const target = items.find((i) =>
             (i.textContent ?? '').includes('Legacy regex rule'),
           ) as HTMLElement | undefined;
@@ -927,7 +992,7 @@ describe('folder-tag-sync — Phase 2 typed model E2E', function () {
 
         // Click the "Open in advanced (regex)" escape-hatch link
         const linkClicked = await browser.executeObsidian(() => {
-          const guided = document.querySelector('.modal.dtf-guided-modal');
+          const guided = ((globalThis as unknown as { __dtfTypedUiDocument?: Document }).__dtfTypedUiDocument ?? document).querySelector('.modal.dtf-guided-modal');
           const links = guided
             ? (Array.from(guided.querySelectorAll('a')) as HTMLAnchorElement[])
             : [];
@@ -945,9 +1010,9 @@ describe('folder-tag-sync — Phase 2 typed model E2E', function () {
           // The legacy RuleEditorModal renders text inputs for
           // folderPattern / tagPattern — we look for *any* modal that
           // is not the guided one.
-          const guided = document.querySelector('.modal.dtf-guided-modal');
+          const guided = ((globalThis as unknown as { __dtfTypedUiDocument?: Document }).__dtfTypedUiDocument ?? document).querySelector('.modal.dtf-guided-modal');
           const allModals = Array.from(
-            document.querySelectorAll('.modal-container .modal'),
+            ((globalThis as unknown as { __dtfTypedUiDocument?: Document }).__dtfTypedUiDocument ?? document).querySelectorAll('.modal-container .modal'),
           );
           const nonGuidedModals = allModals.filter(
             (m) => !m.classList.contains('dtf-guided-modal'),
@@ -1031,8 +1096,18 @@ describe('folder-tag-sync — Phase 2 typed model E2E', function () {
         });
         await browser.pause(400);
         // Click the rule -> guided opens
-        await browser.executeObsidian(() => {
-          const items = Array.from(document.querySelectorAll('.dtf-rule-item'));
+        await browser.executeObsidian(({ app }) => {
+          const setting = (app as unknown as {
+            setting: { activeTab?: { containerEl?: HTMLElement } };
+          }).setting;
+          const container = setting.activeTab?.containerEl;
+          const items = Array.from(container
+            ?.querySelectorAll('.dtf-rule-item') ?? []);
+          if (container) {
+            (globalThis as unknown as {
+              __dtfTypedUiDocument?: Document;
+            }).__dtfTypedUiDocument = container.ownerDocument;
+          }
           const target = items.find((i) =>
             (i.textContent ?? '').includes('Advanced uplift rule'),
           ) as HTMLElement | undefined;
@@ -1041,7 +1116,7 @@ describe('folder-tag-sync — Phase 2 typed model E2E', function () {
         await browser.pause(400);
         // Click "Open in advanced (regex)" link inside guided
         await browser.executeObsidian(() => {
-          const guided = document.querySelector('.modal.dtf-guided-modal');
+          const guided = ((globalThis as unknown as { __dtfTypedUiDocument?: Document }).__dtfTypedUiDocument ?? document).querySelector('.modal.dtf-guided-modal');
           const links = guided
             ? (Array.from(guided.querySelectorAll('a')) as HTMLAnchorElement[])
             : [];
@@ -1077,7 +1152,7 @@ describe('folder-tag-sync — Phase 2 typed model E2E', function () {
         const inputState = await browser.executeObsidian(() => {
           // Scope to the advanced modal's unique class — without it we'd
           // also match the Obsidian settings dialog (also .modal).
-          const advanced = document.querySelector(
+          const advanced = ((globalThis as unknown as { __dtfTypedUiDocument?: Document }).__dtfTypedUiDocument ?? document).querySelector(
             '.modal.dtf-advanced-modal',
           ) as HTMLElement | null;
           if (!advanced) return { found: false };
@@ -1092,8 +1167,10 @@ describe('folder-tag-sync — Phase 2 typed model E2E', function () {
           if (!folderPatternInput) return { found: false };
 
           // Set an invalid regex
+          const inputPrototype = folderPatternInput.ownerDocument.defaultView?.HTMLInputElement.prototype
+            ?? HTMLInputElement.prototype;
           const desc = Object.getOwnPropertyDescriptor(
-            HTMLInputElement.prototype,
+            inputPrototype,
             'value',
           );
           desc?.set?.call(folderPatternInput, '[invalid(');
@@ -1105,7 +1182,7 @@ describe('folder-tag-sync — Phase 2 typed model E2E', function () {
         await browser.pause(200);
 
         const validationState = await browser.executeObsidian(() => {
-          const advanced = document.querySelector(
+          const advanced = ((globalThis as unknown as { __dtfTypedUiDocument?: Document }).__dtfTypedUiDocument ?? document).querySelector(
             '.modal.dtf-advanced-modal',
           ) as HTMLElement | null;
           if (!advanced) {
@@ -1138,7 +1215,7 @@ describe('folder-tag-sync — Phase 2 typed model E2E', function () {
 
         // Find and click the "Try guided" link inside the advanced modal
         const linkClicked = await browser.executeObsidian(() => {
-          const advanced = document.querySelector(
+          const advanced = ((globalThis as unknown as { __dtfTypedUiDocument?: Document }).__dtfTypedUiDocument ?? document).querySelector(
             '.modal.dtf-advanced-modal',
           ) as HTMLElement | null;
           if (!advanced) return { found: false };
@@ -1157,8 +1234,8 @@ describe('folder-tag-sync — Phase 2 typed model E2E', function () {
         await browser.pause(400);
 
         const switchedState = await browser.executeObsidian(() => {
-          const guided = document.querySelector('.modal.dtf-guided-modal');
-          const advanced = document.querySelector('.modal.dtf-advanced-modal');
+          const guided = ((globalThis as unknown as { __dtfTypedUiDocument?: Document }).__dtfTypedUiDocument ?? document).querySelector('.modal.dtf-guided-modal');
+          const advanced = ((globalThis as unknown as { __dtfTypedUiDocument?: Document }).__dtfTypedUiDocument ?? document).querySelector('.modal.dtf-advanced-modal');
           return {
             guidedOpen: Boolean(guided),
             advancedClosed: !advanced,
@@ -1207,7 +1284,7 @@ describe('folder-tag-sync — Phase 2 typed model E2E', function () {
         await browser.pause(1200);
 
         const surfaced = await browser.executeObsidian(({ app }) => {
-          const scope = document.querySelector<HTMLElement>('[data-dtf-workbench-scope="1"]');
+          const scope = ((globalThis as unknown as { __dtfTypedUiDocument?: Document }).__dtfTypedUiDocument ?? document).querySelector<HTMLElement>('[data-dtf-workbench-scope="1"]');
           const chips = Array.from(
             scope?.querySelectorAll<HTMLElement>('[data-dtf-signal-pack-id]') ?? [],
           );
@@ -1220,8 +1297,8 @@ describe('folder-tag-sync — Phase 2 typed model E2E', function () {
             hasTree: Boolean(scope?.querySelector('[data-dtf-detect-tree="1"]')),
             hasLegend: legend,
             packs: chips.map((chip) => chip.dataset.dtfSignalPackId ?? ''),
-            detectModalCount: document.querySelectorAll('.dtf-detect-modal').length,
-            currentSurface: document.querySelector<HTMLElement>('[data-dtf-workbench-shell="1"]')
+            detectModalCount: ((globalThis as unknown as { __dtfTypedUiDocument?: Document }).__dtfTypedUiDocument ?? document).querySelectorAll('.dtf-detect-modal').length,
+            currentSurface: ((globalThis as unknown as { __dtfTypedUiDocument?: Document }).__dtfTypedUiDocument ?? document).querySelector<HTMLElement>('[data-dtf-workbench-shell="1"]')
               ?.dataset.dtfWorkbenchCurrentSurface ?? null,
           };
         });
@@ -1261,7 +1338,7 @@ describe('folder-tag-sync — Phase 2 typed model E2E', function () {
 
       // Type the command name into the palette input
       await browser.executeObsidian(() => {
-        const input = document.querySelector(
+        const input = ((globalThis as unknown as { __dtfTypedUiDocument?: Document }).__dtfTypedUiDocument ?? document).querySelector(
           '.prompt-input',
         ) as HTMLInputElement | null;
         if (input) {
@@ -1272,7 +1349,7 @@ describe('folder-tag-sync — Phase 2 typed model E2E', function () {
       await browser.pause(300);
 
       const matched = await browser.executeObsidian(() => {
-        const items = Array.from(document.querySelectorAll('.suggestion-item'));
+        const items = Array.from(((globalThis as unknown as { __dtfTypedUiDocument?: Document }).__dtfTypedUiDocument ?? document).querySelectorAll('.suggestion-item'));
         return items.some((it) =>
           (it.textContent ?? '').includes('Import rule pack from bundled packs'),
         );

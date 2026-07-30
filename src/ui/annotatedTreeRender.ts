@@ -31,6 +31,7 @@
 
 import type { AnnotatedHit, AnnotatedTree, AnnotatedTreeNode } from '../engine/detectionTree';
 import type { FolderRuleEntry } from '../engine/folderRuleView';
+import { renderSemanticPath } from './workbench/SemanticPath';
 
 /** Which annotation layer(s) the rows paint. */
 export type AnnotationMode = 'detected' | 'rules' | 'both';
@@ -265,15 +266,22 @@ function renderOccurrenceRelationChips(
 		chip.setAttr('aria-pressed', String(ctx.selectedOccurrenceKey === occurrenceKey));
 		if (ctx.selectedOccurrenceKey === occurrenceKey) chip.addClass('is-selected');
 		const fullAnchor = descriptor.anchorPath || 'vault root';
-		const compactAnchor = descriptor.anchorPath
-			? ` @ ${descriptor.anchorPath.split('/').at(-1)}`
-			: '';
-		chip.setText(
-			`${relation === 'support' ? 'Support' : 'Member'} · ${descriptor.packName}${compactAnchor}`,
-		);
+		chip.createSpan({
+			cls: 'dtf-folder-occurrence-relation',
+			text: relation === 'support' ? 'Support for' : 'Member of',
+		});
+		chip.createSpan({
+			cls: 'dtf-folder-occurrence-system',
+			text: descriptor.packName,
+		});
+		renderSemanticPath(chip, descriptor.anchorPath, {
+			role: 'map-occurrence-anchor',
+			focusLabel: 'System anchor',
+			variant: 'compact',
+		});
 		chip.setAttr(
 			'aria-label',
-			`${relation === 'support' ? 'Support' : 'Member'} evidence for ${descriptor.packName} at ${fullAnchor}`,
+			`${relation === 'support' ? 'Support' : 'Member'} evidence for ${descriptor.packName}. System anchor: ${fullAnchor}.`,
 		);
 		chip.title = `${descriptor.packName} occurrence at ${fullAnchor}`;
 		chip.addEventListener('click', (event) => {
@@ -289,7 +297,7 @@ function renderOccurrenceRelationChips(
  * more rules match. Stable data hooks remain for real-Obsidian coverage.
  */
 function renderRuleEmission(row: HTMLElement, entry: FolderRuleEntry): void {
-	const wrap = row.createSpan();
+	const wrap = row.createSpan({ cls: 'dtf-folder-rule-emission' });
 	wrap.style.display = 'inline-flex';
 	wrap.style.alignItems = 'center';
 	wrap.style.gap = '0.25em';

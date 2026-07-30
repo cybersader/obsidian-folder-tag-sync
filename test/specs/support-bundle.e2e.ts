@@ -104,12 +104,23 @@ describe('Support bundle — production diagnostics and privacy', function () {
 
 	after(async function () {
 		await browser.executeObsidian(async ({ app }, folder) => {
-			document.querySelectorAll('.dtf-support-bundle-modal').forEach((modal) => {
-				const close = Array.from(modal.querySelectorAll('button')).find(
-					(button) => (button.textContent ?? '').trim() === 'Close',
-				);
-				(close as HTMLButtonElement | undefined)?.click();
-			});
+			const settingsDocument = (globalThis as unknown as {
+				__dtfSupportSettingsDocument?: Document;
+			}).__dtfSupportSettingsDocument;
+			const documents = settingsDocument && settingsDocument !== document
+				? [document, settingsDocument]
+				: [document];
+			for (const targetDocument of documents) {
+				targetDocument.querySelectorAll('.dtf-support-bundle-modal').forEach((modal) => {
+					const close = Array.from(modal.querySelectorAll('button')).find(
+						(button) => (button.textContent ?? '').trim() === 'Close',
+					);
+					(close as HTMLButtonElement | undefined)?.click();
+				});
+			}
+			delete (globalThis as unknown as {
+				__dtfSupportSettingsDocument?: Document;
+			}).__dtfSupportSettingsDocument;
 			const setting = (app as unknown as { setting?: { close: () => void } }).setting;
 			setting?.close();
 
@@ -347,22 +358,37 @@ describe('Support bundle — production diagnostics and privacy', function () {
 		});
 		await browser.pause(500);
 
-		const opened = await browser.executeObsidian(() => {
-			const row = document.querySelector<HTMLElement>('[data-dtf-support-bundle-setting="1"]');
+		const opened = await browser.executeObsidian(({ app }) => {
+			const setting = (app as unknown as {
+				setting: { activeTab?: { containerEl?: HTMLElement } };
+			}).setting;
+			const container = setting.activeTab?.containerEl;
+			const row = container
+				?.querySelector<HTMLElement>('[data-dtf-support-bundle-setting="1"]');
 			const button = row?.querySelector<HTMLButtonElement>('button');
-			if (!button) return false;
+			if (!button || !container) return false;
+			(globalThis as unknown as {
+				__dtfSupportSettingsDocument?: Document;
+			}).__dtfSupportSettingsDocument = container.ownerDocument;
 			button.click();
 			return true;
 		});
 		expect(opened).toBe(true);
-		await browser.waitUntil(async () => browser.executeObsidian(() =>
-			document.querySelector('[data-dtf-support-bundle="1"]') !== null,
-		), { timeout: 10_000, timeoutMsg: 'Settings did not open the support bundle modal' });
+		await browser.waitUntil(async () => browser.executeObsidian(() => {
+			const settingsDocument = (globalThis as unknown as {
+				__dtfSupportSettingsDocument?: Document;
+			}).__dtfSupportSettingsDocument;
+			return settingsDocument?.querySelector('[data-dtf-support-bundle="1"]') !== null;
+		}), { timeout: 10_000, timeoutMsg: 'Settings did not open the support bundle modal' });
 	});
 
 	it('the Debug mode setting changes the live logger immediately', async function () {
 		await browser.executeObsidian(() => {
-			const modal = document.querySelector('[data-dtf-support-bundle="1"]');
+			const settingsDocument = (globalThis as unknown as {
+				__dtfSupportSettingsDocument?: Document;
+			}).__dtfSupportSettingsDocument;
+			const modal = settingsDocument?.querySelector('[data-dtf-support-bundle="1"]')
+				?? document.querySelector('[data-dtf-support-bundle="1"]');
 			const close = modal && Array.from(modal.querySelectorAll('button')).find(
 				(button) => (button.textContent ?? '').trim() === 'Close',
 			);
@@ -378,8 +404,12 @@ describe('Support bundle — production diagnostics and privacy', function () {
 		});
 		expect(beforeState).toBe(false);
 
-		const clicked = await browser.executeObsidian(() => {
-			const rows = Array.from(document.querySelectorAll<HTMLElement>('.setting-item'));
+		const clicked = await browser.executeObsidian(({ app }) => {
+			const setting = (app as unknown as {
+				setting: { activeTab?: { containerEl?: HTMLElement } };
+			}).setting;
+			const rows = Array.from(setting.activeTab?.containerEl
+				?.querySelectorAll<HTMLElement>('.setting-item') ?? []);
 			const row = rows.find((candidate) =>
 				candidate.querySelector('.setting-item-name')?.textContent?.trim() === 'Debug mode',
 			);

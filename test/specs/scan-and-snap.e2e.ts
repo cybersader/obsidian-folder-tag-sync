@@ -302,7 +302,7 @@ describe('Taxonomy Workbench Candidates — embedded catalog and safe install', 
 			const rows = Array.from(panel?.querySelectorAll<HTMLElement>('[data-dtf-candidate-row="1"]') ?? []);
 			const checkboxes = rows.map((row) => row.querySelector<HTMLInputElement>('input[type="checkbox"]'));
 			const installButton = Array.from(panel?.querySelectorAll('button') ?? []).find((button) =>
-				/^Install \d+ selected rule/.test(button.textContent ?? ''),
+				/^Add \d+ selected disabled draft/.test(button.textContent ?? ''),
 			);
 			const groupNoiseRanks = Array.from(
 				panel?.querySelectorAll<HTMLElement>('[data-dtf-candidate-occurrence-key]') ?? [],
@@ -310,7 +310,7 @@ describe('Taxonomy Workbench Candidates — embedded catalog and safe install', 
 				Array.from(group.querySelectorAll<HTMLElement>('[data-dtf-candidate-row="1"]'))
 					.map((row) => {
 						const text = row.textContent ?? '';
-						if (text.includes('0 — no match')) return 0;
+						if (text.includes('Matches 0 folders')) return 0;
 						if (!text.includes(' → #')) return 1;
 						return 2;
 					}),
@@ -323,7 +323,7 @@ describe('Taxonomy Workbench Candidates — embedded catalog and safe install', 
 				checkboxCount: checkboxes.filter(Boolean).length,
 				allSelected: checkboxes.every((checkbox) => checkbox?.checked === true),
 				allSelectable: checkboxes.every((checkbox) => checkbox?.disabled === false),
-				coverageRows: rows.filter((row) => /(?:\d+ folders?|0 — no match|Inverse only)/.test(row.textContent ?? '')).length,
+				coverageRows: rows.filter((row) => /(?:Matches \d+ folders?|Inverse only)/.test(row.textContent ?? '')).length,
 				emissionRows: rows.filter((row) => (row.textContent ?? '').includes(' → #')).length,
 				inverseRows: inverseRows.length,
 				inverseConflictWarnings: inverseRows.filter((row) =>
@@ -332,9 +332,20 @@ describe('Taxonomy Workbench Candidates — embedded catalog and safe install', 
 				fabricatedInverseEmissions: inverseRows.filter((row) =>
 					(row.textContent ?? '').includes(' → #'),
 				).length,
-				bijectivityRows: rows.filter((row) => /\b(?:Lossy|1:1|Conditional)\b/.test(row.textContent ?? '')).length,
-				selectedCount: Number((installButton?.textContent ?? '').match(/Install (\d+) selected/)?.[1] ?? -1),
+				bijectivityRows: rows.filter((row) => /Round trip: (?:lossy|1:1|conditional)/.test(row.textContent ?? '')).length,
+				selectedCount: Number((installButton?.textContent ?? '').match(/Add (\d+) selected/)?.[1] ?? -1),
 				groupNoiseRanks,
+				intro: panel?.querySelector('.dtf-workbench-surface-intro')?.textContent ?? null,
+				groupKinds: Array.from(panel?.querySelectorAll<HTMLElement>('[data-dtf-candidate-group-header="1"]') ?? [])
+					.map((header) => header.querySelector('.dtf-workbench-object-kind')?.textContent ?? null),
+				groupHeaderHeights: Array.from(panel?.querySelectorAll<HTMLElement>('[data-dtf-candidate-group-header="1"]') ?? [])
+					.map((header) => header.getBoundingClientRect().height),
+				groupAnchorLabels: Array.from(panel?.querySelectorAll<HTMLElement>('[data-dtf-semantic-path="candidate-source-system-anchor"]') ?? [])
+					.map((path) => path.getAttribute('aria-label') ?? ''),
+				rowKinds: rows.map((row) => row.querySelector('.dtf-candidate-rule-kind')?.textContent ?? null),
+				checkboxLabels: checkboxes.map((checkbox) => checkbox?.getAttribute('aria-label') ?? null),
+				sampleHeadings: Array.from(panel?.querySelectorAll('.dtf-candidate-sample-heading') ?? [])
+					.map((element) => element.textContent ?? ''),
 			};
 		});
 
@@ -349,6 +360,13 @@ describe('Taxonomy Workbench Candidates — embedded catalog and safe install', 
 		expect(initial.inverseConflictWarnings).toBe(initial.inverseRows);
 		expect(initial.fabricatedInverseEmissions).toBe(0);
 		expect(initial.groupNoiseRanks.length).toBeGreaterThan(0);
+		expect(initial.intro).toContain('disabled rule draft');
+		expect(initial.groupKinds.every((kind) => kind === 'System occurrence')).toBe(true);
+		expect(initial.groupHeaderHeights.every((height) => height <= 100)).toBe(true);
+		expect(initial.groupAnchorLabels.every((label) => label.includes('System anchor:'))).toBe(true);
+		expect(initial.rowKinds.every((kind) => kind === 'Candidate rule')).toBe(true);
+		expect(initial.checkboxLabels.every((label) => label?.includes('disabled rule draft'))).toBe(true);
+		expect(initial.sampleHeadings.every((heading) => heading === 'Examples: folder → tag')).toBe(true);
 		for (const ranks of initial.groupNoiseRanks) expectNondecreasing(ranks);
 
 		// Add one temporary, broad installed rule in memory so conflict sorting has
@@ -418,7 +436,7 @@ describe('Taxonomy Workbench Candidates — embedded catalog and safe install', 
 		await browser.executeObsidian(() => {
 			const panel = document.querySelector<HTMLElement>('[data-dtf-workbench-candidates="1"]');
 			Array.from(panel?.querySelectorAll('button') ?? [])
-				.find((button) => (button.textContent ?? '').trim() === 'Sort: junk first')?.click();
+				.find((button) => (button.textContent ?? '').trim() === 'Sort: low-signal first')?.click();
 		});
 		await browser.pause(350);
 		await snap('workbench-candidates');
@@ -430,9 +448,9 @@ describe('Taxonomy Workbench Candidates — embedded catalog and safe install', 
 			if (!panel) return { total: -1, none: -1, all: -1, afterDeselect: -1, restored: -1, key: '' };
 			const selectedCount = () => {
 				const button = Array.from(panel.querySelectorAll('button')).find((candidate) =>
-					/^Install \d+ selected rule/.test(candidate.textContent ?? ''),
+					/^Add \d+ selected disabled draft/.test(candidate.textContent ?? ''),
 				);
-				return Number((button?.textContent ?? '').match(/Install (\d+) selected/)?.[1] ?? 0);
+				return Number((button?.textContent ?? '').match(/Add (\d+) selected/)?.[1] ?? 0);
 			};
 			const click = (label: string) => Array.from(panel.querySelectorAll('button'))
 				.find((button) => (button.textContent ?? '').trim() === label)?.click();
@@ -467,7 +485,7 @@ describe('Taxonomy Workbench Candidates — embedded catalog and safe install', 
 					return candidateCheckbox
 						&& !candidateCheckbox.disabled
 						&& (row.textContent ?? '').includes(' → #')
-						&& !row.textContent?.includes('0 — no match');
+						&& !row.textContent?.includes('Matches 0 folders');
 				});
 			const oneCheckbox = oneRow?.querySelector<HTMLInputElement>('input[type="checkbox"]');
 			if (oneCheckbox) {
@@ -498,7 +516,7 @@ describe('Taxonomy Workbench Candidates — embedded catalog and safe install', 
 		await browser.executeObsidian(() => {
 			const panel = document.querySelector<HTMLElement>('[data-dtf-workbench-candidates="1"]');
 			const install = Array.from(panel?.querySelectorAll('button') ?? []).find((button) =>
-				(button.textContent ?? '').trim() === 'Install 1 selected rule',
+				(button.textContent ?? '').trim() === 'Add 1 selected disabled draft',
 			);
 			install?.click();
 		});
@@ -507,10 +525,10 @@ describe('Taxonomy Workbench Candidates — embedded catalog and safe install', 
 			const panel = document.querySelector<HTMLElement>('[data-dtf-workbench-candidates="1"]');
 			const text = panel?.textContent ?? '';
 			return {
-				title: text.includes('Confirm disabled rule installation'),
-				safety: text.includes('New rules are installed disabled. No files, folders, or frontmatter will change.'),
+				title: text.includes('Confirm adding disabled drafts'),
+				safety: text.includes('New drafts are added disabled. No files, folders, tags, or frontmatter will change.'),
 				hasConfirm: Array.from(panel?.querySelectorAll('button') ?? [])
-					.some((button) => (button.textContent ?? '').trim() === 'Confirm 1 rule'),
+					.some((button) => (button.textContent ?? '').trim() === 'Confirm 1 disabled draft'),
 			};
 		});
 		expect(confirmation.title).toBe(true);
@@ -520,23 +538,23 @@ describe('Taxonomy Workbench Candidates — embedded catalog and safe install', 
 		await browser.executeObsidian(() => {
 			const panel = document.querySelector<HTMLElement>('[data-dtf-workbench-candidates="1"]');
 			const confirm = Array.from(panel?.querySelectorAll('button') ?? []).find((button) =>
-				(button.textContent ?? '').trim() === 'Confirm 1 rule',
+				(button.textContent ?? '').trim() === 'Confirm 1 disabled draft',
 			);
 			confirm?.click();
 		});
 
-		const exactBanner = 'Install complete: 1 added, 0 already installed, 0 duplicate selections skipped.';
+		const exactBanner = 'Disabled drafts added: 1 new, 0 already installed, 0 duplicate selections skipped.';
 		await browser.waitUntil(async () => browser.executeObsidian(() => {
 			const text = document.querySelector('[data-dtf-workbench-candidates="1"]')?.textContent ?? '';
-			return text.includes('Install complete:') || text.includes('Installation failed:');
+			return text.includes('Disabled drafts added:') || text.includes('Adding disabled drafts failed:');
 		}), {
 			timeout: 15_000,
 			timeoutMsg: 'Workbench installation did not reach a terminal result',
 		});
 		const resultSummary = await browser.executeObsidian(() => {
 			const text = document.querySelector('[data-dtf-workbench-candidates="1"]')?.textContent ?? '';
-			return text.match(/Install complete: \d+ added, \d+ already installed, \d+ duplicate selections? skipped\./)?.[0]
-				?? text.match(/Installation failed:[^.]*\./)?.[0]
+			return text.match(/Disabled drafts added: \d+ new, \d+ already installed, \d+ duplicate selections? skipped\./)?.[0]
+				?? text.match(/Adding disabled drafts failed:[^.]*\./)?.[0]
 				?? null;
 		});
 		expect(resultSummary).toBe(exactBanner);

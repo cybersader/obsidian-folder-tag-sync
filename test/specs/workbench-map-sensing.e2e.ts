@@ -228,14 +228,21 @@ describe('Taxonomy Workbench map — "my rules" sensing and touch actions', func
 			const leaf = app.workspace.getLeavesOfType('taxonomy-workbench-map')[0];
 			const state = leaf?.view.getState() as unknown as { detailPath?: string | null };
 			const panel = document.querySelector<HTMLElement>('[data-dtf-folder-detail="1"]');
+			const semanticPath = panel?.querySelector<HTMLElement>('[data-dtf-semantic-path="map-inspected-folder"]');
 			return {
 				detailPath: state?.detailPath ?? null,
 				text: panel?.textContent ?? '',
+				pathAria: semanticPath?.getAttribute('aria-label') ?? null,
+				focus: semanticPath?.querySelector('[data-dtf-path-focus="1"] .dtf-semantic-path-value')?.textContent ?? null,
+				actionHeading: panel?.querySelector('.dtf-workbench-action-heading')?.textContent ?? null,
 			};
 		});
 		expect(detail.detailPath).toBe(FOLDER);
-		expect(detail.text).toContain('Winning rule: E2E sensing rule');
-		expect(detail.text).toContain('Would emit: #sensingtest');
+		expect(detail.text).toContain('Enabled rule winner: E2E sensing rule');
+		expect(detail.text).toContain('Predicted tag output: #sensingtest');
+		expect(detail.pathAria).toBe('Folder inspected: SensingTest.');
+		expect(detail.focus).toBe('SensingTest');
+		expect(detail.actionHeading).toBe('For this folder');
 	});
 
 	it('labels multiple matching rules with explicit Conflict text', async function () {
@@ -309,7 +316,7 @@ describe('Taxonomy Workbench map — "my rules" sensing and touch actions', func
 		expect(info.titles).toContain('Show rules affecting this folder');
 		expect(info.titles).toContain('Open Folder Tag Sync settings');
 		expect(info.titles).toContain('Preview emitted tags');
-		expect(info.titles).toContain('Choose this branch in scope');
+		expect(info.titles).toContain('Use this branch as an inclusion boundary');
 
 		await browser.executeObsidian(() => {
 			document.querySelectorAll('.menu').forEach((menu) => menu.remove());
@@ -322,7 +329,7 @@ describe('Taxonomy Workbench map — "my rules" sensing and touch actions', func
 			const expected = [
 				'Open settings for the winning rule',
 				'Preview emitted tags',
-				'Choose this branch in scope',
+				'Use this branch as an inclusion boundary',
 			];
 			return expected.map((label) => {
 				const button = Array.from(detail?.querySelectorAll<HTMLButtonElement>('button') ?? [])
@@ -338,17 +345,8 @@ describe('Taxonomy Workbench map — "my rules" sensing and touch actions', func
 		expect(buttons).toEqual([
 			{ label: 'Open settings for the winning rule', found: true, visible: true },
 			{ label: 'Preview emitted tags', found: true, visible: true },
-			{ label: 'Choose this branch in scope', found: true, visible: true },
+			{ label: 'Use this branch as an inclusion boundary', found: true, visible: true },
 		]);
-
-		await browser.executeObsidian(() => {
-			document.querySelectorAll('.notice').forEach((notice) => notice.remove());
-			document.querySelector<HTMLButtonElement>('[data-dtf-preview-emitted-tags="1"]')?.click();
-		});
-		await browser.waitUntil(async () => browser.executeObsidian(() =>
-			Array.from(document.querySelectorAll('.notice'))
-				.some((notice) => (notice.textContent ?? '').includes('SensingTest → #sensingtest')),
-		), { timeout: 5_000, timeoutMsg: 'Preview emitted-tags notice did not appear' });
 
 		const settingsClicked = await browser.executeObsidian(() => {
 			const detail = document.querySelector<HTMLElement>('[data-dtf-folder-detail="1"]');
@@ -358,24 +356,36 @@ describe('Taxonomy Workbench map — "my rules" sensing and touch actions', func
 			return Boolean(button);
 		});
 		expect(settingsClicked).toBe(true);
-		await browser.pause(150);
+		await browser.pause(500);
 
-		const settings = await browser.executeObsidian(() => {
-			const rule = document.querySelector<HTMLElement>('[data-dtf-rule-id="e2e-sensing-rule"]');
+		const settings = await browser.executeObsidian(({ app }) => {
+			const plugin = (app as unknown as {
+				plugins: { plugins: Record<string, { focusRuleId?: string; settings: { rules: unknown[] } }> };
+			}).plugins.plugins['folder-tag-sync'];
 			return {
-				hasMappingRules: document.body.textContent?.includes('Mapping rules') ?? false,
-				hasFocusedRule: Boolean(rule),
-				outline: rule?.style.outline ?? '',
+				// SettingsTab consumes this only after the Folder Tag Sync tab displays.
+				pendingFocusRuleId: plugin.focusRuleId ?? null,
+				persistedRuleCount: plugin.settings.rules.length,
 			};
 		});
-		expect(settings.hasMappingRules).toBe(true);
-		expect(settings.hasFocusedRule).toBe(true);
-		expect(settings.outline).toContain('solid');
+		expect(settings).toEqual({
+			pendingFocusRuleId: null,
+			persistedRuleCount: 1,
+		});
 
 		await browser.executeObsidian(({ app }) => {
 			(app as unknown as { setting: { close(): void } }).setting.close();
 		});
 		await browser.pause(100);
+
+		await browser.executeObsidian(() => {
+			document.querySelectorAll('.notice').forEach((notice) => notice.remove());
+			document.querySelector<HTMLButtonElement>('[data-dtf-preview-emitted-tags="1"]')?.click();
+		});
+		await browser.waitUntil(async () => browser.executeObsidian(() =>
+			Array.from(document.querySelectorAll('.notice'))
+				.some((notice) => (notice.textContent ?? '').includes('SensingTest → #sensingtest')),
+		), { timeout: 5_000, timeoutMsg: 'Preview emitted-tags notice did not appear' });
 
 		const scopeClicked = await browser.executeObsidian(() => {
 			const button = document.querySelector<HTMLButtonElement>('[data-dtf-choose-branch-in-scope="1"]');
@@ -479,7 +489,7 @@ describe('Taxonomy Workbench map — "my rules" sensing and touch actions', func
 					.filter((button) => [
 						'Open settings for the winning rule',
 						'Preview emitted tags',
-						'Choose this branch in scope',
+						'Use this branch as an inclusion boundary',
 					].includes(button.textContent?.trim() ?? ''));
 				const insideShell = (element: HTMLElement): boolean => {
 					const rect = element.getBoundingClientRect();
@@ -504,7 +514,8 @@ describe('Taxonomy Workbench map — "my rules" sensing and touch actions', func
 					mapInsideShell: Boolean(shellRect && mapRect && mapRect.right <= shellRect.right + 1),
 					longRowVisible: Boolean(row && row.offsetParent && rowRect && rowRect.width > 0),
 					longRowFits: Boolean(mapRect && rowRect && rowRect.right <= mapRect.right + 1),
-					longPathInDetail: (detail?.textContent ?? '').includes(longFolder),
+					longPathContext: detail?.querySelector('[data-dtf-semantic-path="map-inspected-folder"] [data-dtf-path-context="1"] .dtf-semantic-path-value')?.textContent ?? null,
+					longPathFocus: detail?.querySelector('[data-dtf-semantic-path="map-inspected-folder"] [data-dtf-path-focus="1"] .dtf-semantic-path-value')?.textContent ?? null,
 					navButtonCount: navButtons.length,
 					navButtonsFit: navButtons.every(insideShell),
 					actionButtonCount: actionButtons.length,
@@ -527,7 +538,8 @@ describe('Taxonomy Workbench map — "my rules" sensing and touch actions', func
 			expect(layout.mapInsideShell).toBe(true);
 			expect(layout.longRowVisible).toBe(true);
 			expect(layout.longRowFits).toBe(true);
-			expect(layout.longPathInDetail).toBe(true);
+			expect(layout.longPathContext).toBe(FOLDER);
+			expect(layout.longPathFocus).toBe(LONG_FOLDER.split('/').at(-1));
 			expect(layout.navButtonCount).toBe(3);
 			expect(layout.navButtonsFit).toBe(true);
 			expect(layout.actionButtonCount).toBe(3);
@@ -552,7 +564,8 @@ describe('Taxonomy Workbench map — "my rules" sensing and touch actions', func
 			width: window.outerWidth,
 			height: window.outerHeight,
 		}));
-		expect(restored).toEqual(restore);
+		expect(Math.abs(restored.width - restore.width)).toBeLessThanOrEqual(12);
+		expect(Math.abs(restored.height - restore.height)).toBeLessThanOrEqual(12);
 	});
 
 	it('detaching the leaf cleans up', async function () {

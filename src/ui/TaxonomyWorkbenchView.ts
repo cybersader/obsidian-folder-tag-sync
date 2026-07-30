@@ -27,6 +27,7 @@ import {
 import type DynamicTagsFoldersPlugin from '../main';
 import { OrganizationalSystemsDeck } from './workbench/OrganizationalSystemsDeck';
 import { RuleLayersSection } from './workbench/RuleLayersSection';
+import { renderSemanticPath } from './workbench/SemanticPath';
 import { WorkbenchCandidatePanel } from './workbench/WorkbenchCandidatePanel';
 import { WorkbenchMapPanel } from './workbench/WorkbenchMapPanel';
 import { WorkbenchScopePanel } from './workbench/WorkbenchScopePanel';
@@ -275,12 +276,33 @@ export class TaxonomyWorkbenchView extends ItemView {
 			const counts = `${snapshot.occurrenceStats.actionableCount} complete · `
 				+ `${snapshot.occurrenceStats.incompleteCount} incomplete`;
 			identity.createSpan({ cls: 'dtf-systems-summary-counts', text: counts });
-			identity.createSpan({
-				cls: 'dtf-systems-summary-detail',
-				text: selected
-					? `${selected.packName} at ${selected.anchorPath || 'vault root'} · ${selected.status === 'actionable' ? 'Complete' : selected.status === 'suppressed' ? 'Suppressed' : 'Incomplete'}`
-					: 'No system selected',
-			});
+			const detail = identity.createDiv({ cls: 'dtf-systems-summary-detail' });
+			if (selected) {
+				detail.dataset.dtfSelectedSystemSummary = '1';
+				detail.createSpan({
+					cls: 'dtf-workbench-object-kind',
+					text: 'Selected system',
+				});
+				detail.createSpan({
+					cls: 'dtf-systems-summary-name',
+					text: selected.packName,
+				});
+				detail.createSpan({
+					cls: `dtf-orgsys-status is-${selected.status}`,
+					text: selected.status === 'actionable'
+						? 'Complete'
+						: selected.status === 'suppressed'
+							? 'Suppressed'
+							: 'Incomplete',
+				});
+				renderSemanticPath(detail, selected.anchorPath, {
+					role: 'summary-selected-system-anchor',
+					focusLabel: 'Applies here',
+					variant: 'compact',
+				});
+			} else {
+				detail.setText('No system selected');
+			}
 		}
 
 		this.systemsToggleEl = summary.createEl('button', { text: 'Browse systems' });

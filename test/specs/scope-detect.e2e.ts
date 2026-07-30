@@ -67,7 +67,7 @@ describe('Taxonomy Workbench Scope — hierarchy-first detection', function () {
 			app.workspace.detachLeavesOfType('taxonomy-workbench-map');
 			const existing = app.vault.getAbstractFileByPath(fixtureRoot);
 			if (existing) await app.vault.delete(existing, true);
-			document.querySelectorAll('[data-dtf-e2e-settings-scan="1"]').forEach((el) => el.remove());
+			delete (globalThis as unknown as { __dtfSettingsScanModal?: HTMLElement }).__dtfSettingsScanModal;
 		}, FIXTURE_ROOT);
 	});
 
@@ -131,6 +131,11 @@ describe('Taxonomy Workbench Scope — hierarchy-first detection', function () {
 				),
 				checkboxCount: tree?.querySelectorAll('input[type="checkbox"]').length ?? 0,
 				folderCount: (tree?.textContent ?? '').match(/📁/g)?.length ?? 0,
+				intro: scope?.querySelector('.dtf-workbench-surface-intro')?.textContent ?? null,
+				relationLabels: Array.from(scope?.querySelectorAll<HTMLElement>('.dtf-folder-occurrence-relation') ?? [])
+					.map((element) => element.textContent ?? ''),
+				anchorLabels: Array.from(scope?.querySelectorAll<HTMLElement>('[data-dtf-semantic-path="scope-occurrence-anchor"]') ?? [])
+					.map((element) => element.getAttribute('aria-label') ?? ''),
 			};
 		});
 
@@ -139,6 +144,9 @@ describe('Taxonomy Workbench Scope — hierarchy-first detection', function () {
 		expect(info.hasPackIdentity).toBe(true);
 		expect(info.checkboxCount).toBeGreaterThan(0);
 		expect(info.folderCount).toBeGreaterThanOrEqual(NESTED_FOLDERS.length - 1);
+		expect(info.intro).toContain('inclusion boundaries');
+		expect(info.relationLabels).toContain('Member of');
+		expect(info.anchorLabels.every((label) => label.includes('System anchor:'))).toBe(true);
 	});
 
 	it('ancestor selection absorbs a selected descendant without adding a deployment', async function () {
@@ -171,10 +179,25 @@ describe('Taxonomy Workbench Scope — hierarchy-first detection', function () {
 		expect(descendantPlan.selectedFolders).toBe(1);
 		expect(descendantPlan.minimalScopes).toBe(1);
 		expect(descendantPlan.deployments).toBe(1);
-		const directHitDeployment = await browser.executeObsidian(() =>
-			document.querySelector<HTMLElement>('[data-dtf-workbench-scope="1"]')?.textContent ?? '',
-		);
-		expect(directHitDeployment).toContain('ScopeDetectFixture/Work: PARA');
+		const directHitPlan = await browser.executeObsidian(() => {
+			const scope = document.querySelector<HTMLElement>('[data-dtf-workbench-scope="1"]');
+			const boundary = scope?.querySelector<HTMLElement>('[data-dtf-semantic-path="scope-inclusion-boundary"]');
+			const anchor = scope?.querySelector<HTMLElement>('[data-dtf-semantic-path="scope-system-anchor"]');
+			return {
+				boundaryContext: boundary?.querySelector('[data-dtf-path-context="1"] .dtf-semantic-path-value')?.textContent ?? null,
+				boundaryFocus: boundary?.querySelector('[data-dtf-path-focus="1"] .dtf-semantic-path-value')?.textContent ?? null,
+				anchorContext: anchor?.querySelector('[data-dtf-path-context="1"] .dtf-semantic-path-value')?.textContent ?? null,
+				anchorFocus: anchor?.querySelector('[data-dtf-path-focus="1"] .dtf-semantic-path-value')?.textContent ?? null,
+				system: scope?.querySelector('.dtf-scope-deployment-system')?.textContent ?? null,
+			};
+		});
+		expect(directHitPlan).toEqual({
+			boundaryContext: 'ScopeDetectFixture/Work',
+			boundaryFocus: 'Projects',
+			anchorContext: 'ScopeDetectFixture',
+			anchorFocus: 'Work',
+			system: 'PARA',
+		});
 
 		const ancestorSelected = await browser.executeObsidian(() => {
 			const tree = document.querySelector<HTMLElement>('[data-dtf-detect-tree="1"]');
@@ -207,19 +230,16 @@ describe('Taxonomy Workbench Scope — hierarchy-first detection', function () {
 			);
 			const descendantRow = rowFor('Projects');
 			const ancestorRow = rowFor('Work');
-			const summary = Array.from(scope?.querySelectorAll('div') ?? [])
-				.map((el) => (el.textContent ?? '').trim())
-				.find((text) => /^1 minimal scope · 1 deployment$/.test(text)) ?? '';
 			return {
 				selectedFolders: stat('Selected folders'),
-				minimalScopes: stat('Minimal scopes'),
-				deployments: stat('Deployments'),
+				minimalScopes: stat('Inclusion boundaries'),
+				deployments: stat('System occurrences'),
 				hasScopeBadge: Array.from(ancestorRow?.querySelectorAll('span') ?? [])
-					.some((span) => (span.textContent ?? '').trim() === 'scope'),
-				hasAbsorbedBadge: (descendantRow?.textContent ?? '').includes('↑ absorbed'),
+					.some((span) => (span.textContent ?? '').trim() === 'Inclusion boundary'),
+				hasAbsorbedBadge: (descendantRow?.textContent ?? '').includes('Covered by parent boundary'),
 				hasScopeTint: (descendantRow?.style.background ?? '') !== '',
 				hasAbsorbedBorder: (descendantRow?.style.borderLeft ?? '').includes('dashed'),
-				summary,
+				summary: scope?.querySelector('[data-dtf-scope-plan-summary="1"]')?.textContent ?? '',
 			};
 		});
 
@@ -230,7 +250,8 @@ describe('Taxonomy Workbench Scope — hierarchy-first detection', function () {
 		expect(cover.hasAbsorbedBadge).toBe(true);
 		expect(cover.hasScopeTint).toBe(true);
 		expect(cover.hasAbsorbedBorder).toBe(true);
-		expect(cover.summary).toBe('1 minimal scope · 1 deployment');
+		expect(cover.summary).toContain('Inclusion boundaries (1)');
+		expect(cover.summary).toContain('System anchors that will generate candidates (1)');
 
 		// Expand the selected ancestor so the screenshot visibly captures the
 		// absorbed descendant rather than only proving it in hidden tree DOM.
@@ -243,6 +264,11 @@ describe('Taxonomy Workbench Scope — hierarchy-first detection', function () {
 			workCheckbox?.parentElement?.click();
 		});
 		await browser.pause(200);
+		await browser.executeObsidian(() => {
+			document.querySelector('[data-dtf-scope-plan-summary="1"]')
+				?.scrollIntoView({ block: 'center', behavior: 'instant' as ScrollBehavior });
+		});
+		await browser.pause(150);
 		await snap('18-workbench-scope-minimal-cover');
 	});
 
@@ -270,7 +296,7 @@ describe('Taxonomy Workbench Scope — hierarchy-first detection', function () {
 		const rootBadge = await browser.executeObsidian(() => {
 			const root = document.querySelector<HTMLInputElement>('input[aria-label="Scope the entire vault"]');
 			return Array.from(root?.parentElement?.querySelectorAll('span') ?? [])
-				.some((span) => (span.textContent ?? '').trim() === 'scope');
+				.some((span) => (span.textContent ?? '').trim() === 'Inclusion boundary');
 		});
 		expect(rootBadge).toBe(true);
 	});
@@ -279,7 +305,7 @@ describe('Taxonomy Workbench Scope — hierarchy-first detection', function () {
 		const clicked = await browser.executeObsidian(() => {
 			const scope = document.querySelector<HTMLElement>('[data-dtf-workbench-scope="1"]');
 			const draft = Array.from(scope?.querySelectorAll('button') ?? [])
-				.find((button) => (button.textContent ?? '').trim().startsWith('Draft candidates')) as HTMLButtonElement | undefined;
+				.find((button) => (button.textContent ?? '').trim().startsWith('Review candidates from')) as HTMLButtonElement | undefined;
 			if (!draft || draft.disabled) return false;
 			draft.click();
 			return true;
@@ -310,17 +336,22 @@ describe('Taxonomy Workbench Scope — hierarchy-first detection', function () {
 		});
 		await browser.pause(500);
 
-		const clickResult = await browser.executeObsidian(() => {
-			const name = Array.from(document.querySelectorAll('.setting-item-name'))
+		const clickResult = await browser.executeObsidian(({ app }) => {
+			const setting = (app as unknown as {
+				setting: { activeTab?: { containerEl?: HTMLElement } };
+			}).setting;
+			const container = setting.activeTab?.containerEl;
+			const name = Array.from(container?.querySelectorAll('.setting-item-name') ?? [])
 				.find((el) => (el.textContent ?? '').trim() === 'Scan vault for organizational systems');
 			const row = name?.closest('.setting-item');
 			const button = Array.from(row?.querySelectorAll('button') ?? [])
 				.find((el) => (el.textContent ?? '').trim() === 'Scan') as HTMLButtonElement | undefined;
 			const modal = row?.closest('.modal') as HTMLElement | null;
 			if (!button || !modal) return { found: false, settingsWasOpen: false };
-			modal.dataset.dtfE2eSettingsScan = '1';
+			(globalThis as unknown as { __dtfSettingsScanModal?: HTMLElement }).__dtfSettingsScanModal = modal;
+			const settingsWasOpen = modal.isConnected;
 			button.click();
-			return { found: true, settingsWasOpen: true };
+			return { found: true, settingsWasOpen };
 		});
 		expect(clickResult.found).toBe(true);
 		expect(clickResult.settingsWasOpen).toBe(true);
@@ -328,7 +359,8 @@ describe('Taxonomy Workbench Scope — hierarchy-first detection', function () {
 
 		const handedOff = await browser.executeObsidian(({ app }, viewType: string) => ({
 			leafCount: app.workspace.getLeavesOfType(viewType).length,
-			settingsMarkerStillMounted: Boolean(document.querySelector('[data-dtf-e2e-settings-scan="1"]')),
+			settingsMarkerStillMounted: (globalThis as unknown as { __dtfSettingsScanModal?: HTMLElement })
+				.__dtfSettingsScanModal?.isConnected ?? false,
 			hasScope: Boolean(document.querySelector('[data-dtf-workbench-scope="1"]')),
 			hasTree: Boolean(document.querySelector('[data-dtf-detect-tree="1"]')),
 			currentSurface: document.querySelector<HTMLElement>('[data-dtf-workbench-shell="1"]')
@@ -360,8 +392,8 @@ async function readScopeCounts(): Promise<{
 		};
 		return {
 			selectedFolders: stat('Selected folders'),
-			minimalScopes: stat('Minimal scopes'),
-			deployments: stat('Deployments'),
+			minimalScopes: stat('Inclusion boundaries'),
+			deployments: stat('System occurrences'),
 			surfacedSystems: stat('Surfaced systems'),
 		};
 	});

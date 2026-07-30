@@ -152,17 +152,41 @@ describe('Taxonomy Workbench — responsive Organizational systems browser', fun
 
 		const cards = await browser.executeObsidian((_context, fixture) => {
 			const all = Array.from(document.querySelectorAll<HTMLButtonElement>('[data-dtf-system-occurrence-key]'));
-			const complete = all.find((card) =>
-				(card.textContent ?? '').includes(`At ${fixture}/Work`)
-				&& card.dataset.dtfSystemStatus === 'actionable');
-			const incomplete = all.find((card) =>
-				(card.textContent ?? '').includes(`At ${fixture}/Home`)
-				&& card.dataset.dtfSystemStatus === 'incomplete');
+			const pathParts = (card: HTMLButtonElement) => {
+				const path = card.querySelector<HTMLElement>('[data-dtf-semantic-path="system-occurrence-anchor"]');
+				return {
+					context: path?.querySelector<HTMLElement>('[data-dtf-path-context="1"] .dtf-semantic-path-value')?.textContent ?? null,
+					focus: path?.querySelector<HTMLElement>('[data-dtf-path-focus="1"] .dtf-semantic-path-value')?.textContent ?? null,
+					aria: path?.getAttribute('aria-label') ?? null,
+				};
+			};
+			const complete = all.find((card) => {
+				const path = pathParts(card);
+				return path.context === fixture
+					&& path.focus === 'Work'
+					&& card.dataset.dtfSystemStatus === 'actionable';
+			});
+			const incomplete = all.find((card) => {
+				const path = pathParts(card);
+				return path.context === fixture
+					&& path.focus === 'Home'
+					&& card.dataset.dtfSystemStatus === 'incomplete';
+			});
 			return {
 				completeKey: complete?.dataset.dtfSystemOccurrenceKey ?? '',
 				incompleteKey: incomplete?.dataset.dtfSystemOccurrenceKey ?? '',
-				longAnchorVisible: all.some((card) =>
-					(card.textContent ?? '').includes('An intentionally long organizational context name/Home')),
+				completeContext: complete ? pathParts(complete).context : null,
+				completeFocus: complete ? pathParts(complete).focus : null,
+				completePathAria: complete ? pathParts(complete).aria : null,
+				completeObjectKind: complete?.querySelector('.dtf-workbench-object-kind')?.textContent ?? null,
+				completeConsequence: complete?.querySelector('.dtf-workbench-consequence')?.textContent ?? null,
+				incompleteConsequence: incomplete?.querySelector('.dtf-workbench-consequence')?.textContent ?? null,
+				selectionAria: complete?.getAttribute('aria-label') ?? null,
+				longAnchorVisible: all.some((card) => {
+					const path = pathParts(card);
+					return path.context?.includes('An intentionally long organizational context name')
+						&& path.focus === 'Home';
+				}),
 				showIncomplete: document.querySelector<HTMLInputElement>('[data-dtf-show-incomplete-systems="1"]')?.checked ?? false,
 				ruleLayerText: document.querySelector('[data-dtf-rule-layers="1"]')?.textContent ?? '',
 				ruleLayersOpen: document.querySelector<HTMLDetailsElement>('[data-dtf-rule-layers-disclosure="1"]')?.open ?? true,
@@ -177,10 +201,18 @@ describe('Taxonomy Workbench — responsive Organizational systems browser', fun
 		expect(cards.completeKey).not.toBe('');
 		expect(cards.incompleteKey).not.toBe('');
 		expect(cards.completeKey).not.toBe(cards.incompleteKey);
+		expect(cards.completeContext).toBe(FIXTURE);
+		expect(cards.completeFocus).toBe('Work');
+		expect(cards.completePathAria).toContain('Applies here: Work');
+		expect(cards.completePathAria).toContain(`Parent context: ${FIXTURE}`);
+		expect(cards.completeObjectKind).toBe('System occurrence');
+		expect(cards.completeConsequence).toContain('Ready to produce candidate rules');
+		expect(cards.incompleteConsequence).toContain('Inspect only');
+		expect(cards.selectionAria).toContain('does not add or enable rules');
 		expect(cards.longAnchorVisible).toBe(true);
 		expect(cards.showIncomplete).toBe(true);
 		expect(cards.ruleLayerText).toContain('para');
-		expect(cards.ruleLayerText).toContain('Inferred association');
+		expect(cards.ruleLayerText).toContain('Possible system link — inferred');
 		expect(cards.ruleLayersOpen).toBe(false);
 		expect(cards.hasSummary).toBe(true);
 		expect(cards.browserOpen).toBe(true);
@@ -224,32 +256,53 @@ describe('Taxonomy Workbench — responsive Organizational systems browser', fun
 				const selected = (leaf?.view.getState() as unknown as {
 					selectedSystemInstanceKey?: string | null;
 				}).selectedSystemInstanceKey ?? null;
+				const summary = document.querySelector<HTMLElement>('[data-dtf-selected-system-summary="1"]');
 				return {
 					selected,
 					selectedCard: document.querySelector(
 						`[data-dtf-system-occurrence-key="${CSS.escape(key)}"][aria-selected="true"]`,
 					) !== null,
 					deck: document.querySelector('[data-dtf-workbench-persistent-deck="1"]') !== null,
+					summaryKind: summary?.querySelector('.dtf-workbench-object-kind')?.textContent ?? null,
+					summaryContext: summary?.querySelector('[data-dtf-path-context="1"] .dtf-semantic-path-value')?.textContent ?? null,
+					summaryFocus: summary?.querySelector('[data-dtf-path-focus="1"] .dtf-semantic-path-value')?.textContent ?? null,
 				};
 			}, completeOccurrenceKey);
 			expect(state.selected).toBe(completeOccurrenceKey);
 			expect(state.selectedCard).toBe(true);
 			expect(state.deck).toBe(true);
+			expect(state.summaryKind).toBe('Selected system');
+			expect(state.summaryContext).toBe(FIXTURE);
+			expect(state.summaryFocus).toBe('Work');
 		}
 
 		await runCommand('folder-tag-sync:scan-and-snap-draft-rules');
 		await waitForSurface('candidates');
 		const groups = await browser.executeObsidian((_context, fixture) => {
 			const headers = Array.from(document.querySelectorAll<HTMLElement>('[data-dtf-candidate-occurrence-key]'));
+			const anchor = (header: HTMLElement) => ({
+				context: header.querySelector<HTMLElement>('[data-dtf-semantic-path="candidate-source-system-anchor"] [data-dtf-path-context="1"] .dtf-semantic-path-value')?.textContent ?? null,
+				focus: header.querySelector<HTMLElement>('[data-dtf-semantic-path="candidate-source-system-anchor"] [data-dtf-path-focus="1"] .dtf-semantic-path-value')?.textContent ?? null,
+			});
 			return {
 				count: headers.length,
-				hasWork: headers.some((header) => (header.textContent ?? '').includes(`${fixture}/Work`)),
-				hasHome: headers.some((header) => (header.textContent ?? '').includes(`${fixture}/Home`)),
+				hasWork: headers.some((header) => {
+					const path = anchor(header);
+					return path.context === fixture && path.focus === 'Work';
+				}),
+				hasHome: headers.some((header) => {
+					const path = anchor(header);
+					return path.context === fixture && path.focus === 'Home';
+				}),
+				objectKinds: headers.map((header) => header.querySelector('.dtf-workbench-object-kind')?.textContent ?? null),
+				focusActions: headers.map((header) => header.querySelector<HTMLButtonElement>('[data-dtf-candidate-group-header="1"]')?.getAttribute('aria-label') ?? null),
 			};
 		}, FIXTURE);
 		expect(groups.count).toBeGreaterThan(0);
 		expect(groups.hasWork).toBe(true);
 		expect(groups.hasHome).toBe(false);
+		expect(groups.objectKinds.every((kind) => kind === 'System occurrence')).toBe(true);
+		expect(groups.focusActions.every((label) => label?.includes('does not select candidate rules'))).toBe(true);
 	});
 
 	it('treats incomplete occurrences as inspect-only and honors the local visibility preference', async function () {
@@ -259,11 +312,21 @@ describe('Taxonomy Workbench — responsive Organizational systems browser', fun
 			)?.click();
 		}, incompleteOccurrenceKey);
 		await browser.pause(100);
-		const selected = await browser.executeObsidian(({ app }) => ({
-			detail: document.querySelector('[data-dtf-selected-system-detail="1"]')?.textContent ?? '',
-			state: app.workspace.getLeavesOfType('taxonomy-workbench-map')[0]?.view.getState(),
-		}));
+		const selected = await browser.executeObsidian(({ app }) => {
+			const detail = document.querySelector<HTMLElement>('[data-dtf-selected-system-detail="1"]');
+			return {
+				detail: detail?.textContent ?? '',
+				objectKind: detail?.querySelector('.dtf-workbench-object-kind')?.textContent ?? null,
+				anchorAria: detail?.querySelector('[data-dtf-semantic-path="selected-system-anchor"]')?.getAttribute('aria-label') ?? null,
+				evidenceKinds: Array.from(detail?.querySelectorAll<HTMLElement>('.dtf-orgsys-evidence-row [data-dtf-path-focus="1"]') ?? [])
+					.map((element) => element.textContent ?? ''),
+				state: app.workspace.getLeavesOfType('taxonomy-workbench-map')[0]?.view.getState(),
+			};
+		});
 		expect(selected.detail).toContain('Inspect only');
+		expect(selected.objectKind).toBe('Selected system occurrence');
+		expect(selected.anchorAria).toContain('Applies here: Home');
+		expect(selected.evidenceKinds).toContain('Evidence folderProjects');
 		expect((selected.state as { selectedSystemInstanceKey: string }).selectedSystemInstanceKey)
 			.toBe(incompleteOccurrenceKey);
 
@@ -395,6 +458,10 @@ describe('Taxonomy Workbench — responsive Organizational systems browser', fun
 				detailOverlapsLayers: Boolean(detail && layers
 					&& detail.getBoundingClientRect().bottom > layers.getBoundingClientRect().top + 1),
 				browserHorizontalOverflow: browser ? browser.scrollWidth - browser.clientWidth : 1,
+				summaryText: disclosure?.querySelector('summary')?.textContent ?? '',
+				description: disclosure?.querySelector('.dtf-rule-layers-description')?.textContent ?? '',
+				objectKinds: cards.map((card) => card.querySelector('.dtf-workbench-object-kind')?.textContent ?? null),
+				associationLabels: cards.map((card) => card.querySelector('.dtf-rule-layer-association-label')?.textContent ?? null),
 			};
 		});
 		expect(expandedLayers.open).toBe(true);
@@ -402,6 +469,20 @@ describe('Taxonomy Workbench — responsive Organizational systems browser', fun
 		expect(expandedLayers.cardHorizontalOverflow).toBe(0);
 		expect(expandedLayers.detailOverlapsLayers).toBe(false);
 		expect(expandedLayers.browserHorizontalOverflow).toBeLessThanOrEqual(1);
+		expect(expandedLayers.summaryText).toContain('Installed rule layers');
+		expect(expandedLayers.description).toContain('not detected systems');
+		expect(expandedLayers.objectKinds.every((kind) => kind === 'Runtime layer')).toBe(true);
+		expect(expandedLayers.associationLabels).toContain('Possible system link — inferred');
+		await browser.executeObsidian(() => {
+			const browser = document.querySelector<HTMLElement>('[data-dtf-systems-browser="1"]');
+			const disclosure = document.querySelector<HTMLElement>('[data-dtf-rule-layers-disclosure="1"]');
+			if (!browser || !disclosure) return;
+			const browserRect = browser.getBoundingClientRect();
+			const disclosureRect = disclosure.getBoundingClientRect();
+			browser.scrollTop += disclosureRect.top - browserRect.top - 12;
+		});
+		await browser.pause(150);
+		await snap('organizational-systems-browser-rule-layers-open');
 
 		await browser.executeObsidian(() => {
 			document.querySelector<HTMLButtonElement>('[data-dtf-systems-browser-toggle="1"]')?.click();
@@ -574,8 +655,8 @@ describe('Taxonomy Workbench — responsive Organizational systems browser', fun
 					panelAriaHidden: document.querySelector('.dtf-workbench-active-panel')?.getAttribute('aria-hidden') ?? null,
 					surface: document.querySelector<HTMLElement>('[data-dtf-workbench-shell="1"]')
 						?.dataset.dtfWorkbenchCurrentSurface ?? null,
-					hasAnchor: (document.querySelector('[data-dtf-systems-summary="1"]')?.textContent ?? '')
-						.includes(`${fixture}/Work`),
+					hasAnchor: document.querySelector('[data-dtf-systems-summary="1"] [data-dtf-path-context="1"] .dtf-semantic-path-value')?.textContent === fixture
+						&& document.querySelector('[data-dtf-systems-summary="1"] [data-dtf-path-focus="1"] .dtf-semantic-path-value')?.textContent === 'Work',
 				};
 			}, completeOccurrenceKey, FIXTURE);
 			expect(selected.key).toBe(completeOccurrenceKey);
@@ -662,7 +743,7 @@ describe('Taxonomy Workbench — responsive Organizational systems browser', fun
 			if (!app.vault.getAbstractFileByPath(path)) await app.vault.createFolder(path);
 			const status = document.querySelector<HTMLElement>('[data-dtf-workbench-status]');
 			const install = Array.from(document.querySelectorAll<HTMLButtonElement>('[data-dtf-workbench-candidates="1"] button'))
-				.find((button) => /^Install (?:selected rules|\d+ selected rule)/.test(button.textContent ?? ''));
+				.find((button) => /^Add (?:selected disabled drafts|\d+ selected disabled draft)/.test(button.textContent ?? ''));
 			return {
 				status: status?.dataset.dtfWorkbenchStatus ?? null,
 				installDisabled: install?.disabled ?? false,

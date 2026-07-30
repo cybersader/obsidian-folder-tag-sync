@@ -1,6 +1,6 @@
 ---
 title: Current state
-description: The "drop a fresh agent (or returning human) here and be oriented in two minutes" snapshot — the v0.1.40 BRAT release, systems-browser containment repair, and next open wall.
+description: The "drop a fresh agent (or returning human) here and be oriented in two minutes" snapshot — the v0.1.41 BRAT release, its self-explaining Workbench grammar, and the next open wall.
 sidebar:
   label: "Current state"
   order: 0.5
@@ -10,7 +10,7 @@ sidebar:
 This is the fast-orientation page. If you're a fresh agent or a human returning after time away, read this top-to-bottom, then skim the [Glossary](/obsidian-folder-tag-sync/agent-context/glossary/) for any unfamiliar term. It's kept current deliberately — if it's stale, fix it.
 :::
 
-**As of:** v0.1.40 is the current BRAT release and fixes multi-line systems-browser card overlap · not yet in the Obsidian community catalog.
+**As of:** v0.1.41 is the current BRAT release. It adds a self-explaining semantic grammar across the Workbench on top of the v0.1.40 card-containment repair · not yet in the Obsidian community catalog.
 
 ## What this plugin is, in one paragraph
 
@@ -18,15 +18,17 @@ Folders are a rigid single hierarchy; tags are a flexible overlapping (polyhiera
 
 ## Where we are right now
 
-The released v0.1.40 baseline includes both sync directions, the typed rule model, Path Lens templates, specificity-aware matching, group precedence, the frontmatter witness, bulk sync, known-system detection, `.orgsys` preview/composition, preview-first production support bundles with bounded structured debug logging, and the occurrence-first Taxonomy Workbench.
+The released v0.1.41 baseline includes both sync directions, the typed rule model, Path Lens templates, specificity-aware matching, group precedence, the frontmatter witness, bulk sync, known-system detection, `.orgsys` preview/composition, preview-first production support bundles with bounded structured debug logging, and the occurrence-first Taxonomy Workbench.
 
-The release consolidates the previously separate detect and Scan & Snap workflows into **one persistent Taxonomy Workbench**, makes the Workbench occurrence-first, and includes the responsive usability repair that changes how it occupies space. The v0.1.40 containment follow-up explicitly resets multi-line browser controls to content-driven height so occurrence evidence, missing roles, long anchors, selected detail, and Rule layers remain inside their own boxes across themes:
+The release consolidates the previously separate detect and Scan & Snap workflows into **one persistent Taxonomy Workbench**, makes the Workbench occurrence-first, and includes the responsive usability repair that changes how it occupies space. The v0.1.40 containment follow-up explicitly resets multi-line browser controls to content-driven height so occurrence evidence, missing roles, long anchors, selected detail, and Rule layers remain inside their own boxes across themes.
 
-- **Organizational systems** — a compact shell-owned summary remains visible across every surface. The full occurrence browser is a collapsible side column at wide Workbench widths and a temporary overlay/drawer at narrow widths. One card still represents one anchored occurrence such as `PARA at Work`; repeated anchors stay separate. Incomplete occurrences remain visible by default as inspect-only, and a local preference can hide them.
-- **Rule layers** — installed rules are grouped separately by runtime `MappingRule.group` and precedence inside a collapsed disclosure in the systems browser. Current-snapshot links to occurrences remain visibly labelled inferred or unknown because no durable deployment provenance exists yet.
-- **Map** — read the vault hierarchy with neutral rows, explicit occurrence-specific Member/Support chips, neutral installed-rule results, and textual **Conflict** badges. Pack-colour rails/tints and decorative cross-panel connectors are removed. Overlapping folders still relate to every applicable occurrence. Detected / My rules / Both modes, folder detail, emitted-tag preview, Settings handoff, and “Choose this branch in scope” remain available. Short panes hide supplementary Map counters so the hierarchy retains usable height.
-- **Scope** — inspect all complete/incomplete/suppressed evidence in one hierarchy, but select only branches containing actionable occurrences. Scope tint and absorbed selections reduce choices to a deterministic minimal cover. Deployments stay anchored at `occurrence.anchorPath`, preventing duplicated shapes such as `Projects/Projects`.
-- **Candidates** — preview scoped or automatically detected rules grouped by exact occurrence, with coverage, sample emissions, bijectivity/lossiness, conflicts, predicted winners, and exact selection counts. Sorting happens inside each occurrence group. Adding drafts is confirmed and **always persists new rules disabled for review**.
+The v0.1.41 semantic-legibility release adds one shared visual grammar: every important object states **what it is**, **where it sits in context**, **what state it is in**, and **what an action will do**. Semantic paths render parent context separately from the applicable segment, preserve a complete accessible label, and wrap long or Unicode paths without making colour carry the meaning:
+
+- **Organizational systems** — a compact shell-owned summary remains visible across every surface. The full occurrence browser is a collapsible side column at wide Workbench widths and a temporary overlay/drawer at narrow widths. Every card is labelled **System occurrence**, renders a semantic **Applies here** path, and states either `Ready to produce candidate rules` or an inspect-only reason. Selecting a card focuses that exact occurrence across surfaces; it does not add or enable rules. Selected detail separates Member roles, Support evidence, missing roles, and parent-system relationships.
+- **Installed rule layers** — installed rules are grouped separately by runtime `MappingRule.group` and precedence inside a collapsed disclosure. Every card is labelled **Runtime layer**. Current-snapshot links to occurrences say **Possible system link — inferred** or **No system link recorded** because no durable deployment provenance exists yet.
+- **Map: understand this vault** — a read-only introduction and mode explanation distinguish detected occurrence evidence from enabled installed-rule output. Neutral folder rows use structured **Member of** / **Support for** annotations with a separately labelled system anchor; installed-rule results remain neutral and conflicts textual. Folder detail identifies the **Folder inspected**, **Enabled rule winner**, **Predicted tag output**, and a **For this folder** action group. The Scope handoff says **Use this branch as an inclusion boundary**.
+- **Scope: choose what to include** — checked folders are explicitly **Inclusion boundaries**, not replacements for system anchors. The plan summary has separate **Inclusion boundaries** and **System anchors that will generate candidates** sections. Redundant choices say **Covered by parent boundary**, incomplete/suppressed-only rows say **Inspect only**, and deployments stay anchored at `occurrence.anchorPath`, preventing duplicated shapes such as `Projects/Projects`.
+- **Candidates: review disabled drafts** — each group is a source **System occurrence** with an exact semantic system anchor; each row is a **Candidate rule** with a rule anchor, plain coverage/round-trip/conflict labels, and examples. Checking a row queues a disabled rule draft. **Add selected disabled drafts** confirms and persists fresh rules disabled for review without changing files, folders, frontmatter, or current sync behavior.
 
 Compatibility and safety contracts:
 
@@ -49,23 +51,25 @@ The v0.1.22–0.1.27 campaign solved the **“where do my rules apply / what wil
 - **0.1.25** — [hierarchy-first detection](/obsidian-folder-tag-sync/agent-context/glossary/), making the user's folder tree the primary surface.
 - **0.1.27** — [auto-scope](/obsidian-folder-tag-sync/agent-context/glossary/) and [scope tint](/obsidian-folder-tag-sync/agent-context/glossary/).
 - **0.1.29 onward** — Scan & Snap candidate drafting, `.orgsys`, composition preview, the dockable Workbench Map, installed-rule sensing, and production support bundles.
-- **2026-07-28 unreleased consolidation** — the proven detect, scope, preview, and install seams were connected inside the Workbench instead of competing as separate product surfaces.
+- **2026-07-28 consolidation (released beginning in 0.1.38)** — the proven detect, scope, preview, and install seams were connected inside the Workbench instead of competing as separate product surfaces.
 - **2026-07-29 occurrence/deck redesign (released in 0.1.38)** — detection became occurrence-local, the Organizational systems / Rule layers read model made groups tangible, candidates became occurrence-grouped, and stale-source guards were added.
 - **2026-07-29 responsive repair (released in 0.1.39)** — the always-expanded vertical deck became a compact summary plus wide side browser / narrow drawer; Map rails, pack tints, and decorative connectors were removed; short panes now prioritize the hierarchy over supplementary counters.
 - **2026-07-30 containment follow-up (released in 0.1.40)** — real production-shaped cards exposed Obsidian/theme fixed button heights. Multi-line cards and headers now use content-driven height, wrap long titles safely, and are guarded by child-containment and sibling-intersection geometry assertions.
+- **2026-07-30 semantic-legibility pass (released in 0.1.41)** — parent context and the applicable path segment became separate semantic elements; systems, evidence, Scope boundaries, system anchors, Candidate groups/rules, and runtime layers now identify their object type and action consequence in plain text. Visual inspection also exposed and fixed a Candidate-header flex-wrap regression and cramped occurrence annotations.
 
 ## Verification status
 
-The released v0.1.40 baseline passes these measured gates:
+The v0.1.41 semantic-legibility release passes these measured gates:
 
-- **Bun unit suite:** 1,150 passing, 0 failing, 2,754 assertions across 47 files.
+- **Bun unit suite:** 1,155 passing, 0 failing, 2,759 assertions across 48 files, including 5 focused semantic-path tests.
 - **Production build / TypeScript:** clean; the generated embedded catalog contains 8 validated packs (approximately 53.9 KiB source payload).
 - **Obsidian-community lint:** clean.
-- **Real Obsidian 1.12.7:** all 10 serial WDIO specs pass, **68 tests total**. Coverage includes occurrence-group rendering, keyboard tabs, cross-surface selection, incomplete inspect-only behavior, stale-install prevention, command-route recollection, Scope occurrence anchoring, three-file release parity, disabled installation, no fixture mutation, idempotent reinstall, deliberate enablement, support privacy, and the responsive repair's neutral folder rows, textual conflicts, wide side browser, narrow drawer, container-width switching, collapsed Rule layers, short-pane hierarchy preservation, zero decorative connectors, and multi-line card/detail/Rule-layer containment.
-- **Private production-shape validation:** the user-supplied export was reconstructed and exercised only in an isolated `/tmp` Obsidian vault. Before the fix, every rendered occurrence card overflowed its content box in both wide and drawer layouts; after the fix, content overflow, child overflow, sibling intersections, and horizontal overflow were all zero. No private fixture, path, screenshot, or derived alias was written into the repository or uploaded.
-- **Docs:** 77 static pages build successfully; route/content smoke is 33/33 green.
-- **Repository hygiene:** legacy `DetectVaultModal.ts` and `ScanAndSnapModal.ts` remain deleted; the now-unused `ConnectorOverlay.ts` is deleted; the CRLF-aware diff check is clean.
-- **Visual inspection:** fresh synthetic desktop, 480 px, approximately 320 px, and short-height screenshots plus private local-only wide/drawer screenshots were inspected directly. Multi-line occurrence cards now expand around all evidence and missing-role rows, long titles wrap inside their cards, and adjacent cards/details no longer paint across one another.
+- **Real Obsidian 1.13.4:** all 10 serial WDIO specs pass, **70 tests total**. Coverage includes occurrence-group rendering, keyboard tabs, cross-surface selection, semantic context/focus paths, complete versus inspect-only consequences, Candidate group/rule identity, Runtime-layer language, stale-install prevention, command-route recollection, inclusion-boundary-versus-system-anchor planning, three-file release parity, disabled installation, no fixture mutation, idempotent reinstall, deliberate enablement, support privacy, Settings-owner-document compatibility, neutral Map rows, textual conflicts, wide side browser, narrow drawer, approximately 320 px and short-pane layouts, zero decorative connectors, and card/detail/Runtime-layer containment.
+- **Docs:** 78 static pages build successfully; route/content smoke is 33/33 green.
+- **Repository hygiene:** core detection, planning, persistence, sync, and runtime files have no diff; the CRLF-aware diff check and added-line private-identifier scan are clean. Generated screenshots and existing support-bundle images remain untracked and unpublished.
+- **Visual inspection:** fresh invented-fixture screenshots were inspected directly for Map Both mode, selected occurrence detail, Installed rule layers, Scope boundary-versus-anchor planning, Candidates before/after adding disabled drafts, the 480 px drawer, approximately 320 px pane, and short-height pane. Semantic labels wrap without overlap, Candidate group headers remain bounded, and inclusion boundaries stay visibly distinct from system anchors.
+
+The preceding v0.1.40 containment fix received private local-only production-shape validation in an isolated `/tmp` vault. No private fixture, path, screenshot, diagnostic, alias, or derived structure was written into the repository or uploaded. The v0.1.41 semantic-legibility pass used only invented permanent fixtures and did not reconstruct that production export.
 
 The repair does not change the installation safety boundary: Workbench-generated rules are still added disabled for deliberate review, and no folders, notes, tags, or frontmatter are modified by drafting or installation.
 

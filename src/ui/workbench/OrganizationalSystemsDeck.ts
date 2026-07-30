@@ -1,9 +1,19 @@
 import type { WorkbenchSessionSnapshot } from '../../workbench/WorkbenchSession';
 import type { OrganizationalSystemCard } from '../../workbench/organizationalSystemsProjection';
+import {
+	describeSemanticPath,
+	renderSemanticPath,
+} from './SemanticPath';
 
 export interface OrganizationalSystemsDeckOptions {
 	onSelectSystem(occurrenceKey: string | null): void;
 	onShowIncompleteChange(show: boolean): void;
+}
+
+interface DisplayEvidence {
+	relation: 'member' | 'support';
+	role: string | null;
+	path: string;
 }
 
 /** Persistent, occurrence-first overview shared by every Workbench surface. */
@@ -44,7 +54,7 @@ export class OrganizationalSystemsDeck {
 		headingWrap.createEl('h3', { text: 'Organizational systems' });
 		headingWrap.createDiv({
 			cls: 'dtf-orgsys-heading-description',
-			text: 'Each card is one system occurrence anchored in this vault. Folders are evidence inside the occurrence, not standalone systems.',
+			text: 'Each card is one system occurrence. Select a card to focus that same occurrence across Map, Scope, and Candidates; selection does not add or enable rules.',
 		});
 
 		const preference = headingRow.createEl('label', { cls: 'dtf-orgsys-preference' });
@@ -59,8 +69,8 @@ export class OrganizationalSystemsDeck {
 		const summary = this.container.createDiv({ cls: 'dtf-orgsys-summary' });
 		summary.setText(
 			`${snapshot.occurrenceStats.actionableCount} complete · `
-			+ `${snapshot.occurrenceStats.incompleteCount} incomplete · `
-			+ `${snapshot.occurrenceStats.suppressedCount} suppressed`,
+				+ `${snapshot.occurrenceStats.incompleteCount} incomplete · `
+				+ `${snapshot.occurrenceStats.suppressedCount} suppressed`,
 		);
 
 		const cardList = this.container.createDiv({ cls: 'dtf-orgsys-card-list' });
@@ -87,13 +97,14 @@ export class OrganizationalSystemsDeck {
 		button.dataset.dtfSystemStatus = card.status;
 		button.setAttr('role', 'option');
 		button.setAttr('aria-selected', String(selected));
-		button.setAttr(
-			'aria-label',
-			`${card.packName} at ${displayAnchor(card.anchorPath)}, ${statusLabel(card.status)}`,
-		);
+		button.setAttr('aria-label', occurrenceSelectionLabel(card));
 		if (selected) button.addClass('is-selected');
 		button.addEventListener('click', () => this.options.onSelectSystem(card.occurrenceKey));
 
+		button.createSpan({
+			cls: 'dtf-workbench-object-kind',
+			text: 'System occurrence',
+		});
 		const title = button.createSpan({ cls: 'dtf-orgsys-card-title' });
 		title.createSpan({ text: card.packName });
 		title.createSpan({
@@ -101,20 +112,25 @@ export class OrganizationalSystemsDeck {
 			text: statusLabel(card.status),
 		});
 
-		button.createSpan({
-			cls: 'dtf-orgsys-anchor',
-			text: `At ${displayAnchor(card.anchorPath)}`,
+		renderSemanticPath(button, card.anchorPath, {
+			role: 'system-occurrence-anchor',
+			focusLabel: 'Applies here',
+			variant: 'stacked',
 		});
 		button.createSpan({
 			cls: 'dtf-orgsys-shape',
-			text: `${card.evidenceCount}/${card.minEvidence} ${card.countBy} · `
-				+ `${card.memberPaths.length} member${card.memberPaths.length === 1 ? '' : 's'} · `
-				+ `${card.supportPaths.length} support${card.supportPaths.length === 1 ? '' : 's'}`,
+			text: `Evidence: ${card.evidenceCount} of ${card.minEvidence} ${card.countBy} · `
+				+ `${card.memberPaths.length} member folder${card.memberPaths.length === 1 ? '' : 's'} · `
+				+ `${card.supportPaths.length} support folder${card.supportPaths.length === 1 ? '' : 's'}`,
+		});
+		button.createSpan({
+			cls: 'dtf-workbench-consequence',
+			text: statusConsequence(card.status),
 		});
 		if (card.missingRoles.length > 0) {
 			button.createSpan({
 				cls: 'dtf-orgsys-missing',
-				text: `Missing: ${card.missingRoles.join(', ')}`,
+				text: `Missing member roles: ${card.missingRoles.join(', ')}`,
 			});
 		}
 	}
@@ -130,24 +146,54 @@ export class OrganizationalSystemsDeck {
 			return;
 		}
 
+		detail.createDiv({
+			cls: 'dtf-workbench-object-kind',
+			text: 'Selected system occurrence',
+		});
 		const title = detail.createDiv({ cls: 'dtf-orgsys-detail-title' });
-		title.createSpan({ text: `${card.packName} at ${displayAnchor(card.anchorPath)}` });
+		title.createSpan({ text: card.packName });
 		if (card.status !== 'actionable') {
 			title.createSpan({
 				cls: 'dtf-orgsys-inspect-only',
 				text: 'Inspect only',
 			});
 		}
+		renderSemanticPath(detail, card.anchorPath, {
+			role: 'selected-system-anchor',
+			focusLabel: 'Applies here',
+			variant: 'stacked',
+		});
+		detail.createDiv({
+			cls: 'dtf-workbench-consequence',
+			text: statusConsequence(card.status),
+		});
 
+		detail.createDiv({
+			cls: 'dtf-orgsys-evidence-heading',
+			text: 'Evidence folders',
+		});
 		const relations = detail.createDiv({ cls: 'dtf-orgsys-relations' });
-		for (const path of card.memberPaths) this.makeRelationChip(relations, 'Member', path, 'member');
-		for (const path of card.supportPaths) this.makeRelationChip(relations, 'Support', path, 'support');
-		for (const role of card.missingRoles) this.makeRelationChip(relations, 'Missing role', role, 'missing');
+		for (const evidence of collectDisplayEvidence(card)) {
+			this.renderEvidenceRow(relations, evidence);
+		}
+		for (const role of card.missingRoles) {
+			this.renderPlainRelation(relations, 'Missing role', role, 'missing');
+		}
 		if (card.parentOccurrenceKey) {
-			this.makeRelationChip(relations, 'Scoped under', card.parentPackId ?? 'parent system', 'parent');
+			this.renderPlainRelation(
+				relations,
+				'Parent system relationship',
+				card.parentPackId ?? 'Parent system detected',
+				'parent',
+			);
 		}
 		if (card.suppressionReason) {
-			this.makeRelationChip(relations, 'Suppressed', card.suppressionReason, 'suppressed');
+			this.renderPlainRelation(
+				relations,
+				'Why this is inspect only',
+				'The required parent system is not actionable at this location.',
+				'suppressed',
+			);
 		}
 		if (relations.childElementCount === 0) {
 			relations.createSpan({
@@ -157,17 +203,71 @@ export class OrganizationalSystemsDeck {
 		}
 	}
 
-	private makeRelationChip(
+	private renderEvidenceRow(parent: HTMLElement, evidence: DisplayEvidence): void {
+		const row = parent.createDiv({ cls: 'dtf-orgsys-evidence-row' });
+		row.dataset.dtfRelation = evidence.relation;
+		const heading = row.createDiv({ cls: 'dtf-orgsys-evidence-row-heading' });
+		heading.createSpan({
+			cls: 'dtf-orgsys-relation-kind',
+			text: evidence.relation === 'member' ? 'Member role' : 'Support evidence',
+		});
+		if (evidence.role) {
+			heading.createSpan({ cls: 'dtf-orgsys-evidence-role', text: evidence.role });
+		}
+		renderSemanticPath(row, evidence.path, {
+			role: `system-${evidence.relation}-evidence`,
+			contextLabel: 'Inside occurrence',
+			focusLabel: 'Evidence folder',
+			variant: 'stacked',
+		});
+	}
+
+	private renderPlainRelation(
 		parent: HTMLElement,
 		kind: string,
 		value: string,
 		relation: string,
 	): void {
-		const chip = parent.createSpan({ cls: 'dtf-orgsys-relation-chip' });
-		chip.dataset.dtfRelation = relation;
-		chip.createSpan({ cls: 'dtf-orgsys-relation-kind', text: kind });
-		chip.createSpan({ text: value || '(vault root)' });
+		const row = parent.createDiv({ cls: 'dtf-orgsys-evidence-row is-plain' });
+		row.dataset.dtfRelation = relation;
+		row.createDiv({ cls: 'dtf-orgsys-relation-kind', text: kind });
+		row.createDiv({ cls: 'dtf-orgsys-relation-value', text: value });
 	}
+}
+
+function collectDisplayEvidence(card: OrganizationalSystemCard): DisplayEvidence[] {
+	const byIdentity = new Map<string, DisplayEvidence>();
+	for (const evidence of card.evidence) {
+		const role = evidence.label?.trim() || evidence.role || null;
+		const key = `${evidence.relation.length}:${evidence.relation}:`
+			+ `${evidence.role.length}:${evidence.role}:`
+			+ evidence.folderPath;
+		if (!byIdentity.has(key)) {
+			byIdentity.set(key, {
+				relation: evidence.relation,
+				role,
+				path: evidence.folderPath,
+			});
+		}
+	}
+
+	if (byIdentity.size === 0) {
+		for (const path of card.memberPaths) {
+			byIdentity.set(`member:${path}`, { relation: 'member', role: null, path });
+		}
+		for (const path of card.supportPaths) {
+			byIdentity.set(`support:${path}`, { relation: 'support', role: null, path });
+		}
+	}
+	return [...byIdentity.values()];
+}
+
+function occurrenceSelectionLabel(card: OrganizationalSystemCard): string {
+	const path = describeSemanticPath(card.anchorPath);
+	const location = path.context
+		? `Applies here: ${path.focus}. Parent context: ${path.context}.`
+		: `Applies here: ${path.focus}.`;
+	return `Select ${card.packName} system occurrence. ${location} ${statusLabel(card.status)}. Selection focuses this occurrence across the Workbench; it does not add or enable rules.`;
 }
 
 function statusLabel(status: OrganizationalSystemCard['status']): string {
@@ -176,6 +276,8 @@ function statusLabel(status: OrganizationalSystemCard['status']): string {
 	return 'Incomplete';
 }
 
-function displayAnchor(path: string): string {
-	return path || 'vault root';
+function statusConsequence(status: OrganizationalSystemCard['status']): string {
+	if (status === 'actionable') return 'Ready to produce candidate rules.';
+	if (status === 'suppressed') return 'Inspect only — its required parent system is not actionable here.';
+	return 'Inspect only — add the missing member roles before drafting this occurrence.';
 }

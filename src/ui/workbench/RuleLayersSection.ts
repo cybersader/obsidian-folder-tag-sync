@@ -30,7 +30,7 @@ export class RuleLayersSection {
 		const disclosure = this.container.createEl('details', { cls: 'dtf-rule-layers-disclosure' });
 		disclosure.dataset.dtfRuleLayersDisclosure = '1';
 		const summary = disclosure.createEl('summary', { cls: 'dtf-rule-layers-summary' });
-		summary.createSpan({ text: 'Rule layers' });
+		summary.createSpan({ text: 'Installed rule layers' });
 		const layerCount = this.snapshot.organizationalSystems.ruleLayers.length;
 		summary.createSpan({
 			cls: 'dtf-rule-layers-summary-count',
@@ -40,7 +40,7 @@ export class RuleLayersSection {
 		const body = disclosure.createDiv({ cls: 'dtf-rule-layers-body' });
 		body.createDiv({
 			cls: 'dtf-rule-layers-description',
-			text: 'Installed rules grouped by runtime precedence. System links are current-snapshot inferences, not ownership.',
+			text: 'These are installed runtime precedence groups, not detected systems. Higher listed precedence is evaluated first. Any system link shown here is only a current inference.',
 		});
 		const layers = body.createDiv({ cls: 'dtf-rule-layer-list' });
 		if (layerCount === 0) {
@@ -67,6 +67,10 @@ export class RuleLayersSection {
 		const card = parent.createDiv({ cls: 'dtf-rule-layer-card' });
 		card.dataset.dtfRuleLayerKey = layer.key;
 		if (associated) card.addClass('is-associated');
+		card.createDiv({
+			cls: 'dtf-workbench-object-kind',
+			text: 'Runtime layer',
+		});
 
 		const title = card.createDiv({ cls: 'dtf-rule-layer-title' });
 		title.createSpan({ text: layer.label });
@@ -79,21 +83,31 @@ export class RuleLayersSection {
 
 		card.createDiv({
 			cls: 'dtf-rule-layer-counts',
-			text: `${layer.rules.length} rule${layer.rules.length === 1 ? '' : 's'} · `
+			text: `${layer.rules.length} installed rule${layer.rules.length === 1 ? '' : 's'} · `
 				+ `${enabledCount} enabled · ${disabledCount} disabled`,
 		});
 
 		const association = card.createDiv({ cls: 'dtf-rule-layer-association' });
 		if (layer.association.certainty === 'inferred') {
 			association.dataset.dtfRuleAssociation = 'inferred';
-			association.setText(
-				associated
-					? 'Inferred association with the selected system'
-					: `Inferred association with ${layer.association.occurrenceKeys.length} system occurrence${layer.association.occurrenceKeys.length === 1 ? '' : 's'}`,
-			);
+			association.createDiv({
+				cls: 'dtf-rule-layer-association-label',
+				text: 'Possible system link — inferred',
+			});
+			association.createDiv({
+				text: associated
+					? 'This layer may relate to the selected system because their current rule-group identities match. No deployment ownership is recorded.'
+					: `Current rule-group identities suggest ${layer.association.occurrenceKeys.length} possible system occurrence link${layer.association.occurrenceKeys.length === 1 ? '' : 's'}. No deployment ownership is recorded.`,
+			});
 		} else {
 			association.dataset.dtfRuleAssociation = 'unknown';
-			association.setText('System association unknown — no durable provenance');
+			association.createDiv({
+				cls: 'dtf-rule-layer-association-label',
+				text: 'No system link recorded',
+			});
+			association.createDiv({
+				text: 'Installed rules do not yet store durable occurrence provenance.',
+			});
 		}
 	}
 }

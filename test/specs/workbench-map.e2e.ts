@@ -208,6 +208,10 @@ describe('Taxonomy Workbench map — consolidated shell and routing', function (
 					maxOccurrenceRelationsInARow: 0,
 					folderCount: 0,
 					mode: null,
+					intro: null,
+					modeExplanation: null,
+					relationLabels: [],
+					relationAnchors: [],
 				};
 			}
 			let maxOccurrenceRelationsInARow = 0;
@@ -233,6 +237,12 @@ describe('Taxonomy Workbench map — consolidated shell and routing', function (
 				folderCount: map.querySelectorAll('[data-dtf-folder-path]').length,
 				mode: document.querySelector<HTMLButtonElement>('[data-dtf-mode="both"]')
 					?.getAttribute('aria-pressed') ?? null,
+				intro: document.querySelector('.dtf-workbench-map-intro')?.textContent ?? null,
+				modeExplanation: document.querySelector('[data-dtf-map-mode-explanation="both"]')?.textContent ?? null,
+				relationLabels: Array.from(map.querySelectorAll<HTMLElement>('.dtf-folder-occurrence-relation'))
+					.map((element) => element.textContent ?? ''),
+				relationAnchors: Array.from(map.querySelectorAll<HTMLElement>('[data-dtf-semantic-path="map-occurrence-anchor"]'))
+					.map((element) => element.getAttribute('aria-label') ?? ''),
 			};
 		});
 		expect(info.hasMap).toBe(true);
@@ -242,6 +252,10 @@ describe('Taxonomy Workbench map — consolidated shell and routing', function (
 		expect(info.tintedRowCount).toBe(0);
 		expect(info.maxOccurrenceRelationsInARow).toBeGreaterThanOrEqual(2);
 		expect(info.mode).toBe('true');
+		expect(info.intro).toContain('Read-only view');
+		expect(info.modeExplanation).toContain('separate annotations');
+		expect(info.relationLabels).toContain('Member of');
+		expect(info.relationAnchors.every((label) => label.includes('System anchor:'))).toBe(true);
 
 		const restore = await browser.executeObsidian(() => ({
 			width: window.outerWidth,

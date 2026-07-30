@@ -109,7 +109,7 @@ These decisions came out of making the plugin usable on real, large vaults. Full
 
 ---
 
-### Organizational systems are lifecycle-shaped occurrence objects; Rule layers stay separate
+### Organizational systems are lifecycle-shaped occurrence objects; installed Rule layers stay separate
 
 **Decided:** The persistent Workbench shell keeps a compact occurrence summary available across Map, Scope, and Candidates. Full cards live in a responsive browser: a collapsible side column at wide Workbench widths and a temporary drawer at narrow widths. Folder rows carry typed member/support relations to every applicable occurrence. Candidate provenance is exact by `occurrenceKey`; installed rules remain grouped separately by runtime `MappingRule.group` as **Rule layers** inside a collapsed disclosure.
 
@@ -120,6 +120,10 @@ These decisions came out of making the plugin usable on real, large vaults. Full
 **Interaction boundary:** Incomplete occurrences are shown by default for inspection but cannot create Scope deployments or Candidates. Textual relation chips are the semantic and visual relationship source. Arbitrary pack-colour folder rails/tints and selected-only SVG connectors are rejected because visual testing showed that they introduced unexplained line noise and crossed content.
 
 **Responsive boundary:** “Persistent” means the summary, selection, and access remain available—not that the full card deck permanently consumes vertical height. Workbench width controls side-browser versus drawer behavior; short Workbench height hides supplementary Map counters so the hierarchy remains usable.
+
+**Semantic-legibility refinement (2026-07-30):** Every important Workbench object must answer four questions visibly: what is this, where is it in context, what state is it in, and what happens if I act on it? A shared semantic-path renderer separates muted parent context from the emphasized applicable segment while preserving a complete accessible label. Object labels distinguish System occurrence, Candidate rule, and Runtime layer; lifecycle/consequence copy distinguishes actionable from inspect-only; colour remains supporting rather than authoritative.
+
+**Interaction consequence boundary:** Selecting a system occurrence only focuses it across Map, Scope, and Candidates. A Scope checkbox selects an inclusion boundary without replacing the occurrence's system anchor. Focusing a Candidate group does not select its Candidate rows. Checking a Candidate queues a disabled draft; only the separately confirmed add action persists it, still disabled.
 
 **Freshness boundary:** The plugin increments a monotonic Workbench source revision after successful settings saves and folder create/delete/rename events. Open views mark snapshots stale immediately, pause candidate installation, debounce recollection, and recheck the revision before persistence.
 

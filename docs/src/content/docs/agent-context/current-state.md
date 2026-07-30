@@ -1,6 +1,6 @@
 ---
 title: Current state
-description: The "drop a fresh agent (or returning human) here and be oriented in two minutes" snapshot — the v0.1.39 BRAT release, responsive occurrence-first Workbench, and next open wall.
+description: The "drop a fresh agent (or returning human) here and be oriented in two minutes" snapshot — the v0.1.40 BRAT release, systems-browser containment repair, and next open wall.
 sidebar:
   label: "Current state"
   order: 0.5
@@ -10,7 +10,7 @@ sidebar:
 This is the fast-orientation page. If you're a fresh agent or a human returning after time away, read this top-to-bottom, then skim the [Glossary](/obsidian-folder-tag-sync/agent-context/glossary/) for any unfamiliar term. It's kept current deliberately — if it's stale, fix it.
 :::
 
-**As of:** v0.1.39 is the current BRAT release and includes the responsive Workbench usability repair described below · not yet in the Obsidian community catalog.
+**As of:** v0.1.40 is the current BRAT release and fixes multi-line systems-browser card overlap · not yet in the Obsidian community catalog.
 
 ## What this plugin is, in one paragraph
 
@@ -18,9 +18,9 @@ Folders are a rigid single hierarchy; tags are a flexible overlapping (polyhiera
 
 ## Where we are right now
 
-The released v0.1.39 baseline includes both sync directions, the typed rule model, Path Lens templates, specificity-aware matching, group precedence, the frontmatter witness, bulk sync, known-system detection, `.orgsys` preview/composition, preview-first production support bundles with bounded structured debug logging, and the occurrence-first Taxonomy Workbench.
+The released v0.1.40 baseline includes both sync directions, the typed rule model, Path Lens templates, specificity-aware matching, group precedence, the frontmatter witness, bulk sync, known-system detection, `.orgsys` preview/composition, preview-first production support bundles with bounded structured debug logging, and the occurrence-first Taxonomy Workbench.
 
-The release consolidates the previously separate detect and Scan & Snap workflows into **one persistent Taxonomy Workbench**, makes the Workbench occurrence-first, and includes the responsive usability repair that changes how it occupies space:
+The release consolidates the previously separate detect and Scan & Snap workflows into **one persistent Taxonomy Workbench**, makes the Workbench occurrence-first, and includes the responsive usability repair that changes how it occupies space. The v0.1.40 containment follow-up explicitly resets multi-line browser controls to content-driven height so occurrence evidence, missing roles, long anchors, selected detail, and Rule layers remain inside their own boxes across themes:
 
 - **Organizational systems** — a compact shell-owned summary remains visible across every surface. The full occurrence browser is a collapsible side column at wide Workbench widths and a temporary overlay/drawer at narrow widths. One card still represents one anchored occurrence such as `PARA at Work`; repeated anchors stay separate. Incomplete occurrences remain visible by default as inspect-only, and a local preference can hide them.
 - **Rule layers** — installed rules are grouped separately by runtime `MappingRule.group` and precedence inside a collapsed disclosure in the systems browser. Current-snapshot links to occurrences remain visibly labelled inferred or unknown because no durable deployment provenance exists yet.
@@ -52,18 +52,20 @@ The v0.1.22–0.1.27 campaign solved the **“where do my rules apply / what wil
 - **2026-07-28 unreleased consolidation** — the proven detect, scope, preview, and install seams were connected inside the Workbench instead of competing as separate product surfaces.
 - **2026-07-29 occurrence/deck redesign (released in 0.1.38)** — detection became occurrence-local, the Organizational systems / Rule layers read model made groups tangible, candidates became occurrence-grouped, and stale-source guards were added.
 - **2026-07-29 responsive repair (released in 0.1.39)** — the always-expanded vertical deck became a compact summary plus wide side browser / narrow drawer; Map rails, pack tints, and decorative connectors were removed; short panes now prioritize the hierarchy over supplementary counters.
+- **2026-07-30 containment follow-up (released in 0.1.40)** — real production-shaped cards exposed Obsidian/theme fixed button heights. Multi-line cards and headers now use content-driven height, wrap long titles safely, and are guarded by child-containment and sibling-intersection geometry assertions.
 
 ## Verification status
 
-The released baseline plus the unreleased responsive repair pass these measured local gates:
+The released v0.1.40 baseline passes these measured gates:
 
 - **Bun unit suite:** 1,150 passing, 0 failing, 2,754 assertions across 47 files.
 - **Production build / TypeScript:** clean; the generated embedded catalog contains 8 validated packs (approximately 53.9 KiB source payload).
 - **Obsidian-community lint:** clean.
-- **Real Obsidian 1.12.7:** all 10 serial WDIO specs pass, **68 tests total**. Coverage includes occurrence-group rendering, keyboard tabs, cross-surface selection, incomplete inspect-only behavior, stale-install prevention, command-route recollection, Scope occurrence anchoring, three-file release parity, disabled installation, no fixture mutation, idempotent reinstall, deliberate enablement, support privacy, and the responsive repair's neutral folder rows, textual conflicts, wide side browser, narrow drawer, container-width switching, collapsed Rule layers, short-pane hierarchy preservation, and zero decorative connectors.
+- **Real Obsidian 1.12.7:** all 10 serial WDIO specs pass, **68 tests total**. Coverage includes occurrence-group rendering, keyboard tabs, cross-surface selection, incomplete inspect-only behavior, stale-install prevention, command-route recollection, Scope occurrence anchoring, three-file release parity, disabled installation, no fixture mutation, idempotent reinstall, deliberate enablement, support privacy, and the responsive repair's neutral folder rows, textual conflicts, wide side browser, narrow drawer, container-width switching, collapsed Rule layers, short-pane hierarchy preservation, zero decorative connectors, and multi-line card/detail/Rule-layer containment.
+- **Private production-shape validation:** the user-supplied export was reconstructed and exercised only in an isolated `/tmp` Obsidian vault. Before the fix, every rendered occurrence card overflowed its content box in both wide and drawer layouts; after the fix, content overflow, child overflow, sibling intersections, and horizontal overflow were all zero. No private fixture, path, screenshot, or derived alias was written into the repository or uploaded.
 - **Docs:** 77 static pages build successfully; route/content smoke is 33/33 green.
 - **Repository hygiene:** legacy `DetectVaultModal.ts` and `ScanAndSnapModal.ts` remain deleted; the now-unused `ConnectorOverlay.ts` is deleted; the CRLF-aware diff check is clean.
-- **Visual inspection:** fresh desktop, 480 px, approximately 320 px, and short-height Workbench screenshots were inspected directly. The side browser leaves the active surface usable, the drawer does not permanently consume task height, short panes show the hierarchy immediately, and narrow panes remain free of page-level horizontal overflow.
+- **Visual inspection:** fresh synthetic desktop, 480 px, approximately 320 px, and short-height screenshots plus private local-only wide/drawer screenshots were inspected directly. Multi-line occurrence cards now expand around all evidence and missing-role rows, long titles wrap inside their cards, and adjacent cards/details no longer paint across one another.
 
 The repair does not change the installation safety boundary: Workbench-generated rules are still added disabled for deliberate review, and no folders, notes, tags, or frontmatter are modified by drafting or installation.
 
@@ -85,7 +87,7 @@ Not yet accepted into the Obsidian community catalog (a [submission PR stalled �
 
 ## Reading order for a fresh session
 
-1. **This page** — released baseline, verified unreleased work, and the next wall.
+1. **This page** — released baseline, current verification, and the next wall.
 2. [Glossary](/obsidian-folder-tag-sync/agent-context/glossary/) — every project term, plain-language, with code locations.
 3. [Vision](/obsidian-folder-tag-sync/agent-context/vision/) — the problem and long-term goals.
 4. [Decisions](/obsidian-folder-tag-sync/agent-context/decisions/) — what's settled and why.

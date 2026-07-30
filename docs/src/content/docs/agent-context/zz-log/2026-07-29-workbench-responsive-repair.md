@@ -46,6 +46,16 @@ The wide layout uses a bounded systems column and a `minmax(0, 1fr)` active pane
 
 A `ResizeObserver` also marks short Workbench containers. In short mode, the Map title and supplementary counters are hidden and the hierarchy receives a minimum usable height. The first short-pane screenshot revealed that the counters had consumed all remaining space; the follow-up screenshot confirmed that the tree is now immediately visible.
 
+## Post-release card containment correction
+
+After v0.1.39 reached BRAT, production-shaped occurrence cards exposed a missed theme interaction: Obsidian/theme button rules could retain a fixed input height even when an occurrence card contained several wrapped rows. Evidence counts and missing-role text therefore painted below the card border and into the next card or selected-detail panel.
+
+The correction makes only the Workbench's intentionally multi-line controls content-sized. Occurrence cards and Candidate group headers explicitly use automatic height with no fixed maximum; occurrence/detail/Rule-layer titles wrap with shrinkable text; relation values can break long paths; and the browser heading/preferences stack instead of competing horizontally inside the bounded side column.
+
+The E2E browser spec now measures content rather than inferring visual safety from outer layout alone. It fails if a card's `scrollHeight` exceeds its box, any child exits the card rectangle, sibling cards intersect, long content creates horizontal overflow, selected detail overlaps Rule layers, or the same failures recur in the 480 px drawer.
+
+The exact production export supplied for reproduction was exercised only in an isolated `/tmp` vault through a temporary WDIO config. Private folder names, diagnostics, screenshots, and fixture JSON never entered the repository, GitHub output, or release assets and were removed after local verification.
+
 ## Verification
 
 Measured gates for the responsive repair and unchanged release baseline:
@@ -55,13 +65,14 @@ Measured gates for the responsive repair and unchanged release baseline:
 - Production build and strict TypeScript check: clean; 8 embedded built-in packs.
 - Obsidian-community ESLint: clean.
 - Real Obsidian 1.12.7 WDIO: **10/10 specs and 68/68 tests passing**.
-- Responsive browser spec: **7 passing**, including side-by-side geometry, collapse/reopen ARIA state, narrow drawer behavior, focus/inert boundaries, container-width switching, approximately 320 px overflow, short-height hierarchy preservation, and stale-install prevention.
+- Responsive browser spec: **7 passing**, including side-by-side geometry, collapse/reopen ARIA state, narrow drawer behavior, focus/inert boundaries, container-width switching, approximately 320 px overflow, short-height hierarchy preservation, stale-install prevention, long-anchor wrapping, card-child containment, sibling separation, and expanded Rule-layer separation.
 - Map specs: **13 passing** across ordinary and sensing coverage, including neutral rows, exact overlapping occurrence relations, neutral emissions, and textual conflict semantics.
+- Private local-only production-shape WDIO: both wide and drawer layouts report zero content overflow, child overflow, sibling intersections, card horizontal overflow, and browser horizontal overflow after the fix.
 - Docs: 77 pages build and the 33-route/content smoke suite passes.
-- Fresh desktop, 480 px, approximately 320 px, and short-height screenshots were captured and inspected directly.
+- Fresh synthetic desktop, 480 px, approximately 320 px, and short-height screenshots plus private local-only wide/drawer screenshots were captured and inspected directly.
 
 ## Safety and release boundary
 
 This repair changes presentation and interaction only. Detection output, occurrence identity, candidate provenance, source freshness, and installation reduction remain modular and deterministic. Candidate installation still adds new rules disabled, preserves existing enabled states, saves once with rollback on failure, and does not create or move folders or modify notes, tags, or frontmatter.
 
-This repair ships in **v0.1.39** through the standard BRAT-compatible GitHub Release containing `main.js`, `manifest.json`, and `styles.css`. Publication was separately authorized after all implementation, visual, privacy, and non-destructive gates passed.
+The original responsive repair shipped in **v0.1.39**. The post-release card-containment correction ships in **v0.1.40** through the same standard BRAT-compatible GitHub Release containing `main.js`, `manifest.json`, and `styles.css`. Each publication was separately authorized after implementation, visual, privacy, and non-destructive gates passed.

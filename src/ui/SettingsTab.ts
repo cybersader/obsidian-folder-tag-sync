@@ -25,12 +25,12 @@ export class SettingsTab extends PluginSettingTab {
 
 		// Main heading is provided by Obsidian settings tab
 
-		// Settings → Workbench round-trip — jump straight to the Map surface.
+		// Settings → Workbench round-trip — jump straight to Explore.
 		new Setting(containerEl)
-			.setName('Taxonomy Workbench map')
-			.setDesc('Open the map to see what your installed rules do per folder — coverage and conflicts.')
+			.setName('Explore your vault')
+			.setDesc('Open Taxonomy Workbench to find recognizable systems and inspect what your active rules produce.')
 			.addButton(btn => btn
-				.setButtonText('Open the map')
+				.setButtonText('Explore vault')
 				.onClick(() => {
 					this.openWorkbenchRoute('map');
 				}),
@@ -56,24 +56,27 @@ export class SettingsTab extends PluginSettingTab {
 	/**
 	 * Consume `plugin.focusRuleId` (set by the Taxonomy Workbench map before it
 	 * opens this tab): scroll the matching rule into view and pulse a highlight.
-	 * Cleared immediately so a later re-render doesn't re-trigger. Best-effort —
-	 * if the rule isn't in the DOM (filtered, removed) it silently no-ops.
+	 * Cleared after the freshly rendered rule list is queried so tests and users can
+	 * observe the exact centered/highlighted row. Missing rows still no-op safely.
 	 */
 	private consumeFocusRule(): void {
 		const id = this.plugin.focusRuleId;
 		if (!id) return;
-		this.plugin.focusRuleId = undefined; // consume once
 		// Defer so the freshly-built rule rows are laid out before we scroll.
 		window.setTimeout(() => {
-			const selector = `[data-dtf-rule-id="${(window.CSS?.escape ? window.CSS.escape(id) : id)}"]`;
-			const el = this.containerEl.querySelector<HTMLElement>(selector);
+			const el = Array.from(
+				this.containerEl.querySelectorAll<HTMLElement>('[data-dtf-rule-id]'),
+			).find((row) => row.dataset.dtfRuleId === id);
+			this.plugin.focusRuleId = undefined;
 			if (!el) return;
-			el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-			el.style.outline = '2px solid var(--interactive-accent)';
-			el.style.outlineOffset = '2px';
+			el.scrollIntoView({ behavior: 'auto', block: 'center' });
+			el.tabIndex = -1;
+			el.focus({ preventScroll: true });
+			el.addClass('is-dtf-rule-focus');
+			el.dataset.dtfRuleFocus = 'active';
 			window.setTimeout(() => {
-				el.style.outline = '';
-				el.style.outlineOffset = '';
+				el.removeClass('is-dtf-rule-focus');
+				delete el.dataset.dtfRuleFocus;
 			}, 2200);
 		}, 50);
 	}
@@ -816,10 +819,10 @@ export class SettingsTab extends PluginSettingTab {
 		new Setting(section).setName('Import / export').setHeading();
 
 		new Setting(section)
-			.setName('Scan vault for organizational systems')
-			.setDesc('Open the workbench scope to detect known organizational patterns and choose where candidate rules should apply.')
+			.setName('Choose where rules apply')
+			.setDesc('Open Taxonomy Workbench to choose the highest folders whose ready systems should propose rules.')
 			.addButton(btn => btn
-				.setButtonText('Scan')
+				.setButtonText('Choose folders')
 				.setCta()
 				.onClick(() => {
 					this.openWorkbenchRoute('legacy-scan');

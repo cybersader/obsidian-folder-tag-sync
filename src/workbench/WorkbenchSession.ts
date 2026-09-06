@@ -145,6 +145,8 @@ export interface WorkbenchSessionSnapshot {
 	state: WorkbenchState;
 	/** Folder/settings generation represented by every derived value below. */
 	sourceRevision: number;
+	/** Exact matcher input, including configured groups with no installed rules. */
+	groupPrecedence?: readonly string[];
 	folderPaths: readonly string[];
 	detectionResults: readonly DetectionResult[];
 	surfacedResults: readonly DetectionResult[];
@@ -248,8 +250,6 @@ export async function collectWorkbenchSessionSnapshot(
 		candidateSort: stable.state.candidates.sort,
 	});
 	const visibleSystemInstanceKeys = deckWithoutCandidates.cards
-		.filter((card) => stable.state.preferences.showIncompleteSystems
-			|| card.status !== 'incomplete')
 		.map((card) => card.occurrenceKey);
 
 	let reconciledState = reconcileWorkbenchState(stable.state, {
@@ -264,11 +264,20 @@ export async function collectWorkbenchSessionSnapshot(
 	let selectedCandidateKeys: string[] = [];
 	const loadedPackErrors: BundledRulePackRepositoryError[] = [];
 
-	if (reconciledState.surface === 'candidates') {
+	// The hidden `outline` prototype needs the same candidate evidence the
+	// Candidates surface uses (projected tags, direction status, conflicts), so
+	// it plans from the current folder selection exactly like scope-selection.
+	const plansCandidates = reconciledState.surface === 'candidates'
+		|| reconciledState.surface === 'outline';
+	const candidateSource = reconciledState.surface === 'outline'
+		? 'scope-selection'
+		: reconciledState.candidates.source;
+
+	if (plansCandidates) {
 		await yieldAndCheck(yieldControl, options);
 		const neededPackIds = new Set<string>();
 
-		if (reconciledState.candidates.source === 'scope-selection') {
+		if (candidateSource === 'scope-selection') {
 			candidateScopePlan = buildScopePackPlan({
 				selectedPaths: reconciledState.scope.selectedPaths,
 				hitMap,
@@ -288,10 +297,10 @@ export async function collectWorkbenchSessionSnapshot(
 
 		candidatePlan = buildScanAndSnapPlan({
 			folderPaths,
-			detectionResults: reconciledState.candidates.source === 'detected-instances'
+			detectionResults: candidateSource === 'detected-instances'
 				? detectionResults
 				: undefined,
-			deployments: reconciledState.candidates.source === 'scope-selection'
+			deployments: candidateSource === 'scope-selection'
 				? candidateScopePlan?.deployments ?? []
 				: undefined,
 			packRulesById,
@@ -322,9 +331,7 @@ export async function collectWorkbenchSessionSnapshot(
 		actionableCount: occurrencePartition.actionable.length,
 		incompleteCount: occurrencePartition.incomplete.length,
 		suppressedCount: occurrencePartition.suppressed.length,
-		visibleCount: organizationalSystems.cards.filter((card) =>
-			reconciledState.preferences.showIncompleteSystems
-				|| card.status !== 'incomplete').length,
+		visibleCount: organizationalSystems.cards.length,
 	};
 	const stats = buildStats(
 		folderPaths,
@@ -343,6 +350,7 @@ export async function collectWorkbenchSessionSnapshot(
 	return {
 		state: freezeJsonish(reconciledState),
 		sourceRevision: stable.sourceRevision,
+		groupPrecedence: Object.freeze([...(stable.settings.groupPrecedence ?? [])]),
 		folderPaths: Object.freeze([...folderPaths]),
 		detectionResults: freezeJsonish(detectionResults),
 		surfacedResults: freezeJsonish(partition.surfaced),

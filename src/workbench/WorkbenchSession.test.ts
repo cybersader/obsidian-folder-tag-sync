@@ -244,7 +244,7 @@ describe('WorkbenchSession snapshot', () => {
 		});
 	});
 
-	test('clears a selected incomplete occurrence when the local preference hides it', async () => {
+	test('preserves a selected possible occurrence after the retired preference is normalized', async () => {
 		const state = createDefaultWorkbenchState();
 		state.selectedSystemInstanceKey = detectionOccurrenceKey('weak', '');
 		state.preferences.showIncompleteSystems = false;
@@ -256,11 +256,12 @@ describe('WorkbenchSession snapshot', () => {
 			repository: baseRepository(),
 		}, state, { yieldControl: async () => {} });
 
-		expect(snapshot.state.selectedSystemInstanceKey).toBeNull();
+		expect(snapshot.state.selectedSystemInstanceKey).toBe(detectionOccurrenceKey('weak', ''));
+		expect(snapshot.state.preferences.showIncompleteSystems).toBe(true);
 		expect(snapshot.occurrenceStats).toMatchObject({
 			totalCount: 4,
 			incompleteCount: 1,
-			visibleCount: 3,
+			visibleCount: 4,
 		});
 		expect(snapshot.organizationalSystems.cards.some((card) =>
 			card.occurrenceKey === detectionOccurrenceKey('weak', '')

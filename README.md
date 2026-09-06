@@ -41,6 +41,9 @@ All refer to this same plugin for **bidirectional folder-tag synchronization**.
 
 This plugin is in **active beta development**, distributed through GitHub Releases and BRAT. Core synchronization, rule authoring, detection, previews, and the Taxonomy Workbench are working, with advanced authoring features still in progress.
 
+> [!IMPORTANT]
+> The Workbench refinements marked **unreleased local branch** below are evaluation-only. They ship solely in the experimental pre-release `0.1.41-workbench-outline.1`, which is not a stable release, is not GitHub's "Latest", and is not published to the documentation site. Install it only by pinning that exact version in BRAT, and only against a backup or a dedicated test vault. Everyone else stays on the stable `0.1.41`.
+
 ### 🤖 AI-Assisted Development
 
 **Full Transparency**: Most of this plugin's code was written by AI (Claude Code) with me deeply involved in testing, design decisions, and quality control. I'm not a seasoned web or Obsidian plugin developer—my background is primarily Python and tabular data work.
@@ -73,14 +76,27 @@ If you find issues or have suggestions, please [open an issue](https://github.co
 - ✅ **Rule-Based System** — Define multiple rules with priority ordering and bidirectional inverse logic
 - ✅ **Settings UI** — Visual rule editor with drag-to-reorder, guided modal, and advanced regex modal
 - ✅ **Rule packs** — Import shipped packs (PARA, Johnny Decimal, SEACOW-cyberbase, Zettelkasten) from an embedded catalog that works in the standard three-file BRAT install
-- ✅ **Taxonomy Workbench** — One persistent Map → Scope → Candidates workflow with a compact **Organizational systems** summary and responsive browser. Anchored occurrences stay grouped and selectable; the browser sits beside the active surface in wide panes and opens as a temporary drawer in narrow panes, so Map/Scope/Candidates keep the available height. Selecting an occurrence only focuses it across surfaces—it does not add or enable rules.
-- ✅ **Self-explaining Workbench objects** — Paths distinguish muted parent context from the bold segment that matters now (`Applies here`, `Folder inspected`, `Inclusion boundary`, `System anchor`, or `Rule anchor`). Cards and rows identify themselves as system occurrences, evidence folders, candidate rules, or runtime layers, and lifecycle text says whether an object is actionable or inspect-only.
-- ✅ **Neutral hierarchy annotations** — Map rows use explicit **Member of** / **Support for** chips with a separately labelled system anchor instead of unexplained pack-colour rails or tints. Installed-rule emissions are neutral results, and multiple matches show a textual **Conflict** badge rather than color-only meaning.
-- ✅ **Rule layers and partial evidence** — Installed rules remain grouped honestly as collapsed **Installed rule layers** in runtime precedence order. Every card is labelled `Runtime layer`, and occurrence associations are explicitly inferred or unknown. Incomplete systems remain visible by default for inspection but cannot create deployments or candidates.
-- ✅ **Disabled-draft review boundary** — Candidate groups represent exact source system occurrences; rows represent individual candidate rules. Checking a row queues a disabled draft, and **Add selected disabled drafts** never changes files, folders, frontmatter, or current sync behavior.
+- ✅ **Taxonomy Workbench** — One persistent, task-oriented journey: **Explore your vault → Choose where rules apply → Review proposed rules → Review in Settings**. Stable internal routes and hotkeys still reuse one Workbench leaf, but the visible UI explains the decision and next action at each stage.
+- 🧪 **Global organizational-systems overview (unreleased local branch)** — **Organizational systems in this vault** remains a vault-wide overview across Explore, Choose, and Review. Selecting an occurrence expands its identifying evidence directly beneath that card; the evidence scrolls with the list instead of becoming a sticky filter or header.
+- 🧪 **Tree-first split-screen Workbench (unreleased local branch)** — The hierarchy is the stable primary Explore scroller in wide, compact, narrow, and short Obsidian leaves. Folder detail opens in a non-height-displacing side inspector or temporary overlay, and expansion/scroll survive system focus, display-mode changes, refresh, detail, and stage navigation.
+- 🧪 **Exact occurrence markers as secondary cues** — A deterministic marker follows one exact occurrence across the compact overview, system card, Explore relation, Scope context, and plan. Text, relationship labels, exact paths, and occurrence identity remain authoritative; markers are deliberately not pack-wide identity or color-only status.
+- 🧪 **Scope focus and accessible split** — The focused organizational system supplies context and a **Current focus** cue only; checked folders are the sole Scope filter. Folder rows reserve stable rail/checkbox/disclosure slots, and a keyboard-accessible, view-local divider resizes the chooser and plan while preserving both scroll positions in the open Workbench.
+- ✅ **Compact exact hierarchy annotations** — Explore rows use explicit **Identifies** / **Supports** relations instead of unexplained pack-colour rails or tints. Overlapping occurrences show one readable relation plus a `+N organizational systems` disclosure; expanding it reveals every exact occurrence and anchor. Installed-rule emissions remain neutral, and multiple matches show a textual **Conflict** badge rather than color-only meaning.
+- ✅ **Rule layers and partial evidence** — Installed rules remain grouped honestly as collapsed **Installed rule layers** in runtime precedence order. Every card is labelled `Runtime layer`, and occurrence associations are explicitly inferred or unknown. Organizational systems needing more folders remain inspect-only and cannot produce proposed rules.
+- 🧪 **Directional and exact conflict review** — Proposed rules report **Folder → tag** and **Tag → folder** independently, including uncertainty or information loss. Conflict sections name exact proposed and installed targets; proposed targets focus the exact row, installed targets open the exact Settings row, and predicted winners use exact rule names.
+- 🧪 **Disabled-draft review boundary (unreleased local branch)** — **Save N draft rules** always persists new rules disabled, never runs sync, and never changes files, folders, tags, or frontmatter. One post-save action opens and highlights the exact first saved rule in Settings.
 - ✅ **Compatible command routes** — The existing detect, draft, and map command IDs now open the corresponding Workbench surface and reuse one leaf, preserving hotkeys without reopening legacy modals
 - ✅ **Manual Sync Commands** — Sync on demand via command palette
 - ✅ **Support bundles and debug logging** — Preview and copy configuration, rule diagnostics, a complete folder-only tree, and a sanitized bounded log tail; optionally anonymize user-authored names before sharing
+
+### Workbench quick start
+
+1. **Explore your vault** and open the global **Organizational systems in this vault** overview. Choosing a Ready occurrence expands its evidence in place; the exact text and path identify it, while the marker is only a secondary cross-surface cue.
+2. **Choose where rules apply** by checking the highest folder you want organized. The focused system is context, not a filter: every Ready occurrence inside the checked folders can continue from its own detected starting folder.
+3. Resize the view-local Scope divider if needed. Stable row slots keep parent, leaf, selected, absorbed, and inspect-only controls aligned.
+4. **Review proposed rules**, independent folder→tag and tag→folder status, and exact named overlap targets. Proposed targets focus their exact row; installed targets navigate to their exact Settings row.
+5. **Save N draft rules**. They are added disabled and do not run sync or modify vault content.
+6. **Review in Settings**. The exact first saved draft is centered and highlighted; enable rules only after deliberate review.
 
 ### Active research / next phases
 
@@ -428,8 +444,8 @@ bun run dev
 
 ### Testing
 ```bash
-# Run all tests (416+ passing)
-bun test
+# Run the complete Bun unit suite
+bun run test
 
 # Watch mode
 bun test --watch
@@ -437,12 +453,17 @@ bun test --watch
 # Build and verify
 bun run build && ls -lh main.js
 
+# Real Obsidian UI and split-screen coverage
+DISPLAY=:0 bun run test:e2e
+
 # Docs site (Astro + Starlight)
 cd docs
 bun run dev          # local dev server with HMR
 bun run build        # static build → docs/dist/
 bun run smoke        # build + route-and-content smoke check
 ```
+
+For local Workbench UX evaluation, the companion `folder-tag-sync-test-fixtures` plugin provides **Generate: Workbench UX lab** and **Clear: Workbench UX lab**. It owns only marker-generated Markdown under `UX Lab/`, creates invented tag-free examples for overlapping JD/Enterprise systems, repeated and incomplete PARA, SEACOW support, nested JD, deep Unicode context, and a negative control, then opens `UX Lab/Start here.md` inside Obsidian. The guide covers the global overview, non-sticky selected evidence, secondary occurrence markers, focus-versus-Scope-selection boundary, accessible view-local divider, stable rows, directional status, and exact conflict navigation. The topology-only framework has no rule-apply command, never runs sync, and is not publication material.
 
 ### Contributing Guidelines
 See [CONTRIBUTING.md](CONTRIBUTING.md) for:

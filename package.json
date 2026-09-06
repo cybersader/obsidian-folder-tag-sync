@@ -10,6 +10,8 @@
     "version": "bun run version-bump.mjs && git add manifest.json versions.json",
     "test": "bun test src",
     "test:watch": "bun test --watch src",
+    "validate:release-tag": "bun scripts/validate-release-tag.mjs",
+    "test:release": "bun test scripts",
     "test:e2e": "wdio run ./wdio.conf.mts",
     "test:e2e:setup": "obsidian-launcher download --cache .obsidian-cache",
     "lint": "eslint src"

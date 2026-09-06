@@ -57,14 +57,14 @@ describe('workbench state validation', () => {
 		expect(state.preferences.showIncompleteSystems).toBe(true);
 	});
 
-	test('validates persistent deck selection and presentation preference', () => {
+	test('validates persistent selection and normalizes the retired incomplete preference', () => {
 		const state = validateWorkbenchState({
 			...createDefaultWorkbenchState(),
 			selectedSystemInstanceKey: ' occurrence:para ',
 			preferences: { showIncompleteSystems: false },
 		});
 		expect(state.selectedSystemInstanceKey).toBe('occurrence:para');
-		expect(state.preferences.showIncompleteSystems).toBe(false);
+		expect(state.preferences.showIncompleteSystems).toBe(true);
 	});
 
 	test('accepts valid fields independently while rejecting invalid enums and object shapes', () => {

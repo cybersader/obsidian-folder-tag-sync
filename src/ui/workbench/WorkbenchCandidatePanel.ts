@@ -6,6 +6,10 @@ import type {
 	CandidateSort,
 	WorkbenchCandidateState,
 } from '../../workbench/workbenchState';
+import {
+	getCandidateDirectionalStatus,
+	type CandidateDirectionStatus,
+} from './candidateDirectionStatus';
 import { renderSemanticPath } from './SemanticPath';
 
 /** The persistence callback returns the same exact accounting as the pure install planner. */
@@ -22,6 +26,8 @@ export interface WorkbenchCandidatePanelOptions {
 	onEditScope: () => void | Promise<void>;
 	onRefresh: () => void | Promise<void>;
 	onReviewAddedRule: (ruleId: string) => void | Promise<void>;
+	/** Opens Settings centered on the exact installed rule named by a conflict target. */
+	onReviewInstalledRule?: (ruleId: string) => void | Promise<void>;
 	onSelectSystem?: (occurrenceKey: string) => void | Promise<void>;
 	isSnapshotStale?: () => boolean;
 }
@@ -41,7 +47,9 @@ type PanelFeedback = {
 export class WorkbenchCandidatePanel {
 	private snapshot: WorkbenchSessionSnapshot;
 	private readonly selectedKeys = new Set<string>();
+	private readonly expandedDirectionKeys = new Set<string>();
 	private installedRuleIds = new Set<string>();
+	private focusedConflictCandidateKey: string | null = null;
 	private selectionDirty = false;
 	private confirmationOpen = false;
 	private installing = false;
@@ -99,7 +107,9 @@ export class WorkbenchCandidatePanel {
 		root.style.display = 'flex';
 		root.style.flexDirection = 'column';
 		root.style.gap = '0.65em';
+		root.style.height = '100%';
 		root.style.minHeight = '0';
+		root.style.overflow = 'hidden';
 
 		this.renderHeader(root);
 		this.renderFeedback(root);
@@ -128,17 +138,17 @@ export class WorkbenchCandidatePanel {
 		header.style.flexWrap = 'wrap';
 
 		const heading = header.createDiv();
-		heading.createEl('h3', { text: 'Candidates: review disabled drafts' }).style.margin = '0';
+		heading.createEl('h3', { text: 'Review proposed rules' }).style.margin = '0';
 		const source = heading.createDiv({
 			text: this.snapshot.state.candidates.source === 'scope-selection'
-				? 'Generated from the current inclusion boundaries'
-				: 'Generated from complete detected system occurrences',
+				? 'Built from the folders and Ready organizational systems you included'
+				: 'Built from every Ready organizational system currently detected',
 		});
 		source.style.color = 'var(--text-muted)';
 		source.style.fontSize = '0.82em';
 		heading.createDiv({
-			cls: 'dtf-workbench-surface-intro',
-			text: 'Checking a candidate queues a disabled rule draft. Nothing syncs until that rule is reviewed and explicitly enabled in Settings.',
+			cls: 'dtf-workbench-surface-intro dtf-candidate-safety-intro',
+			text: 'Safe to save: checked proposals become disabled drafts. Saving does not run sync or change files, folders, tags, or frontmatter.',
 		});
 
 		const actions = header.createDiv();
@@ -146,7 +156,7 @@ export class WorkbenchCandidatePanel {
 		actions.style.gap = '0.4em';
 		actions.style.flexWrap = 'wrap';
 
-		const editScopeBtn = actions.createEl('button', { text: 'Edit scope' });
+		const editScopeBtn = actions.createEl('button', { text: 'Change included folders' });
 		editScopeBtn.disabled = this.installing;
 		editScopeBtn.addEventListener('click', () => {
 			void this.runAuxiliaryCallback('Could not open scope', this.options.onEditScope);
@@ -155,7 +165,7 @@ export class WorkbenchCandidatePanel {
 		const refreshBtn = actions.createEl('button', { text: 'Refresh' });
 		refreshBtn.disabled = this.installing;
 		refreshBtn.addEventListener('click', () => {
-			void this.runAuxiliaryCallback('Could not refresh candidates', this.options.onRefresh);
+			void this.runAuxiliaryCallback('Could not refresh proposed rules', this.options.onRefresh);
 		});
 	}
 
@@ -193,25 +203,24 @@ export class WorkbenchCandidatePanel {
 		summary.style.color = 'var(--text-success, rgb(40, 140, 70))';
 
 		if (result.addedRuleIds.length > 0) {
-			const review = banner.createDiv();
-			review.style.display = 'flex';
-			review.style.alignItems = 'center';
-			review.style.gap = '0.4em';
-			review.style.flexWrap = 'wrap';
-			review.style.marginTop = '0.5em';
-			review.createSpan({ text: 'Added disabled:' }).style.color = 'var(--text-muted)';
-			for (const ruleId of result.addedRuleIds) {
-				const id = review.createEl('code', { text: ruleId });
-				id.style.fontSize = '0.8em';
-				const reviewBtn = review.createEl('button', { text: 'Review in settings' });
-				reviewBtn.style.fontSize = '0.8em';
-				reviewBtn.addEventListener('click', () => {
-					void this.runAuxiliaryCallback(
-						`Could not open settings for rule "${ruleId}"`,
-						() => this.options.onReviewAddedRule(ruleId),
-					);
-				});
-			}
+			const review = banner.createDiv({ cls: 'dtf-candidate-install-next-step' });
+			review.createDiv({
+				text: 'Next: inspect the saved drafts in Settings, then enable only the rules you want to use.',
+			}).style.color = 'var(--text-muted)';
+			const firstRuleId = result.addedRuleIds[0];
+			const reviewBtn = review.createEl('button', {
+				text: result.addedRuleIds.length === 1
+					? 'Review saved draft in Settings'
+					: 'Review first saved draft in Settings',
+			});
+			reviewBtn.dataset.dtfReviewSavedDraft = firstRuleId;
+			reviewBtn.addClass('mod-cta');
+			reviewBtn.addEventListener('click', () => {
+				void this.runAuxiliaryCallback(
+					`Could not open settings for rule "${firstRuleId}"`,
+					() => this.options.onReviewAddedRule(firstRuleId),
+				);
+			});
 		}
 	}
 
@@ -224,39 +233,23 @@ export class WorkbenchCandidatePanel {
 		empty.style.background = 'var(--background-secondary)';
 		empty.style.borderRadius = '6px';
 		empty.createEl('p', {
-			text: 'Candidate planning is not active for this surface.',
+			text: 'Proposed-rule planning is not active for this view.',
 		});
 		empty.createEl('p', {
-			text: 'Edit the scope or refresh to collect candidate rules.',
+			text: 'Change the included folders or refresh to collect proposed rules.',
 		}).style.fontSize = '0.85em';
 	}
 
 	private renderStats(parent: HTMLElement): void {
 		const summary = this.snapshot.candidatePlan?.summary;
 		if (!summary) return;
-		const statBar = parent.createDiv();
-		statBar.style.display = 'grid';
-		statBar.style.gridTemplateColumns = 'repeat(auto-fit, minmax(120px, 1fr))';
-		statBar.style.gap = '0.5em';
-		this.makeStat(statBar, 'Candidate rules', summary.totalCandidates);
-		this.makeStat(statBar, 'With matches', summary.touchingCandidates);
-		this.makeStat(statBar, 'Conflicts', summary.conflictingCandidates);
-		this.makeStat(statBar, 'Overlap existing', summary.collidingWithExistingCandidates);
-		this.makeStat(statBar, 'Source systems', summary.distinctSourcePacks.length);
-	}
-
-	private makeStat(parent: HTMLElement, label: string, value: number): void {
-		const card = parent.createDiv();
-		card.style.padding = '0.4em 0.6em';
-		card.style.background = 'var(--background-secondary)';
-		card.style.borderRadius = '6px';
-		const valueEl = card.createDiv({ text: String(value) });
-		valueEl.style.fontSize = '1.2em';
-		valueEl.style.fontWeight = '600';
-		valueEl.style.lineHeight = '1.1';
-		const labelEl = card.createDiv({ text: label });
-		labelEl.style.fontSize = '0.75em';
-		labelEl.style.color = 'var(--text-muted)';
+		const statBar = parent.createDiv({ cls: 'dtf-candidate-task-summary' });
+		statBar.dataset.dtfCandidateTaskSummary = '1';
+		statBar.setText(
+			`${summary.totalCandidates} proposed rule${summary.totalCandidates === 1 ? '' : 's'} · `
+				+ `${summary.distinctSourcePacks.length} source organizational system${summary.distinctSourcePacks.length === 1 ? '' : 's'} · `
+				+ `${summary.conflictingCandidates} overlap warning${summary.conflictingCandidates === 1 ? '' : 's'}`,
+		);
 	}
 
 	private renderLoadErrors(parent: HTMLElement): void {
@@ -281,11 +274,11 @@ export class WorkbenchCandidatePanel {
 		toolbar.style.gap = '0.4em';
 		toolbar.style.flexWrap = 'wrap';
 
-		const selectAllBtn = toolbar.createEl('button', { text: 'Select all' });
+		const selectAllBtn = toolbar.createEl('button', { text: 'Include all' });
 		selectAllBtn.disabled = this.installing || this.selectableCandidates().length === 0;
 		selectAllBtn.addEventListener('click', () => this.selectAll());
 
-		const selectNoneBtn = toolbar.createEl('button', { text: 'Select none' });
+		const selectNoneBtn = toolbar.createEl('button', { text: 'Clear selection' });
 		selectNoneBtn.disabled = this.installing || this.selectedKeys.size === 0;
 		selectNoneBtn.addEventListener('click', () => this.selectNone());
 
@@ -314,7 +307,7 @@ export class WorkbenchCandidatePanel {
 		const list = parent.createDiv();
 		list.dataset.dtfScanSnapTree = '1';
 		list.style.flex = '1 1 auto';
-		list.style.minHeight = '160px';
+		list.style.minHeight = '0';
 		list.style.overflow = 'auto';
 		list.style.background = 'var(--background-secondary)';
 		list.style.padding = '0.5em 0.6em';
@@ -323,7 +316,7 @@ export class WorkbenchCandidatePanel {
 
 		if (candidates.length === 0) {
 			const empty = list.createDiv({
-				text: 'No candidate rules are available for the current source and scope.',
+				text: 'No proposed rules are available. Choose at least one folder containing a Ready organizational system, then return here.',
 			});
 			empty.style.padding = '1em';
 			empty.style.textAlign = 'center';
@@ -338,11 +331,11 @@ export class WorkbenchCandidatePanel {
 			header.dataset.dtfCandidateGroupHeader = '1';
 			header.setAttr(
 				'aria-label',
-				`Focus the ${group.provenance.sourcePackName} system occurrence at ${group.provenance.anchorPath || 'vault root'}. This does not select candidate rules.`,
+				`Focus the ${group.provenance.sourcePackName} organizational system at ${group.provenance.anchorPath || 'vault root'}. This does not change which proposed rules are checked.`,
 			);
 			header.createSpan({
 				cls: 'dtf-workbench-object-kind',
-				text: 'System occurrence',
+				text: 'Suggested from',
 			});
 			header.createSpan({
 				cls: 'dtf-candidate-occurrence-name',
@@ -350,12 +343,12 @@ export class WorkbenchCandidatePanel {
 			});
 			renderSemanticPath(header, group.provenance.anchorPath, {
 				role: 'candidate-source-system-anchor',
-				focusLabel: 'System anchor',
+				focusLabel: 'Organizational system found here',
 				variant: 'compact',
 			});
 			header.createSpan({
 				cls: 'dtf-candidate-occurrence-count',
-				text: `${group.rows.length} candidate rule${group.rows.length === 1 ? '' : 's'}`,
+				text: `${group.rows.length} proposed rule${group.rows.length === 1 ? '' : 's'}`,
 			});
 			header.addEventListener('click', () => {
 				void this.options.onSelectSystem?.(group.occurrenceKey);
@@ -370,12 +363,16 @@ export class WorkbenchCandidatePanel {
 		const row = parent.createDiv();
 		row.dataset.dtfCandidateRow = '1';
 		row.dataset.dtfCandidateKey = candidate.key;
+		row.tabIndex = -1;
 		row.style.display = 'flex';
 		row.style.flexDirection = 'column';
 		row.style.gap = '0.25em';
 		row.style.padding = '0.5em 0.45em';
 		row.style.borderRadius = '4px';
 		row.style.borderBottom = '1px solid var(--background-modifier-border)';
+		if (candidate.key === this.focusedConflictCandidateKey) {
+			this.applyConflictTargetHighlight(row);
+		}
 		if (installed) row.style.opacity = '0.68';
 		row.addEventListener('mouseenter', () => {
 			row.style.background = 'var(--background-modifier-hover)';
@@ -392,7 +389,7 @@ export class WorkbenchCandidatePanel {
 
 		head.createSpan({
 			cls: 'dtf-workbench-object-kind dtf-candidate-rule-kind',
-			text: 'Candidate rule',
+			text: 'Proposed rule',
 		});
 		const checkbox = head.createEl('input', { type: 'checkbox' });
 		checkbox.checked = !installed && this.selectedKeys.has(candidate.key);
@@ -419,10 +416,10 @@ export class WorkbenchCandidatePanel {
 		provenance.style.paddingLeft = '1.65em';
 		provenance.style.fontSize = '0.78em';
 		provenance.style.color = 'var(--text-muted)';
-		provenance.createSpan({ text: `Exact source: ${candidate.sourcePackName} system occurrence` });
+		provenance.createSpan({ text: `Suggested from: ${candidate.sourcePackName}` });
 		renderSemanticPath(provenance, candidate.anchorPath, {
 			role: 'candidate-rule-anchor',
-			focusLabel: 'Rule anchor',
+			focusLabel: 'Applies from',
 			variant: 'compact',
 		});
 
@@ -455,26 +452,81 @@ export class WorkbenchCandidatePanel {
 	}
 
 	private renderBijectivityChip(parent: HTMLElement, candidate: CandidateRow): void {
-		const verdict = candidate.bijectivity;
-		if (verdict === 'unknown') return;
-		const chip = this.makeChip(parent);
-		chip.style.background = 'var(--background-modifier-form-field)';
-		chip.style.border = '1px solid var(--background-modifier-border)';
-		if (verdict === 'lossy') {
-			chip.setText('Round trip: lossy');
-			chip.style.background = 'rgba(200, 140, 30, 0.15)';
-			chip.style.color = 'var(--text-warning, rgb(180, 120, 20))';
-			chip.style.border = '1px solid rgba(200, 140, 30, 0.4)';
-			chip.title = 'The tag does not fully reconstruct the folder. Inverse sync may not recover the original.';
-		} else if (verdict === 'total') {
-			chip.setText('Round trip: 1:1');
-			chip.style.color = 'var(--text-muted)';
-			chip.title = 'Folder and tag round-trip exactly.';
-		} else {
-			chip.setText('Round trip: conditional');
-			chip.style.color = 'var(--text-muted)';
-			chip.title = 'The rule round-trips for some inputs but not all.';
-		}
+		const status = getCandidateDirectionalStatus(candidate);
+		const disclosureId = `dtf-candidate-directions-${domIdPart(candidate.key)}`;
+		const expanded = this.expandedDirectionKeys.has(candidate.key);
+		const wrap = parent.createDiv({ cls: 'dtf-candidate-direction-status' });
+		wrap.dataset.dtfCandidateDirectionStatus = candidate.key;
+		wrap.style.display = 'inline-flex';
+		wrap.style.flexDirection = 'column';
+		wrap.style.alignItems = 'flex-start';
+
+		const toggle = wrap.createEl('button', {
+			text: `Folder → tag ${directionStatusIcon(status.folderToTag)} ${status.folderToTag.label} · `
+				+ `Tag → folder ${directionStatusIcon(status.tagToFolder)} ${status.tagToFolder.label}`,
+		});
+		toggle.dataset.dtfCandidateDirectionToggle = candidate.key;
+		toggle.setAttr('aria-expanded', expanded ? 'true' : 'false');
+		toggle.setAttr('aria-controls', disclosureId);
+		toggle.setAttr(
+			'aria-label',
+			`${expanded ? 'Hide' : 'Show'} direction details for ${candidate.rule.name}. `
+				+ `Folder to tag: ${status.folderToTag.label}. Tag to folder: ${status.tagToFolder.label}.`,
+		);
+		toggle.style.height = 'auto';
+		toggle.style.minHeight = '0';
+		toggle.style.padding = '0.05em 0.5em';
+		toggle.style.borderRadius = '999px';
+		toggle.style.fontSize = '0.74em';
+		toggle.style.fontWeight = '600';
+		toggle.style.whiteSpace = 'normal';
+		toggle.style.textAlign = 'left';
+		toggle.style.color = directionSummaryColor(status.folderToTag, status.tagToFolder);
+		toggle.style.background = 'var(--background-modifier-form-field)';
+		toggle.style.border = '1px solid var(--background-modifier-border)';
+
+		const details = wrap.createDiv({ cls: 'dtf-candidate-direction-details' });
+		details.id = disclosureId;
+		details.hidden = !expanded;
+		details.style.marginTop = '0.3em';
+		details.style.padding = '0.45em 0.55em';
+		details.style.maxWidth = '34em';
+		details.style.background = 'var(--background-primary)';
+		details.style.border = '1px solid var(--background-modifier-border)';
+		details.style.borderRadius = '5px';
+		this.renderDirectionDetail(details, 'Folder → tag', status.folderToTag);
+		this.renderDirectionDetail(details, 'Tag → folder', status.tagToFolder);
+
+		toggle.addEventListener('click', (event) => {
+			event.stopPropagation();
+			const nextExpanded = !this.expandedDirectionKeys.has(candidate.key);
+			if (nextExpanded) this.expandedDirectionKeys.add(candidate.key);
+			else this.expandedDirectionKeys.delete(candidate.key);
+			toggle.setAttr('aria-expanded', nextExpanded ? 'true' : 'false');
+			toggle.setAttr(
+				'aria-label',
+				`${nextExpanded ? 'Hide' : 'Show'} direction details for ${candidate.rule.name}. `
+					+ `Folder to tag: ${status.folderToTag.label}. Tag to folder: ${status.tagToFolder.label}.`,
+			);
+			details.hidden = !nextExpanded;
+		});
+	}
+
+	private renderDirectionDetail(
+		parent: HTMLElement,
+		direction: string,
+		status: CandidateDirectionStatus,
+	): void {
+		const row = parent.createDiv();
+		row.dataset.dtfCandidateDirection = direction === 'Folder → tag'
+			? 'folder-to-tag'
+			: 'tag-to-folder';
+		row.style.display = 'block';
+		row.style.lineHeight = '1.35';
+		const heading = row.createSpan({ text: `${direction}: ${status.label}. ` });
+		heading.style.fontWeight = '600';
+		heading.style.color = directionStatusColor(status);
+		row.createSpan({ text: status.detail });
 	}
 
 	private renderConflictBadge(parent: HTMLElement, candidate: CandidateRow): void {
@@ -489,14 +541,29 @@ export class WorkbenchCandidatePanel {
 			return;
 		}
 		if (!candidate.conflict.conflicts) return;
+		const installedTargets = candidate.conflict.installedTargets ?? [];
+		const candidateTargets = candidate.conflict.candidateTargets ?? [];
+		const targets = [
+			...installedTargets.map((target) => ({ ...target, source: 'installed' as const })),
+			...candidateTargets.map((target) => ({ ...target, source: 'proposed' as const })),
+		];
+		const first = targets[0];
 		const chip = this.makeChip(parent);
+		if (first) {
+			chip.setText(targets.length === 1
+				? `Overlaps ${first.source} rule “${first.ruleName}”`
+				: `Overlaps “${first.ruleName}” and ${targets.length - 1} other rule${targets.length === 2 ? '' : 's'}`);
+			chip.title = targets
+				.map((target) => `${target.source} rule “${target.ruleName}”`)
+				.join('; ');
+		} else {
+			chip.setText('Overlaps another rule');
+		}
 		if (candidate.conflict.collidesWithExisting) {
-			chip.setText('Overlaps an existing rule');
 			chip.style.background = 'rgba(200, 60, 60, 0.18)';
 			chip.style.color = 'var(--text-error, rgb(190, 50, 50))';
 			chip.style.border = '1px solid rgba(200, 60, 60, 0.5)';
 		} else {
-			chip.setText('Overlaps another candidate');
 			chip.style.background = 'rgba(200, 140, 30, 0.12)';
 			chip.style.color = 'var(--text-muted)';
 			chip.style.border = '1px solid rgba(200, 140, 30, 0.3)';
@@ -526,22 +593,113 @@ export class WorkbenchCandidatePanel {
 	private renderConflictDetails(parent: HTMLElement, candidate: CandidateRow): void {
 		const conflict = candidate.conflict;
 		if (!conflict.conflicts) return;
-		const detail = parent.createDiv();
+		const detail = parent.createDiv({ cls: 'dtf-candidate-conflict-details' });
 		detail.style.paddingLeft = '1.65em';
 		detail.style.fontSize = '0.78em';
 		detail.style.color = conflict.collidesWithExisting
 			? 'var(--text-error, rgb(190, 50, 50))'
 			: 'var(--text-muted)';
-		const kind = conflict.collidesWithExisting
-			? 'Conflict analysis: candidate versus installed rule.'
-			: 'Conflict analysis: candidate versus candidate.';
-		const winner = conflict.predictedWinnerId
-			? ` Predicted winner: ${conflict.predictedWinnerId}.`
-			: ' No winner could be predicted.';
-		const locations = conflict.overlappingFolderSample.length > 0
-			? ` Sample overlap: ${conflict.overlappingFolderSample.join(', ')}.`
-			: '';
-		detail.setText(`${kind}${winner}${locations}`);
+		detail.createDiv({ text: 'Rule overlap' }).style.fontWeight = '600';
+
+		const candidateTargets = conflict.candidateTargets ?? [];
+		for (const target of candidateTargets) {
+			const item = detail.createDiv({ cls: 'dtf-candidate-conflict-target' });
+			item.dataset.dtfConflictCandidateKey = target.candidateKey;
+			item.dataset.dtfConflictOccurrenceKey = target.occurrenceKey;
+			item.style.marginTop = '0.35em';
+			item.createSpan({
+				cls: 'dtf-workbench-object-kind',
+				text: 'Proposed rule',
+			});
+			const focusButton = item.createEl('button', { text: target.ruleName });
+			focusButton.dataset.dtfConflictCandidateTarget = target.candidateKey;
+			focusButton.style.height = 'auto';
+			focusButton.style.minHeight = '0';
+			focusButton.style.marginLeft = '0.35em';
+			focusButton.setAttr(
+				'aria-label',
+				`Focus proposed rule ${target.ruleName}, suggested from ${target.sourcePackName} at ${target.anchorPath || 'vault root'}. This does not change which proposals are checked.`,
+			);
+			focusButton.addEventListener('click', (event) => {
+				event.stopPropagation();
+				this.focusConflictCandidate(target.candidateKey);
+			});
+
+			const provenance = item.createDiv();
+			provenance.createSpan({ text: `Suggested from: ${target.sourcePackName}` });
+			renderSemanticPath(provenance, target.anchorPath, {
+				role: 'candidate-conflict-target-anchor',
+				focusLabel: 'Organizational system found here',
+				variant: 'compact',
+			});
+			this.renderConflictSamples(item, target.sampleFolders);
+		}
+
+		const installedTargets = conflict.installedTargets ?? [];
+		for (const target of installedTargets) {
+			const item = detail.createDiv({ cls: 'dtf-candidate-conflict-target' });
+			item.dataset.dtfConflictInstalledRuleId = target.ruleId;
+			item.style.marginTop = '0.35em';
+			item.createSpan({
+				cls: 'dtf-workbench-object-kind',
+				text: 'Installed rule',
+			});
+			const reviewButton = item.createEl('button', { text: target.ruleName });
+			reviewButton.dataset.dtfConflictInstalledTarget = target.ruleId;
+			reviewButton.style.height = 'auto';
+			reviewButton.style.minHeight = '0';
+			reviewButton.style.marginLeft = '0.35em';
+			reviewButton.setAttr('aria-label', `Review installed rule ${target.ruleName} in Settings`);
+			reviewButton.addEventListener('click', (event) => {
+				event.stopPropagation();
+				void this.runAuxiliaryCallback(
+					`Could not open settings for installed rule "${target.ruleName}"`,
+					() => (this.options.onReviewInstalledRule ?? this.options.onReviewAddedRule)(target.ruleId),
+				);
+			});
+			this.renderConflictSamples(item, target.sampleFolders);
+		}
+
+		if (candidateTargets.length === 0 && installedTargets.length === 0) {
+			const unavailable = detail.createDiv({
+				text: 'Exact overlap targets are unavailable in this candidate snapshot.',
+			});
+			unavailable.style.marginTop = '0.35em';
+		}
+
+		const winner = detail.createDiv({ cls: 'dtf-candidate-predicted-winner' });
+		winner.style.marginTop = '0.45em';
+		winner.style.paddingTop = '0.35em';
+		winner.style.borderTop = '1px solid var(--background-modifier-border)';
+		const winnerFolder = conflict.overlappingFolderSample[0] || 'Vault root';
+		winner.createSpan({
+			text: `Predicted winner at ${winnerFolder}: `,
+		}).style.fontWeight = '600';
+		winner.createSpan({
+			text: conflict.predictedWinnerId
+				? this.conflictWinnerName(candidate, conflict.predictedWinnerId)
+				: 'Not determined',
+		});
+	}
+
+	private renderConflictSamples(parent: HTMLElement, sampleFolders: readonly string[]): void {
+		if (sampleFolders.length === 0) return;
+		const samples = parent.createDiv();
+		samples.createSpan({ text: 'Shared folder sample: ' }).style.fontWeight = '600';
+		for (const [index, folder] of sampleFolders.entries()) {
+			if (index > 0) samples.createSpan({ text: ', ' });
+			samples.createEl('code', { text: folder || 'Vault root' });
+		}
+	}
+
+	private conflictWinnerName(candidate: CandidateRow, winnerId: string): string {
+		if (candidate.id === winnerId) return candidate.rule.name;
+		const candidateTarget = candidate.conflict.candidateTargets
+			?.find((target) => target.ruleId === winnerId);
+		if (candidateTarget) return candidateTarget.ruleName;
+		const installedTarget = candidate.conflict.installedTargets
+			?.find((target) => target.ruleId === winnerId);
+		return installedTarget?.ruleName ?? winnerId;
 	}
 
 	private renderSampleEmissions(parent: HTMLElement, candidate: CandidateRow): void {
@@ -597,10 +755,10 @@ export class WorkbenchCandidatePanel {
 		preview.style.border = '1px solid var(--background-modifier-border)';
 		preview.style.borderRadius = '6px';
 
-		const title = preview.createDiv({ text: 'Disabled draft preview' });
+		const title = preview.createDiv({ text: 'Rules selected to save' });
 		title.style.fontWeight = '600';
 		const count = preview.createDiv({
-			text: `${chosen.length} of ${installableCount} available disabled draft${installableCount === 1 ? '' : 's'} selected · ${uniqueRuleIds.size} unique rule ID${uniqueRuleIds.size === 1 ? '' : 's'} · ${systems.size} source system${systems.size === 1 ? '' : 's'}.`,
+			text: `${chosen.length} of ${installableCount} available disabled draft${installableCount === 1 ? '' : 's'} selected · ${uniqueRuleIds.size} unique rule ID${uniqueRuleIds.size === 1 ? '' : 's'} · ${systems.size} source organizational system${systems.size === 1 ? '' : 's'}.`,
 		});
 		count.style.marginTop = '0.25em';
 		count.style.fontSize = '0.86em';
@@ -608,7 +766,7 @@ export class WorkbenchCandidatePanel {
 
 		if (existingOverlapCount > 0) {
 			const conflicts = preview.createDiv({
-				text: `${existingOverlapCount} selected candidate${existingOverlapCount === 1 ? '' : 's'} overlap an installed rule.`,
+				text: `${existingOverlapCount} selected proposed rule${existingOverlapCount === 1 ? '' : 's'} overlap an installed rule.`,
 			});
 			conflicts.style.marginTop = '0.25em';
 			conflicts.style.fontSize = '0.84em';
@@ -616,7 +774,7 @@ export class WorkbenchCandidatePanel {
 		}
 		if (unavailableConflictCount > 0) {
 			const unavailable = preview.createDiv({
-				text: `${unavailableConflictCount} selected inverse-only candidate${unavailableConflictCount === 1 ? '' : 's'} cannot be checked for tag-side overlaps from folder inventory.`,
+				text: `${unavailableConflictCount} selected inverse-only proposed rule${unavailableConflictCount === 1 ? '' : 's'} cannot be checked for tag-side overlaps from folder inventory.`,
 			});
 			unavailable.style.marginTop = '0.25em';
 			unavailable.style.fontSize = '0.84em';
@@ -626,7 +784,7 @@ export class WorkbenchCandidatePanel {
 		const stale = this.options.isSnapshotStale?.() ?? false;
 		if (stale) {
 			const staleNotice = preview.createDiv({
-				text: 'The vault or rule settings changed after these candidates were planned. Adding drafts is paused until refresh completes.',
+				text: 'The vault or rule settings changed after these proposed rules were built. Saving is paused until refresh completes.'
 			});
 			staleNotice.dataset.dtfCandidateStale = '1';
 			staleNotice.style.marginTop = '0.4em';
@@ -635,7 +793,7 @@ export class WorkbenchCandidatePanel {
 		}
 
 		const safety = preview.createDiv({
-			text: 'Every selected item will be added as a disabled rule draft. This action will not change files, folders, frontmatter, or current sync behavior.',
+			text: 'Checked proposals will be saved as disabled drafts. Saving does not run sync or change files, folders, tags, or frontmatter.',
 		});
 		safety.style.marginTop = '0.4em';
 		safety.style.fontWeight = '600';
@@ -646,8 +804,8 @@ export class WorkbenchCandidatePanel {
 		actions.style.marginTop = '0.6em';
 		const installBtn = actions.createEl('button', {
 			text: chosen.length === 0
-				? 'Add selected disabled drafts'
-				: `Add ${chosen.length} selected disabled draft${chosen.length === 1 ? '' : 's'}`,
+				? 'Save draft rules'
+				: `Save ${chosen.length} draft rule${chosen.length === 1 ? '' : 's'}`,
 		});
 		installBtn.addClass('mod-cta');
 		installBtn.disabled = chosen.length === 0 || this.installing || stale;
@@ -674,21 +832,21 @@ export class WorkbenchCandidatePanel {
 		confirmation.style.borderRadius = '6px';
 		confirmation.style.background = 'var(--background-primary-alt)';
 
-		const title = confirmation.createDiv({ text: 'Confirm adding disabled drafts' });
+		const title = confirmation.createDiv({ text: 'Save disabled draft rules?' });
 		title.style.fontWeight = '600';
 		confirmation.createEl('p', {
-			text: `Add ${chosen.length} selected disabled draft${chosen.length === 1 ? '' : 's'} from ${systems.size} source system${systems.size === 1 ? '' : 's'}?`,
+			text: `Save ${chosen.length} disabled draft rule${chosen.length === 1 ? '' : 's'} from ${systems.size} source organizational system${systems.size === 1 ? '' : 's'}?`,
 		});
 		if (colliding > 0) {
 			const warning = confirmation.createEl('p', {
-				text: `${colliding} selected candidate${colliding === 1 ? '' : 's'} overlap an installed rule. The predicted winners are shown in the rows above.`,
+				text: `${colliding} selected proposed rule${colliding === 1 ? '' : 's'} overlap an installed rule. The predicted winners are shown in the rows above.`,
 			});
 			warning.style.color = 'var(--text-error, rgb(190, 50, 50))';
 			warning.style.fontSize = '0.86em';
 		}
 		if (unavailable > 0) {
 			const warning = confirmation.createEl('p', {
-				text: `${unavailable} inverse-only candidate${unavailable === 1 ? '' : 's'} cannot be checked for tag-side overlaps from folder inventory. Review these disabled rules in Settings before enabling them.`,
+				text: `${unavailable} inverse-only proposed rule${unavailable === 1 ? '' : 's'} cannot be checked for tag-side overlaps from folder inventory. Review these disabled rules in Settings before enabling them.`,
 			});
 			warning.style.color = 'var(--text-warning, rgb(180, 120, 20))';
 			warning.style.fontSize = '0.86em';
@@ -713,8 +871,8 @@ export class WorkbenchCandidatePanel {
 
 		const confirmBtn = actions.createEl('button', {
 			text: this.installing
-				? 'Adding disabled drafts…'
-				: `Confirm ${chosen.length} disabled draft${chosen.length === 1 ? '' : 's'}`,
+				? 'Saving disabled drafts…'
+				: `Save ${chosen.length} disabled draft${chosen.length === 1 ? '' : 's'}`,
 		});
 		confirmBtn.addClass('mod-cta');
 		confirmBtn.disabled = this.installing
@@ -783,14 +941,14 @@ export class WorkbenchCandidatePanel {
 		if (this.options.isSnapshotStale?.()) {
 			this.feedback = {
 				kind: 'error',
-				message: 'Adding drafts is paused because the candidate snapshot is stale. Wait for refresh and review the updated candidates.',
+				message: 'Saving is paused because the proposed-rule snapshot is stale. Wait for refresh and review the updated proposals.',
 			};
 			this.confirmationOpen = false;
 			this.render();
 			return;
 		}
 		this.installing = true;
-		this.feedback = { kind: 'info', message: 'Adding selected disabled drafts…' };
+		this.feedback = { kind: 'info', message: 'Saving selected disabled drafts…' };
 		this.render();
 
 		try {
@@ -834,6 +992,39 @@ export class WorkbenchCandidatePanel {
 		}
 	}
 
+	private focusConflictCandidate(candidateKey: string): void {
+		const rows = Array.from(
+			this.containerEl.querySelectorAll<HTMLElement>('[data-dtf-candidate-row="1"]'),
+		);
+		const target = rows.find((row) => row.dataset.dtfCandidateKey === candidateKey);
+		if (!target) {
+			this.feedback = {
+				kind: 'error',
+				message: 'The exact proposed-rule target is no longer available. Refresh the candidate plan and review the updated overlaps.',
+			};
+			this.render();
+			return;
+		}
+
+		for (const row of rows) this.clearConflictTargetHighlight(row);
+		this.focusedConflictCandidateKey = candidateKey;
+		this.applyConflictTargetHighlight(target);
+		target.scrollIntoView({ block: 'center', inline: 'nearest' });
+		target.focus({ preventScroll: true });
+	}
+
+	private applyConflictTargetHighlight(row: HTMLElement): void {
+		row.dataset.dtfConflictTargetFocused = '1';
+		row.style.outline = '2px solid var(--interactive-accent)';
+		row.style.outlineOffset = '-2px';
+	}
+
+	private clearConflictTargetHighlight(row: HTMLElement): void {
+		delete row.dataset.dtfConflictTargetFocused;
+		row.style.outline = '';
+		row.style.outlineOffset = '';
+	}
+
 	private selectedCandidates(
 		candidates: readonly CandidateRow[] = this.snapshot.candidatePlan?.candidates ?? [],
 	): CandidateRow[] {
@@ -862,6 +1053,56 @@ export function renderWorkbenchCandidatePanel(
 	options: WorkbenchCandidatePanelOptions,
 ): WorkbenchCandidatePanel {
 	return new WorkbenchCandidatePanel(containerEl, options);
+}
+
+function directionSummaryColor(
+	folderToTag: CandidateDirectionStatus,
+	tagToFolder: CandidateDirectionStatus,
+): string {
+	const statuses = [folderToTag.status, tagToFolder.status];
+	if (statuses.every((status) => status === 'exact' || status === 'available')) {
+		return 'var(--text-success, rgb(40, 140, 70))';
+	}
+	if (statuses.some((status) =>
+		status === 'lossy' || status === 'conditional' || status === 'uncertain')) {
+		return 'var(--text-warning, rgb(180, 120, 20))';
+	}
+	return 'var(--text-muted)';
+}
+
+function directionStatusColor(status: CandidateDirectionStatus): string {
+	if (status.status === 'exact' || status.status === 'available') {
+		return 'var(--text-success, rgb(40, 140, 70))';
+	}
+	if (status.status === 'lossy' || status.status === 'conditional' || status.status === 'uncertain') {
+		return 'var(--text-warning, rgb(180, 120, 20))';
+	}
+	return 'var(--text-muted)';
+}
+
+function directionStatusIcon(status: CandidateDirectionStatus): string {
+	switch (status.status) {
+		case 'exact':
+		case 'available':
+			return '✓';
+		case 'conditional':
+			return '△';
+		case 'lossy':
+			return '!';
+		case 'unavailable':
+			return '—';
+		case 'uncertain':
+			return '?';
+	}
+}
+
+function domIdPart(value: string): string {
+	let hash = 0;
+	for (let index = 0; index < value.length; index++) {
+		hash = (Math.imul(hash, 31) + value.charCodeAt(index)) | 0;
+	}
+	const readable = value.replace(/[^A-Za-z0-9_-]/g, '-').slice(0, 48);
+	return `${readable}-${(hash >>> 0).toString(36)}`;
 }
 
 function validateInstallResult(result: WorkbenchCandidateInstallResult): void {

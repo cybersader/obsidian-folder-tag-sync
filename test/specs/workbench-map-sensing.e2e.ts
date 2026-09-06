@@ -27,11 +27,32 @@ async function snap(name: string): Promise<void> {
 	await browser.saveScreenshot(path.join(SCREENSHOT_DIR, `${name}.png`));
 }
 
-async function resizeWindow(width: number, height: number): Promise<void> {
+/**
+ * Resize to a CSS-viewport (inner) size.
+ *
+ * In this Electron build `window.resizeTo` sets the *content* box, not the
+ * framed window: `resizeTo(480, 900)` yields `innerWidth === 480` and
+ * `outerWidth === 512` (a constant 32x42 frame). Capture and compare window
+ * geometry with `readWindowSize` so the round trip stays in one coordinate
+ * space -- mixing the two is what previously made "restore the window" leave it
+ * exactly one frame too wide.
+ */
+async function resizeWindow(innerWidth: number, innerHeight: number): Promise<void> {
 	await browser.executeObsidian((_context, size) => {
 		window.resizeTo(size.width, size.height);
-	}, { width, height });
+	}, { width: innerWidth, height: innerHeight });
 	await browser.pause(200);
+}
+
+async function readWindowSize(): Promise<{
+	width: number; height: number; outerWidth: number; outerHeight: number;
+}> {
+	return browser.executeObsidian(() => ({
+		width: window.innerWidth,
+		height: window.innerHeight,
+		outerWidth: window.outerWidth,
+		outerHeight: window.outerHeight,
+	}));
 }
 
 async function waitForSurface(surface: 'map' | 'scope'): Promise<void> {
@@ -73,14 +94,21 @@ const CONFLICT_RULE = {
 	tagEntryPoint: 'sensing-secondary',
 };
 
+const NON_TARGET_RULE = {
+	...RULE,
+	id: 'e2e-settings-non-target-rule',
+	name: 'E2E settings non-target rule',
+	priority: 100,
+	folderPattern: '^NeverMatchThisWorkbenchFixture$',
+	folderEntryPoint: 'NeverMatchThisWorkbenchFixture',
+	tagEntryPoint: 'never-match',
+};
+
 describe('Taxonomy Workbench map — "my rules" sensing and touch actions', function () {
 	this.timeout(90_000);
 
 	before(async function () {
-		originalWindowSize = await browser.executeObsidian(() => ({
-			width: window.outerWidth,
-			height: window.outerHeight,
-		}));
+		originalWindowSize = await readWindowSize();
 		await browser.executeObsidian(async ({ app }, rule, folders) => {
 			const plugin = (app as unknown as {
 				plugins: { plugins: Record<string, {
@@ -233,15 +261,15 @@ describe('Taxonomy Workbench map — "my rules" sensing and touch actions', func
 				detailPath: state?.detailPath ?? null,
 				text: panel?.textContent ?? '',
 				pathAria: semanticPath?.getAttribute('aria-label') ?? null,
-				focus: semanticPath?.querySelector('[data-dtf-path-focus="1"] .dtf-semantic-path-value')?.textContent ?? null,
+				pathValue: semanticPath?.querySelector('.is-full-path .dtf-semantic-path-value')?.textContent ?? null,
 				actionHeading: panel?.querySelector('.dtf-workbench-action-heading')?.textContent ?? null,
 			};
 		});
 		expect(detail.detailPath).toBe(FOLDER);
-		expect(detail.text).toContain('Enabled rule winner: E2E sensing rule');
-		expect(detail.text).toContain('Predicted tag output: #sensingtest');
-		expect(detail.pathAria).toBe('Folder inspected: SensingTest.');
-		expect(detail.focus).toBe('SensingTest');
+		expect(detail.text).toContain('Rule currently used: E2E sensing rule');
+		expect(detail.text).toContain('Tags this rule would create: #sensingtest');
+		expect(detail.pathAria).toBe('Folder: SensingTest.');
+		expect(detail.pathValue).toBe('SensingTest');
 		expect(detail.actionHeading).toBe('For this folder');
 	});
 
@@ -299,7 +327,7 @@ describe('Taxonomy Workbench map — "my rules" sensing and touch actions', func
 		), { timeout: 8_000, timeoutMsg: 'Conflict badge remained after restoring one matching rule' });
 	});
 
-	it('keeps the Open settings header affordance and exposes every context-menu action', async function () {
+	it('uses task-specific context actions without generic Settings or preview commands', async function () {
 		const info = await browser.executeObsidian(() => {
 			const map = document.querySelector<HTMLElement>('[data-dtf-workbench-map="1"]');
 			const row = map?.querySelector<HTMLElement>('[data-dtf-folder-path="SensingTest"]');
@@ -307,85 +335,160 @@ describe('Taxonomy Workbench map — "my rules" sensing and touch actions', func
 				bubbles: true, cancelable: true, clientX: 12, clientY: 12,
 			}));
 			return {
-				hasOpenSettings: Boolean(document.querySelector('[data-dtf-open-settings="1"]')),
+				hasGenericOpenSettings: Boolean(document.querySelector('[data-dtf-open-settings="1"]')),
+				hasPreviewAction: Boolean(document.querySelector('[data-dtf-preview-emitted-tags="1"]')),
 				titles: Array.from(document.querySelectorAll('.menu-item-title'))
-					.map((node) => node.textContent ?? ''),
+					.map((node) => node.textContent?.trim() ?? ''),
 			};
 		});
-		expect(info.hasOpenSettings).toBe(true);
-		expect(info.titles).toContain('Show rules affecting this folder');
-		expect(info.titles).toContain('Open Folder Tag Sync settings');
-		expect(info.titles).toContain('Preview emitted tags');
-		expect(info.titles).toContain('Use this branch as an inclusion boundary');
+		expect(info.hasGenericOpenSettings).toBe(false);
+		expect(info.hasPreviewAction).toBe(false);
+		expect(info.titles).toEqual([
+			'Inspect this folder',
+			'Review winning rule in settings',
+			'Organize this folder and everything below',
+		]);
 
 		await browser.executeObsidian(() => {
 			document.querySelectorAll('.menu').forEach((menu) => menu.remove());
 		});
 	});
 
-	it('duplicates preview, Settings, and choose-branch context actions as visible click/touch buttons', async function () {
+	it('duplicates the task-specific Settings and branch actions as visible click/touch buttons', async function () {
+		await browser.executeObsidian(({ app }) => {
+			(app as unknown as { commands: { executeCommandById(id: string): boolean } })
+				.commands.executeCommandById('folder-tag-sync:taxonomy-workbench-open-map');
+		});
+		await waitForSurface('map');
+		await browser.executeObsidian(() => {
+			document.querySelector<HTMLElement>('[data-dtf-folder-path="SensingTest"]')?.click();
+		});
+		await browser.waitUntil(async () => browser.executeObsidian(() =>
+			document.querySelector<HTMLElement>('[data-dtf-folder-detail="1"]')?.style.display === 'block',
+		), { timeout: 5_000, timeoutMsg: 'Folder detail was not ready for action handoff' });
+
+		await browser.executeObsidian(async ({ app }, nonTargetRule) => {
+			const plugin = (app as unknown as {
+				plugins: { plugins: Record<string, {
+					settings: { rules: unknown[] };
+					saveSettings: () => Promise<void>;
+				}> };
+			}).plugins.plugins['folder-tag-sync'];
+			plugin.settings.rules = [...plugin.settings.rules, nonTargetRule];
+			await plugin.saveSettings();
+			const setting = (app as unknown as {
+				setting: { open(): void; openTabById(id: string): unknown; close(): void };
+			}).setting;
+			setting.open();
+			setting.openTabById('editor');
+			setting.close();
+		}, NON_TARGET_RULE);
+		await browser.pause(100);
+
 		const buttons = await browser.executeObsidian(() => {
 			const detail = document.querySelector<HTMLElement>('[data-dtf-folder-detail="1"]');
-			const expected = [
-				'Open settings for the winning rule',
-				'Preview emitted tags',
-				'Use this branch as an inclusion boundary',
-			];
-			return expected.map((label) => {
-				const button = Array.from(detail?.querySelectorAll<HTMLButtonElement>('button') ?? [])
-					.find((candidate) => candidate.textContent?.trim() === label);
-				const rect = button?.getBoundingClientRect();
-				return {
-					label,
-					found: Boolean(button),
-					visible: Boolean(button && button.offsetParent && rect && rect.width > 0 && rect.height > 0),
-				};
-			});
+			return Array.from(detail?.querySelectorAll<HTMLButtonElement>('button') ?? [])
+				.filter((button) => button.dataset.dtfOpenWinningRuleSettings === '1'
+					|| button.dataset.dtfChooseBranchInScope === '1')
+				.map((button) => {
+					const rect = button.getBoundingClientRect();
+					return {
+						label: button.textContent?.trim() ?? '',
+						visible: Boolean(button.offsetParent && rect.width > 0 && rect.height > 0),
+					};
+				});
 		});
 		expect(buttons).toEqual([
-			{ label: 'Open settings for the winning rule', found: true, visible: true },
-			{ label: 'Preview emitted tags', found: true, visible: true },
-			{ label: 'Use this branch as an inclusion boundary', found: true, visible: true },
+			{ label: 'Review winning rule in settings', visible: true },
+			{ label: 'Organize this folder and everything below', visible: true },
 		]);
 
-		const settingsClicked = await browser.executeObsidian(() => {
+		const settingsClicked = await browser.executeObsidian(({ app }) => {
 			const detail = document.querySelector<HTMLElement>('[data-dtf-folder-detail="1"]');
-			const button = Array.from(detail?.querySelectorAll<HTMLButtonElement>('button') ?? [])
-				.find((candidate) => candidate.textContent?.trim() === 'Open settings for the winning rule');
+			const button = detail?.querySelector<HTMLButtonElement>('[data-dtf-open-winning-rule-settings="1"]');
 			button?.click();
-			return Boolean(button);
+			const plugin = (app as unknown as {
+				plugins: { plugins: Record<string, { focusRuleId?: string }> };
+			}).plugins.plugins['folder-tag-sync'];
+			const setting = (app as unknown as {
+				setting?: { activeTab?: { id?: string; containerEl?: HTMLElement } };
+			}).setting;
+			return {
+				visible: Boolean(button && button.offsetParent),
+				pendingFocusRuleId: plugin.focusRuleId ?? null,
+				activeTabId: setting?.activeTab?.id ?? null,
+			};
 		});
-		expect(settingsClicked).toBe(true);
-		await browser.pause(500);
+		expect(settingsClicked.visible).toBe(true);
+		expect(settingsClicked.pendingFocusRuleId).toBe('e2e-sensing-rule');
+		expect(settingsClicked.activeTabId).toBe('folder-tag-sync');
+		await browser.waitUntil(async () => browser.executeObsidian(({ app }) => {
+			const container = (app as unknown as {
+				setting?: { activeTab?: { containerEl?: HTMLElement } };
+			}).setting?.activeTab?.containerEl;
+			return Boolean(container?.querySelector('[data-dtf-rule-id="e2e-sensing-rule"]'));
+		}), { timeout: 5_000, timeoutMsg: 'Winning Settings row was not rendered' });
+		await browser.pause(100);
 
 		const settings = await browser.executeObsidian(({ app }) => {
 			const plugin = (app as unknown as {
 				plugins: { plugins: Record<string, { focusRuleId?: string; settings: { rules: unknown[] } }> };
 			}).plugins.plugins['folder-tag-sync'];
+			const container = (app as unknown as {
+				setting?: { activeTab?: { containerEl?: HTMLElement } };
+			}).setting?.activeTab?.containerEl;
+			const target = container?.querySelector<HTMLElement>('[data-dtf-rule-id="e2e-sensing-rule"]');
+			const nonTarget = container?.querySelector<HTMLElement>('[data-dtf-rule-id="e2e-settings-non-target-rule"]');
+			const targetRect = target?.getBoundingClientRect();
 			return {
-				// SettingsTab consumes this only after the Folder Tag Sync tab displays.
 				pendingFocusRuleId: plugin.focusRuleId ?? null,
 				persistedRuleCount: plugin.settings.rules.length,
+				targetId: target?.dataset.dtfRuleId ?? null,
+				targetName: target?.querySelector('.dtf-rule-name')?.textContent ?? null,
+				targetFocused: target?.dataset.dtfRuleFocus ?? null,
+				targetHighlighted: target?.classList.contains('is-dtf-rule-focus') ?? false,
+				targetVisible: Boolean(target?.offsetParent && targetRect && targetRect.width > 0 && targetRect.height > 0),
+				targetInWindow: Boolean(targetRect && targetRect.top >= 0 && targetRect.bottom <= window.innerHeight),
+				targetCentered: Boolean(targetRect
+					&& Math.abs((targetRect.top + targetRect.bottom) / 2 - window.innerHeight / 2)
+						< window.innerHeight * 0.4),
+				nonTargetPresent: Boolean(nonTarget),
+				nonTargetFocused: nonTarget?.hasAttribute('data-dtf-rule-focus') ?? false,
+				nonTargetHighlighted: nonTarget?.classList.contains('is-dtf-rule-focus') ?? false,
+				activeFocusRows: container?.querySelectorAll('[data-dtf-rule-focus="active"]').length ?? 0,
 			};
 		});
 		expect(settings).toEqual({
 			pendingFocusRuleId: null,
-			persistedRuleCount: 1,
+			persistedRuleCount: 2,
+			targetId: 'e2e-sensing-rule',
+			targetName: 'E2E sensing rule',
+			targetFocused: 'active',
+			targetHighlighted: true,
+			targetVisible: true,
+			targetInWindow: true,
+			targetCentered: true,
+			nonTargetPresent: true,
+			nonTargetFocused: false,
+			nonTargetHighlighted: false,
+			activeFocusRows: 1,
 		});
 
-		await browser.executeObsidian(({ app }) => {
+		await browser.executeObsidian(async ({ app }) => {
 			(app as unknown as { setting: { close(): void } }).setting.close();
+			const plugin = (app as unknown as {
+				plugins: { plugins: Record<string, {
+					settings: { rules: Array<{ id?: string }> };
+					saveSettings: () => Promise<void>;
+				}> };
+			}).plugins.plugins['folder-tag-sync'];
+			plugin.settings.rules = plugin.settings.rules.filter((rule) =>
+				rule.id !== 'e2e-settings-non-target-rule');
+			await plugin.saveSettings();
+			document.querySelectorAll('.notice').forEach((notice) => notice.remove());
 		});
 		await browser.pause(100);
-
-		await browser.executeObsidian(() => {
-			document.querySelectorAll('.notice').forEach((notice) => notice.remove());
-			document.querySelector<HTMLButtonElement>('[data-dtf-preview-emitted-tags="1"]')?.click();
-		});
-		await browser.waitUntil(async () => browser.executeObsidian(() =>
-			Array.from(document.querySelectorAll('.notice'))
-				.some((notice) => (notice.textContent ?? '').includes('SensingTest → #sensingtest')),
-		), { timeout: 5_000, timeoutMsg: 'Preview emitted-tags notice did not appear' });
+		expect(await browser.executeObsidian(() => document.querySelectorAll('.notice').length)).toBe(0);
 
 		const scopeClicked = await browser.executeObsidian(() => {
 			const button = document.querySelector<HTMLButtonElement>('[data-dtf-choose-branch-in-scope="1"]');
@@ -432,10 +535,7 @@ describe('Taxonomy Workbench map — "my rules" sensing and touch actions', func
 	});
 
 	it('keeps surface navigation, long paths, and actions visible near 480 CSS px without horizontal clipping', async function () {
-		const restore = await browser.executeObsidian(() => ({
-			width: window.outerWidth,
-			height: window.outerHeight,
-		}));
+		const restore = await readWindowSize();
 		const sidebarState = await browser.executeObsidian(({ app }) => {
 			const workspace = app.workspace as unknown as {
 				leftSplit?: { collapsed: boolean; collapse(): void };
@@ -487,9 +587,8 @@ describe('Taxonomy Workbench map — "my rules" sensing and touch actions', func
 				);
 				const actionButtons = Array.from(detail?.querySelectorAll<HTMLButtonElement>('button') ?? [])
 					.filter((button) => [
-						'Open settings for the winning rule',
-						'Preview emitted tags',
-						'Use this branch as an inclusion boundary',
+						'Review winning rule in settings',
+						'Organize this folder and everything below',
 					].includes(button.textContent?.trim() ?? ''));
 				const insideShell = (element: HTMLElement): boolean => {
 					const rect = element.getBoundingClientRect();
@@ -514,8 +613,7 @@ describe('Taxonomy Workbench map — "my rules" sensing and touch actions', func
 					mapInsideShell: Boolean(shellRect && mapRect && mapRect.right <= shellRect.right + 1),
 					longRowVisible: Boolean(row && row.offsetParent && rowRect && rowRect.width > 0),
 					longRowFits: Boolean(mapRect && rowRect && rowRect.right <= mapRect.right + 1),
-					longPathContext: detail?.querySelector('[data-dtf-semantic-path="map-inspected-folder"] [data-dtf-path-context="1"] .dtf-semantic-path-value')?.textContent ?? null,
-					longPathFocus: detail?.querySelector('[data-dtf-semantic-path="map-inspected-folder"] [data-dtf-path-focus="1"] .dtf-semantic-path-value')?.textContent ?? null,
+					longPathValue: detail?.querySelector('[data-dtf-semantic-path="map-inspected-folder"] .is-full-path .dtf-semantic-path-value')?.textContent ?? null,
 					navButtonCount: navButtons.length,
 					navButtonsFit: navButtons.every(insideShell),
 					actionButtonCount: actionButtons.length,
@@ -538,11 +636,10 @@ describe('Taxonomy Workbench map — "my rules" sensing and touch actions', func
 			expect(layout.mapInsideShell).toBe(true);
 			expect(layout.longRowVisible).toBe(true);
 			expect(layout.longRowFits).toBe(true);
-			expect(layout.longPathContext).toBe(FOLDER);
-			expect(layout.longPathFocus).toBe(LONG_FOLDER.split('/').at(-1));
+			expect(layout.longPathValue).toBe(LONG_FOLDER);
 			expect(layout.navButtonCount).toBe(3);
 			expect(layout.navButtonsFit).toBe(true);
-			expect(layout.actionButtonCount).toBe(3);
+			expect(layout.actionButtonCount).toBe(2);
 			expect(layout.actionButtonsFit).toBe(true);
 			expect(layout.actionButtonsInViewport).toBe(true);
 
@@ -560,12 +657,13 @@ describe('Taxonomy Workbench map — "my rules" sensing and touch actions', func
 			}, sidebarState);
 		}
 
-		const restored = await browser.executeObsidian(() => ({
-			width: window.outerWidth,
-			height: window.outerHeight,
-		}));
+		const restored = await readWindowSize();
+		// Both coordinate spaces must come back: the CSS viewport the resize
+		// actually controls, and the framed window the user sees.
 		expect(Math.abs(restored.width - restore.width)).toBeLessThanOrEqual(12);
 		expect(Math.abs(restored.height - restore.height)).toBeLessThanOrEqual(12);
+		expect(Math.abs(restored.outerWidth - restore.outerWidth)).toBeLessThanOrEqual(12);
+		expect(Math.abs(restored.outerHeight - restore.outerHeight)).toBeLessThanOrEqual(12);
 	});
 
 	it('detaching the leaf cleans up', async function () {

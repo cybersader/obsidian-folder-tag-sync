@@ -1288,14 +1288,19 @@ describe('folder-tag-sync — Phase 2 typed model E2E', function () {
           const chips = Array.from(
             scope?.querySelectorAll<HTMLElement>('[data-dtf-signal-pack-id]') ?? [],
           );
-          const legend = Array.from(scope?.querySelectorAll('div') ?? [])
-            .some((el) => (el.textContent ?? '').trim()
-              === 'Detected signals (click to filter visually):');
+          const details = scope?.querySelector<HTMLDetailsElement>(
+            '[data-dtf-scope-detection-details="1"]',
+          ) ?? null;
+          const highlightLabel = Array.from(details?.querySelectorAll('div') ?? [])
+            .some((el) => (el.textContent ?? '').trim() === 'Highlight detection evidence:');
           return {
             leafCount: app.workspace.getLeavesOfType('taxonomy-workbench-map').length,
             hasScope: Boolean(scope),
             hasTree: Boolean(scope?.querySelector('[data-dtf-detect-tree="1"]')),
-            hasLegend: legend,
+            hasDetectionDetails: Boolean(details),
+            detectionDetailsOpen: details?.open ?? null,
+            detectionSummary: details?.querySelector('summary')?.textContent?.trim() ?? '',
+            hasHighlightLabel: highlightLabel,
             packs: chips.map((chip) => chip.dataset.dtfSignalPackId ?? ''),
             detectModalCount: ((globalThis as unknown as { __dtfTypedUiDocument?: Document }).__dtfTypedUiDocument ?? document).querySelectorAll('.dtf-detect-modal').length,
             currentSurface: ((globalThis as unknown as { __dtfTypedUiDocument?: Document }).__dtfTypedUiDocument ?? document).querySelector<HTMLElement>('[data-dtf-workbench-shell="1"]')
@@ -1306,7 +1311,10 @@ describe('folder-tag-sync — Phase 2 typed model E2E', function () {
         expect(surfaced.leafCount).toBe(1);
         expect(surfaced.hasScope).toBe(true);
         expect(surfaced.hasTree).toBe(true);
-        expect(surfaced.hasLegend).toBe(true);
+        expect(surfaced.hasDetectionDetails).toBe(true);
+        expect(surfaced.detectionDetailsOpen).toBe(false);
+        expect(surfaced.detectionSummary).toBe('Why Folder Tag Sync recognized these organizational systems');
+        expect(surfaced.hasHighlightLabel).toBe(true);
         expect(surfaced.currentSurface).toBe('scope');
         expect(surfaced.detectModalCount).toBe(0);
         expect(surfaced.packs.some((p) => p.toLowerCase().includes('seacow'))).toBe(true);

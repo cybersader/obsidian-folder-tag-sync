@@ -372,6 +372,13 @@
 	min-width: 0;
 }
 
+.dtf-semantic-path.is-full-path .dtf-semantic-path-part {
+	display: grid;
+	grid-template-columns: minmax(6.8em, auto) minmax(0, 1fr);
+	align-items: baseline;
+	gap: 0.4em;
+}
+
 .dtf-semantic-path-label {
 	font-size: 0.78em;
 	font-weight: 600;
@@ -390,7 +397,8 @@
 	color: var(--text-muted);
 }
 
-.dtf-semantic-path-part.is-focus .dtf-semantic-path-value {
+.dtf-semantic-path-part.is-focus .dtf-semantic-path-value,
+.dtf-semantic-path-part.is-full-path .dtf-semantic-path-value {
 	font-weight: 700;
 	color: var(--text-normal);
 }
@@ -539,10 +547,15 @@
 }
 
 .dtf-workbench-folder-detail-head {
+	position: sticky;
+	top: -0.6em;
+	z-index: 1;
 	display: flex;
 	align-items: flex-start;
 	justify-content: space-between;
 	gap: 0.5em;
+	padding-block: 0.15em 0.35em;
+	background: var(--background-primary);
 }
 
 .dtf-workbench-folder-detail-head .dtf-semantic-path {
@@ -1019,34 +1032,6 @@ button.dtf-candidate-occurrence-header > .dtf-semantic-path {
 	padding: 0 0.35em;
 }
 
-/* A short Obsidian split must preserve the hierarchy, not spend its remaining
- * height on duplicated headings and diagnostic counters. Height is observed on
- * the Workbench itself, so this also works in horizontally stacked splits. */
-.dtf-workbench-shell.is-short-workbench {
-	gap: 0.35em !important;
-	padding-block: 0.4em !important;
-}
-
-.dtf-workbench-shell.is-short-workbench .dtf-workbench-view {
-	padding-block: 0.2em !important;
-}
-
-.dtf-workbench-shell.is-short-workbench .dtf-workbench-map-header {
-	justify-content: flex-end !important;
-	margin-bottom: 0.35em !important;
-}
-
-.dtf-workbench-shell.is-short-workbench .dtf-workbench-map-title,
-.dtf-workbench-shell.is-short-workbench .dtf-workbench-map-intro,
-.dtf-workbench-shell.is-short-workbench .dtf-workbench-map-mode-explanation,
-.dtf-workbench-shell.is-short-workbench .dtf-workbench-map-stats {
-	display: none !important;
-}
-
-.dtf-workbench-shell.is-short-workbench [data-dtf-workbench-map='1'] {
-	min-height: 120px !important;
-}
-
 @container dtf-workbench (max-width: 750px) {
 	.dtf-workbench-body,
 	.dtf-workbench-shell:not(.is-systems-browser-open) .dtf-workbench-body {
@@ -1108,7 +1093,7 @@ button.dtf-candidate-occurrence-header > .dtf-semantic-path {
 
 	.dtf-workbench-systems-summary {
 		display: grid;
-		grid-template-columns: minmax(0, 1fr) auto;
+		grid-template-columns: auto minmax(0, 1fr);
 		gap: 0.4em;
 		padding: 0.4em 0.5em;
 	}
@@ -1121,6 +1106,22 @@ button.dtf-candidate-occurrence-header > .dtf-semantic-path {
 
 	.dtf-systems-summary-detail {
 		grid-column: 1 / -1;
+	}
+
+	.dtf-workbench-shell.is-workbench-tight .dtf-systems-summary-detail {
+		display: block;
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+
+	.dtf-workbench-shell.is-workbench-tight
+	.dtf-systems-summary-detail > .dtf-workbench-object-kind,
+	.dtf-workbench-shell.is-workbench-tight
+	.dtf-systems-summary-detail > .dtf-orgsys-status,
+	.dtf-workbench-shell.is-workbench-tight
+	.dtf-systems-summary-detail > .dtf-semantic-path {
+		display: none;
 	}
 
 	.dtf-workbench-systems-browser {
@@ -1171,4 +1172,1784 @@ button.dtf-candidate-occurrence-header > .dtf-semantic-path {
 	.dtf-workbench-systems-summary > button {
 		padding-inline: 0.55em;
 	}
+}
+
+/* Tree-first Workbench layout -------------------------------------------------
+ * TypeScript classifies the space actually owned by the shell and active panel.
+ * CSS consumes that decision so interaction state never depends on a width-only
+ * media query. */
+.dtf-workbench-shell[data-dtf-systems-browser-mode='overlay'] .dtf-workbench-body,
+.dtf-workbench-shell[data-dtf-systems-browser-mode='overlay']:not(.is-systems-browser-open) .dtf-workbench-body {
+	grid-template-columns: minmax(0, 1fr);
+}
+
+.dtf-workbench-shell[data-dtf-systems-browser-mode='overlay'] .dtf-workbench-active-panel,
+.dtf-workbench-shell[data-dtf-systems-browser-mode='overlay']:not(.is-systems-browser-open) .dtf-workbench-active-panel {
+	grid-column: 1;
+}
+
+.dtf-workbench-shell[data-dtf-systems-browser-mode='overlay'] .dtf-workbench-systems-browser {
+	position: absolute;
+	inset: 0 auto 0 0;
+	z-index: 8;
+	width: min(380px, 100%);
+	border-radius: var(--radius-m);
+	box-shadow: var(--shadow-l);
+}
+
+.dtf-workbench-shell[data-dtf-systems-browser-mode='overlay'] .dtf-workbench-systems-scrim {
+	position: absolute;
+	inset: 0;
+	z-index: 7;
+	width: 100%;
+	height: 100%;
+	padding: 0;
+	background: rgba(0, 0, 0, 0.28);
+	border: 0;
+	border-radius: 0;
+	box-shadow: none;
+}
+
+.dtf-workbench-shell[data-dtf-systems-browser-mode='overlay'].is-systems-browser-open .dtf-workbench-systems-scrim {
+	display: block;
+}
+
+.dtf-workbench-active-panel {
+	overflow: hidden;
+}
+
+.dtf-workbench-map-surface {
+	display: grid;
+	grid-template-rows: auto auto auto minmax(0, 1fr);
+	gap: 0.35em;
+	height: 100%;
+	min-height: 0;
+	padding: 0.4em 0.55em;
+	overflow: hidden;
+}
+
+.dtf-workbench-map-surface .dtf-workbench-map-header {
+	margin-bottom: 0 !important;
+}
+
+.dtf-workbench-map-surface .dtf-workbench-map-intro {
+	line-height: 1.3;
+}
+
+.dtf-workbench-map-surface .dtf-workbench-map-mode-explanation {
+	margin: 0;
+	line-height: 1.3;
+}
+
+.dtf-workbench-map-stats {
+	display: flex;
+	align-items: center;
+	gap: 0.35em 0.75em;
+	min-width: 0;
+	min-height: 34px;
+	padding: 0.25em 0.55em;
+	overflow: hidden;
+	white-space: nowrap;
+	background: var(--background-secondary);
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-s);
+	scrollbar-width: thin;
+}
+
+.dtf-workbench-map-stat {
+	display: inline-flex;
+	align-items: baseline;
+	gap: 0.2em;
+	flex: 0 0 auto;
+	font-size: var(--font-ui-smaller);
+	color: var(--text-muted);
+}
+
+.dtf-workbench-map-stat-value {
+	font-weight: 700;
+	color: var(--text-normal);
+}
+
+.dtf-workbench-map-workspace {
+	position: relative;
+	display: grid;
+	grid-template-columns: minmax(0, 1fr);
+	min-width: 0;
+	min-height: 0;
+	overflow: hidden;
+}
+
+.dtf-workbench-map-tree {
+	grid-column: 1;
+	grid-row: 1;
+	min-width: 0;
+	min-height: 0;
+	padding: 0.35em 0.45em;
+	overflow: auto;
+	background: var(--background-secondary);
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-s);
+	font-size: 0.9em;
+	scrollbar-gutter: stable;
+}
+
+.dtf-workbench-folder-inspector {
+	display: none;
+	min-width: 0;
+	min-height: 0;
+	padding: 0.6em 0.75em;
+	overflow-x: hidden;
+	overflow-y: auto;
+	overflow-wrap: anywhere;
+	background: var(--background-primary);
+	border: 1px solid var(--background-modifier-border);
+	border-left: 3px solid var(--interactive-accent);
+	border-radius: var(--radius-s);
+	box-shadow: var(--shadow-s);
+}
+
+.dtf-workbench-folder-inspector code {
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+	word-break: break-word;
+}
+
+.dtf-workbench-folder-actions button {
+	max-width: 100%;
+	white-space: normal;
+	overflow-wrap: anywhere;
+	text-align: left;
+}
+
+.dtf-workbench-shell.is-workbench-tight .dtf-workbench-folder-actions {
+	align-items: stretch;
+	flex-direction: column;
+}
+
+.dtf-workbench-folder-inspector.is-open {
+	display: block;
+}
+
+.dtf-workbench-shell[data-dtf-folder-inspector-mode='side'] .dtf-workbench-map-workspace.has-open-inspector {
+	grid-template-columns: minmax(0, 1fr) minmax(280px, 36%);
+	gap: 0.5em;
+}
+
+.dtf-workbench-shell[data-dtf-folder-inspector-mode='side'] .dtf-workbench-folder-inspector.is-open {
+	position: static;
+	grid-column: 2;
+	grid-row: 1;
+}
+
+.dtf-workbench-shell[data-dtf-folder-inspector-mode='overlay'] .dtf-workbench-folder-inspector.is-open {
+	position: absolute;
+	right: 0.45em;
+	bottom: 0.45em;
+	z-index: 5;
+	width: min(430px, calc(100% - 0.9em));
+	max-height: min(70%, 480px);
+}
+
+.dtf-workbench-shell.is-workbench-tight[data-dtf-folder-inspector-mode='overlay']
+.dtf-workbench-folder-inspector.is-open {
+	top: 0.3em;
+	right: 0.3em;
+	bottom: 0.3em;
+	left: 0.3em;
+	width: auto;
+	max-height: none;
+}
+
+.dtf-tree-item {
+	min-width: 0;
+	outline: none;
+}
+
+.dtf-tree-item:focus > .dtf-folder-row {
+	outline: 2px solid var(--interactive-accent);
+	outline-offset: -2px;
+}
+
+.dtf-folder-row {
+	display: flex;
+	align-items: center;
+	gap: 0.3em;
+	min-width: 0;
+	min-height: 32px;
+	padding: 0.12em 0.28em;
+	user-select: none;
+	border-radius: var(--radius-s);
+}
+
+.dtf-folder-row:hover {
+	background: var(--background-modifier-hover);
+}
+
+button.dtf-folder-disclosure {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	flex: 0 0 1.45em;
+	width: 1.45em;
+	min-width: 1.45em;
+	height: 1.45em;
+	min-height: 1.45em;
+	padding: 0;
+	color: var(--text-muted);
+	background: transparent;
+	border: 0;
+	box-shadow: none;
+}
+
+.dtf-folder-disclosure-spacer {
+	flex: 0 0 1.45em;
+	width: 1.45em;
+}
+
+.dtf-folder-icon {
+	flex: 0 0 auto;
+	font-size: 0.92em;
+}
+
+.dtf-folder-name {
+	flex: 1 1 10em;
+	min-width: 4em;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.dtf-tree-children[style*='display: none'] {
+	display: none !important;
+}
+
+.dtf-tree-elision {
+	padding-block: 0.2em;
+	font-size: 0.76em;
+	font-style: italic;
+	color: var(--text-faint);
+}
+
+.dtf-workbench-map-tree .dtf-folder-occurrence-relations {
+	display: inline-flex;
+	align-items: center;
+	flex: 0 1 auto;
+	flex-wrap: wrap;
+	gap: 0.25em;
+	min-width: 0;
+	margin: 0 0 0 auto;
+}
+
+.dtf-workbench-map-tree .dtf-folder-occurrence-relations.is-compact {
+	flex-wrap: nowrap;
+}
+
+.dtf-workbench-map-tree .dtf-folder-occurrence-relations.is-compact .dtf-semantic-path {
+	display: none;
+}
+
+.dtf-workbench-map-tree button.dtf-folder-occurrence-chip {
+	justify-content: flex-start;
+	flex: 0 1 auto;
+	min-width: 0;
+	min-height: 26px;
+	padding: 0.15em 0.45em;
+	text-align: left;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.dtf-workbench-map-tree .dtf-folder-occurrence-system {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+button.dtf-folder-occurrence-more {
+	flex: 0 0 auto;
+	min-height: 26px;
+	padding: 0.12em 0.45em;
+	font-size: 0.7em;
+	font-weight: 650;
+	color: var(--text-muted);
+	background: var(--background-secondary-alt);
+	border: 1px solid var(--background-modifier-border);
+	border-radius: 999px;
+	box-shadow: none;
+}
+
+.dtf-workbench-shell.is-workbench-compact .dtf-workbench-map-intro,
+.dtf-workbench-shell.is-workbench-compact .dtf-workbench-map-mode-explanation,
+.dtf-workbench-shell.is-workbench-tight .dtf-workbench-map-heading,
+.dtf-workbench-shell.is-workbench-tight .dtf-workbench-map-title,
+.dtf-workbench-shell.is-workbench-tight .dtf-workbench-map-intro,
+.dtf-workbench-shell.is-workbench-tight .dtf-workbench-map-mode-explanation {
+	display: none;
+}
+
+.dtf-workbench-shell.is-workbench-tight {
+	gap: 0.3em !important;
+	padding: 0.35em !important;
+}
+
+.dtf-map-mode-label-short {
+	display: none;
+}
+
+.dtf-workbench-shell.is-workbench-tight .dtf-map-mode-label-full {
+	display: none;
+}
+
+.dtf-workbench-shell.is-workbench-tight .dtf-map-mode-label-short {
+	display: inline;
+}
+
+.dtf-workbench-shell.is-workbench-tight .dtf-workbench-map-surface {
+	gap: 0.25em;
+	padding: 0.2em;
+}
+
+.dtf-workbench-shell.is-workbench-tight .dtf-workbench-map-stats {
+	min-height: 30px;
+	padding-block: 0.15em;
+}
+
+.dtf-workbench-shell.is-workbench-tight .dtf-workbench-map-stat[data-dtf-map-stat='covered'],
+.dtf-workbench-shell.is-workbench-tight .dtf-workbench-map-stat[data-dtf-map-stat='conflicts'] {
+	display: none;
+}
+
+.dtf-workbench-shell.is-workbench-tight .dtf-workbench-systems-summary {
+	padding-block: 0.3em;
+}
+
+/*
+ * Tight panes: keep the folder hierarchy the largest thing on the Explore
+ * surface.
+ *
+ * The map controls are a wrapping flex row (mode toggle, primary action,
+ * Refresh). In a tight pane the primary action's label is wider than the row,
+ * so it claimed a full-width two-line block of its own and pushed Refresh onto
+ * a third row. Measured at a 320x420 pane that header was 114px tall while the
+ * tree below it got only 116px -- the hierarchy was no bigger than its own
+ * chrome, and had to scroll 334px of rows through it.
+ *
+ * A two-row grid packs the same three controls into two rows: the mode toggle
+ * spans the top row, then the primary action and Refresh share the second.
+ * Nothing is hidden, clipped, or reordered -- DOM order, tab order, labels, and
+ * accessible names are untouched, and the primary action still wraps its full
+ * text inside its own column. The header drops to roughly 70px and the tree
+ * gains that space back.
+ *
+ * The `!important` declarations override the inline styles that
+ * WorkbenchMapPanel.renderHeader sets on this container, matching how the other
+ * tight-density overrides in this file already work.
+ */
+.dtf-workbench-shell.is-workbench-tight .dtf-workbench-map-controls {
+	display: grid !important;
+	grid-template-columns: minmax(0, 1fr) auto;
+	align-items: start !important;
+	gap: 0.3em 0.4em !important;
+	width: 100%;
+	min-width: 0;
+}
+
+.dtf-workbench-shell.is-workbench-tight .dtf-workbench-map-controls > *:first-child {
+	grid-column: 1 / -1;
+	justify-self: start;
+}
+
+.dtf-workbench-shell.is-workbench-tight .dtf-workbench-map-controls > button {
+	min-width: 0;
+	padding: 0.3em 0.55em;
+	font-size: 0.82em;
+	white-space: normal;
+	overflow-wrap: anywhere;
+}
+
+@container dtf-workbench (max-width: 480px) {
+	.dtf-workbench-map-tree [data-dtf-folder-row-content='1'] {
+		align-items: center !important;
+		flex-wrap: nowrap;
+	}
+
+	.dtf-workbench-map-tree .dtf-folder-occurrence-relations,
+	.dtf-workbench-map-tree .dtf-folder-rule-emission {
+		flex: 0 1 auto;
+		margin-left: auto;
+	}
+
+	.dtf-workbench-map-tree button.dtf-folder-occurrence-chip {
+		flex: 0 1 auto;
+		width: auto;
+	}
+}
+
+/* Task-oriented Workbench journey ------------------------------------------ */
+.dtf-workbench-job-label-short {
+	display: none;
+}
+
+.dtf-workbench-shell.is-workbench-tight .dtf-workbench-job-label-full {
+	display: none;
+}
+
+.dtf-workbench-shell.is-workbench-tight .dtf-workbench-job-label-short {
+	display: inline;
+}
+
+.dtf-orgsys-selected-evidence {
+	display: grid;
+	gap: 0.4em;
+	margin-top: 0.4em;
+	padding: 0.55em 0.65em;
+	background: var(--background-primary);
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-s);
+}
+
+.dtf-orgsys-selected-actions,
+.dtf-candidate-install-next-step {
+	display: flex;
+	align-items: center;
+	flex-wrap: wrap;
+	gap: 0.45em;
+	margin-top: 0.25em;
+}
+
+.dtf-orgsys-evidence-disclosure,
+.dtf-scope-detection-details,
+.dtf-workbench-map-mode-explanation {
+	font-size: var(--font-ui-smaller);
+	color: var(--text-muted);
+}
+
+.dtf-orgsys-evidence-disclosure > summary,
+.dtf-scope-detection-details > summary,
+.dtf-workbench-map-mode-explanation > summary,
+.dtf-orgsys-possible-group > summary {
+	cursor: pointer;
+	font-weight: 650;
+	color: var(--text-normal);
+}
+
+.dtf-orgsys-group {
+	display: grid;
+	gap: 0.35em;
+	margin-top: 0.65em;
+	padding-top: 0.55em;
+	border-top: 1px solid var(--background-modifier-border);
+}
+
+.dtf-orgsys-group-title {
+	font-weight: 650;
+}
+
+.dtf-orgsys-group-description {
+	font-size: var(--font-ui-smaller);
+	line-height: 1.35;
+	color: var(--text-muted);
+}
+
+.dtf-orgsys-possible-group[open] > summary {
+	margin-bottom: 0.35em;
+}
+
+.dtf-scope-focused-system,
+.dtf-scope-task-summary,
+.dtf-candidate-task-summary {
+	margin-top: 0.25em;
+	font-size: var(--font-ui-smaller);
+	line-height: 1.35;
+	color: var(--text-muted);
+}
+
+.dtf-scope-task-summary,
+.dtf-candidate-task-summary {
+	padding: 0.45em 0.65em;
+	background: var(--background-secondary);
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-s);
+}
+
+.dtf-scope-detection-details {
+	flex: 0 0 auto;
+	padding: 0.45em 0.6em;
+	background: var(--background-secondary);
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-s);
+}
+
+.dtf-scope-diagnostic-stats {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+	gap: 0.4em;
+	margin: 0.5em 0;
+}
+
+.dtf-candidate-safety-intro {
+	font-weight: 600;
+}
+
+.is-dtf-rule-focus[data-dtf-rule-focus='active'] {
+	outline: 2px solid var(--interactive-accent);
+	outline-offset: 2px;
+	background: color-mix(in srgb, var(--interactive-accent) 10%, transparent);
+}
+
+/* Organizational-system workspace follow-up ------------------------------- */
+.dtf-systems-sidebar-toggle {
+	flex: 0 0 36px;
+	width: 36px;
+	height: 36px;
+	min-height: 36px !important;
+	padding: 0;
+}
+
+.dtf-organizational-system-marker {
+	display: inline-block;
+	flex: 0 0 0.65em;
+	width: 0.65em;
+	height: 0.65em;
+	border-radius: 999px;
+	background: var(--dtf-organizational-system-marker-color, var(--text-muted));
+}
+
+.dtf-orgsys-card-list {
+	list-style: none;
+	margin: 0;
+	padding: 2px;
+}
+
+.dtf-orgsys-occurrence-item {
+	display: grid;
+	gap: 0.35em;
+	min-width: 0;
+	margin: 0;
+	padding: 0;
+}
+
+.dtf-orgsys-occurrence-item .dtf-orgsys-occurrence-marker {
+	display: inline-block;
+	flex: 0 0 0.65em;
+	width: 0.65em;
+	height: 0.65em;
+	border-radius: 999px;
+	background: currentColor;
+	font-size: 0;
+}
+
+.dtf-orgsys-selected-evidence {
+	position: static;
+	z-index: auto;
+	max-width: 100%;
+	box-shadow: none;
+}
+
+.dtf-orgsys-evidence-section {
+	display: grid;
+	gap: 0.35em;
+	min-width: 0;
+}
+
+.dtf-orgsys-evidence-section-title {
+	font-size: 0.78em;
+	font-weight: 650;
+	color: var(--text-normal);
+}
+
+.dtf-workbench-scope-surface,
+.dtf-scope-split-workspace,
+.dtf-scope-chooser-scroller,
+.dtf-scope-plan-scroller {
+	min-width: 0;
+	min-height: 0;
+}
+
+.dtf-scope-fixed-header {
+	flex: 0 0 auto;
+}
+
+.dtf-scope-chooser-scroller,
+.dtf-scope-plan-scroller {
+	overscroll-behavior: contain;
+	scrollbar-gutter: stable;
+}
+
+.dtf-scope-split-separator {
+	position: relative;
+	flex: 0 0 6px;
+	min-height: 6px;
+	cursor: ns-resize;
+	touch-action: none;
+	outline: none;
+}
+
+.dtf-scope-split-separator::before {
+	content: '';
+	position: absolute;
+	inset: 2px 0;
+	border-top: 1px solid var(--background-modifier-border);
+}
+
+.dtf-scope-split-handle {
+	position: absolute;
+	z-index: 1;
+	left: 50%;
+	top: 50%;
+	width: 42px;
+	height: 3px;
+	border-radius: 999px;
+	background: var(--background-modifier-border-hover);
+	transform: translate(-50%, -50%);
+}
+
+.dtf-scope-split-separator:hover .dtf-scope-split-handle,
+.dtf-scope-split-separator:focus-visible .dtf-scope-split-handle {
+	background: var(--interactive-accent);
+}
+
+.dtf-scope-split-separator:focus-visible {
+	outline: 2px solid var(--interactive-accent);
+	outline-offset: 1px;
+}
+
+.dtf-scope-split-separator[aria-disabled='true'] {
+	cursor: default;
+	opacity: 0.55;
+}
+
+.dtf-scope-folder-tree,
+.dtf-scope-folder-row,
+.dtf-scope-root-row,
+.dtf-scope-deployment-row,
+.dtf-scope-deployment-content,
+.dtf-scope-current-system-title,
+.dtf-scope-current-system-explanation {
+	min-width: 0;
+}
+
+.dtf-scope-row-checkbox-slot,
+.dtf-scope-row-disclosure-slot,
+.dtf-scope-row-rail-slot {
+	box-sizing: border-box;
+}
+
+.dtf-scope-row-checkbox-slot input[type='checkbox'] {
+	margin: 0;
+}
+
+button.dtf-scope-folder-disclosure {
+	flex: 0 0 1.2em;
+	min-width: 1.2em;
+}
+
+.dtf-scope-focused-system {
+	padding: 0.45em 0.55em;
+	background: var(--background-secondary);
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-s);
+}
+
+.dtf-scope-current-system-title,
+.dtf-scope-deployment-system {
+	overflow-wrap: anywhere;
+}
+
+.dtf-scope-current-system-title .dtf-orgsys-status {
+	margin-left: 0.45em;
+}
+
+.dtf-scope-current-focus-badge {
+	display: inline-flex;
+	padding: 0.08em 0.42em;
+	border: 1px solid currentColor;
+	border-radius: 999px;
+	white-space: nowrap;
+}
+
+.dtf-scope-deployment-row {
+	gap: 0.55em;
+	min-width: 0;
+	padding: 0.45em 0;
+}
+
+.dtf-scope-deployment-content {
+	align-items: flex-start;
+}
+
+button.dtf-scope-signal-chip {
+	height: auto;
+	min-height: 30px;
+	white-space: normal;
+	box-shadow: none;
+}
+
+.dtf-candidate-direction-status {
+	max-width: 100%;
+	min-width: 0;
+}
+
+.dtf-candidate-direction-status > button {
+	display: flex;
+	align-items: center;
+	justify-content: flex-start;
+	flex-wrap: wrap;
+	gap: 0.35em 0.6em;
+	max-width: 100%;
+	height: auto;
+	min-height: 36px !important;
+	padding: 0.4em 0.55em !important;
+	text-align: left;
+	white-space: normal;
+}
+
+.dtf-candidate-direction-details,
+.dtf-candidate-conflict-details {
+	min-width: 0;
+	overflow-wrap: anywhere;
+}
+
+.dtf-candidate-conflict-target {
+	display: flex;
+	align-items: baseline;
+	flex-wrap: wrap;
+	gap: 0.25em;
+	min-width: 0;
+}
+
+.dtf-candidate-conflict-target button {
+	height: auto;
+	max-width: 100%;
+	white-space: normal;
+	overflow-wrap: anywhere;
+	text-align: left;
+}
+
+.dtf-candidate-predicted-winner {
+	min-width: 0;
+	overflow-wrap: anywhere;
+}
+
+.dtf-candidate-row[data-dtf-conflict-target-focused='1'] {
+	outline: 2px solid var(--interactive-accent);
+	outline-offset: 2px;
+	background: color-mix(in srgb, var(--interactive-accent) 8%, transparent);
+}
+
+.dtf-workbench-folder-systems {
+	display: grid;
+	gap: 0.4em;
+	min-width: 0;
+}
+
+.dtf-workbench-folder-systems-heading {
+	font-weight: 650;
+}
+
+.dtf-workbench-folder-system-list {
+	min-width: 0;
+}
+
+button.dtf-workbench-folder-system {
+	display: grid;
+	gap: 0.25em;
+	max-width: 100%;
+	min-width: 0;
+	white-space: normal;
+	overflow-wrap: anywhere;
+}
+
+.dtf-workbench-folder-system-identity {
+	min-width: 0;
+}
+
+.dtf-workbench-folder-system-name {
+	min-width: 0;
+	overflow-wrap: anywhere;
+}
+
+.dtf-workbench-folder-system-status {
+	font-size: var(--font-ui-smaller);
+	color: var(--text-muted);
+}
+
+.dtf-workbench-folder-system-status.is-actionable {
+	color: var(--text-success);
+}
+
+.dtf-workbench-folder-system-status.is-incomplete,
+.dtf-workbench-folder-system-status.is-suppressed {
+	color: var(--text-warning);
+}
+
+@container dtf-workbench (max-width: 480px) {
+	.dtf-workbench-systems-summary {
+		align-items: flex-start;
+		gap: 0.45em;
+	}
+
+	.dtf-systems-summary-identity {
+		grid-template-columns: minmax(0, 1fr);
+		gap: 0.2em;
+	}
+
+	.dtf-systems-summary-counts {
+		white-space: normal;
+	}
+
+	.dtf-scope-header,
+	.dtf-scope-deployment-content,
+	.dtf-candidate-conflict-target {
+		align-items: stretch !important;
+		flex-direction: column;
+	}
+
+	.dtf-scope-deployment-row {
+		align-items: stretch !important;
+	}
+
+	.dtf-scope-deployment-system,
+	.dtf-scope-deployment-content > .dtf-semantic-path {
+		flex-basis: auto !important;
+	}
+
+	.dtf-candidate-direction-status,
+	.dtf-candidate-conflict-target button,
+	button.dtf-workbench-folder-system {
+		width: 100%;
+	}
+
+	.dtf-workbench-map-controls {
+		min-width: 0;
+		width: 100%;
+	}
+
+	.dtf-workbench-map-controls > button {
+		max-width: 100%;
+		min-width: 0;
+		height: auto;
+		white-space: normal;
+		overflow-wrap: anywhere;
+	}
+
+	.dtf-workbench-folder-detail-head {
+		flex-wrap: wrap;
+	}
+
+	.dtf-workbench-folder-detail-head .dtf-semantic-path {
+		flex-basis: calc(100% - 5em);
+	}
+}
+
+@container dtf-workbench (max-width: 340px) {
+	.dtf-workbench-systems-summary {
+		padding: 0.35em;
+	}
+
+	.dtf-systems-sidebar-toggle {
+		flex-basis: 34px;
+		width: 34px;
+		height: 34px;
+		min-height: 34px !important;
+	}
+
+	.dtf-orgsys-selected-evidence,
+	.dtf-scope-focused-system,
+	.dtf-scope-detection-details {
+		padding-inline: 0.45em;
+	}
+
+	.dtf-candidate-conflict-details,
+	.dtf-candidate-direction-details {
+		padding-left: 0 !important;
+	}
+}
+
+
+/* ── Annotated outline prototype (hidden `outline` surface) ── */
+
+/* The outline owns the whole pane: journey tabs, the systems summary and the
+ * side browser are chrome for the other surfaces and are not drawn here. */
+.dtf-workbench-shell.is-workbench-prototype [data-dtf-workbench-surface-nav='1'],
+.dtf-workbench-shell.is-workbench-prototype .dtf-workbench-systems-summary,
+.dtf-workbench-shell.is-workbench-prototype .dtf-workbench-systems-browser,
+.dtf-workbench-shell.is-workbench-prototype .dtf-workbench-systems-scrim {
+	display: none !important;
+}
+
+.dtf-workbench-shell.is-workbench-prototype .dtf-workbench-body {
+	grid-template-columns: minmax(0, 1fr);
+}
+
+.dtf-workbench-shell.is-workbench-prototype .dtf-workbench-active-panel {
+	grid-column: 1;
+}
+
+/* Rhythm: 4px base. Rows are 28px, one indent level is 16px, the control slot
+ * is 22px and present at every step so names never move. */
+.dtf-outline {
+	--dtf-outline-row: 28px;
+	--dtf-outline-indent: 16px;
+	--dtf-outline-control: 22px;
+	--dtf-outline-ink: var(--text-normal);
+	--dtf-outline-muted: var(--text-muted);
+	--dtf-outline-faint: var(--text-faint);
+	--dtf-outline-warn: var(--color-orange);
+	--dtf-outline-error: var(--color-red);
+	display: flex;
+	flex-direction: column;
+	gap: 12px;
+	width: 100%;
+	max-width: 940px;
+	margin: 0 auto;
+	padding: 4px 4px 16px;
+	color: var(--dtf-outline-ink);
+	font-size: var(--font-ui-small);
+	line-height: 1.4;
+	font-variant-numeric: tabular-nums;
+}
+
+/* ─ Steps strip ─ */
+
+.dtf-outline-steps {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	flex-wrap: wrap;
+	gap: 8px 16px;
+}
+
+.dtf-outline-step-tabs {
+	display: inline-flex;
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-m);
+	overflow: hidden;
+	background: var(--background-primary);
+}
+
+.dtf-outline button.dtf-outline-step {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	height: auto;
+	min-height: 32px;
+	margin: 0;
+	padding: 4px 12px;
+	border: 0;
+	border-radius: 0;
+	background: transparent;
+	box-shadow: inset 0 -2px 0 transparent;
+	color: var(--dtf-outline-muted);
+	font-size: var(--font-ui-small);
+	font-weight: 500;
+	line-height: 1.2;
+	cursor: pointer;
+	transition: color 120ms ease, box-shadow 120ms ease;
+}
+
+.dtf-outline button.dtf-outline-step + button.dtf-outline-step {
+	border-left: 1px solid var(--background-modifier-border);
+}
+
+.dtf-outline button.dtf-outline-step:hover {
+	background: var(--background-modifier-hover);
+	color: var(--dtf-outline-ink);
+}
+
+.dtf-outline button.dtf-outline-step.is-active {
+	color: var(--interactive-accent);
+	font-weight: 600;
+	box-shadow: inset 0 -2px 0 var(--interactive-accent);
+}
+
+.dtf-outline button.dtf-outline-step.is-done {
+	color: var(--dtf-outline-muted);
+}
+
+.dtf-outline-step-done {
+	font-size: var(--font-ui-small);
+	font-weight: 500;
+	color: var(--dtf-outline-faint);
+}
+
+.dtf-outline-step-short {
+	display: none;
+}
+
+.dtf-outline-step-actions {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+}
+
+.dtf-outline-show-all {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	color: var(--dtf-outline-muted);
+	font-size: var(--font-ui-small);
+	cursor: pointer;
+}
+
+.dtf-outline-show-all:hover {
+	color: var(--dtf-outline-ink);
+}
+
+.dtf-outline button.dtf-outline-nav {
+	min-width: 64px;
+}
+
+/* ─ Lead: what this step is, then what to do next ─ */
+
+.dtf-outline-lead {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+	padding: 0 4px;
+}
+
+.dtf-outline-instruction {
+	font-size: var(--font-ui-medium);
+	font-weight: 500;
+	color: var(--dtf-outline-ink);
+}
+
+.dtf-outline-hint {
+	font-size: var(--font-ui-small);
+	color: var(--dtf-outline-muted);
+}
+
+.dtf-outline-muted {
+	color: var(--dtf-outline-muted);
+}
+
+/* ─ Rows: one grid, one rhythm ─
+ * gutter | control (22px) | name (at least half the row) | trailing
+ * The trailing cell is right-aligned and holds BOTH the annotation and the
+ * status, so a ✓, a delta chip and an anchor state all end at the same edge and
+ * nothing floats mid-row. Anything that needs full width (the fold word, the
+ * tag root, the conflict line) is a sub-row beneath the anchor, not a column. */
+
+.dtf-outline-rows {
+	position: relative;
+	display: flex;
+	flex-direction: column;
+	border-top: 1px solid var(--background-modifier-border);
+	border-bottom: 1px solid var(--background-modifier-border);
+	padding: 4px 0;
+}
+
+.dtf-outline-bracket-layer {
+	position: absolute;
+	inset: 0;
+	pointer-events: none;
+}
+
+.dtf-outline-row {
+	--dtf-outline-gutter: 32px;
+	position: relative;
+	display: grid;
+	grid-template-columns:
+		var(--dtf-outline-gutter)
+		var(--dtf-outline-control)
+		minmax(0, 1fr)
+		minmax(0, 42%);
+	align-items: center;
+	column-gap: 8px;
+	min-height: var(--dtf-outline-row);
+	padding: 2px 8px 2px 0;
+	border-radius: var(--radius-s);
+	color: var(--dtf-outline-ink);
+	outline: none;
+}
+
+.dtf-outline-row.is-folder:hover,
+.dtf-outline-row.is-preview:hover {
+	background: var(--background-modifier-hover);
+}
+
+.dtf-outline-row:focus-visible {
+	box-shadow: inset 0 0 0 2px var(--interactive-accent);
+}
+
+.dtf-outline-gutter {
+	width: var(--dtf-outline-gutter);
+	height: 100%;
+}
+
+.dtf-outline-control {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: var(--dtf-outline-control);
+	height: var(--dtf-outline-control);
+}
+
+.dtf-outline-control input[type='checkbox'],
+.dtf-outline-control input[type='radio'] {
+	margin: 0;
+}
+
+.dtf-outline-name {
+	min-width: 0;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	padding-right: 4px;
+}
+
+/* An anchor names a folder AND its systems, so the cell may take a second line
+ * rather than cut a system name mid-word. Two lines is the hard ceiling. */
+.dtf-outline-row.is-anchor .dtf-outline-name {
+	white-space: normal;
+	overflow: hidden;
+	text-overflow: clip;
+	overflow-wrap: break-word;
+	max-height: none;
+}
+
+/* Ellipsis is a last resort, and only ever on the folder name — which carries
+ * its full text in a `title` tooltip. */
+.dtf-outline-row.is-anchor .dtf-outline-folder-name {
+	display: inline-block;
+	max-width: 100%;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	vertical-align: bottom;
+}
+
+.dtf-outline-name-sep {
+	color: var(--dtf-outline-faint);
+}
+
+/* One right-aligned trailing cell: annotation, then status, both ending at the
+ * same edge on every row. */
+.dtf-outline-trailing {
+	display: flex;
+	align-items: center;
+	justify-content: flex-end;
+	flex-wrap: wrap;
+	gap: 2px 10px;
+	min-width: 0;
+}
+
+.dtf-outline-annotation {
+	display: flex;
+	align-items: center;
+	justify-content: flex-end;
+	flex-wrap: wrap;
+	gap: 4px 8px;
+	min-width: 0;
+	text-align: right;
+	color: var(--dtf-outline-muted);
+	font-size: var(--font-ui-small);
+}
+
+.dtf-outline-status {
+	min-width: 0;
+	text-align: right;
+	text-wrap: pretty;
+	overflow-wrap: anywhere;
+	color: var(--dtf-outline-muted);
+	font-size: var(--font-ui-small);
+	font-variant-numeric: tabular-nums;
+}
+
+.dtf-outline-trailing:empty,
+.dtf-outline-annotation:empty,
+.dtf-outline-status:empty {
+	display: none;
+}
+
+/* Sentence rows (fold word, tag root, conflict line, full tag) run from the
+ * name column to the edge. */
+.dtf-outline-row.is-line {
+	min-height: 24px;
+	padding-top: 0;
+}
+
+.dtf-outline-line {
+	grid-column: 3 / 5;
+	min-width: 0;
+	font-size: var(--font-ui-small);
+	color: var(--dtf-outline-muted);
+	line-height: 1.35;
+	overflow-wrap: anywhere;
+}
+
+/* Sub-rows sit directly beneath their anchor, indented one level. */
+.dtf-outline-row.is-sub {
+	min-height: 22px;
+}
+
+.dtf-outline-row.is-sub .dtf-outline-line {
+	display: flex;
+	align-items: center;
+	flex-wrap: wrap;
+	gap: 2px 4px;
+	color: var(--dtf-outline-muted);
+}
+
+.dtf-outline-row.is-full-tag .dtf-outline-line {
+	font-family: var(--font-monospace);
+}
+
+.dtf-outline-tag-inline {
+	color: var(--dtf-outline-ink);
+	font-weight: 600;
+}
+
+/* ─ Hues: assigned once per pack, drawn only on chosen systems ─ */
+
+.dtf-outline .is-hue-blue { --dtf-outline-hue: var(--color-blue-rgb); }
+.dtf-outline .is-hue-green { --dtf-outline-hue: var(--color-green-rgb); }
+.dtf-outline .is-hue-purple { --dtf-outline-hue: var(--color-purple-rgb); }
+.dtf-outline .is-hue-pink { --dtf-outline-hue: var(--color-pink-rgb); }
+.dtf-outline .is-hue-cyan { --dtf-outline-hue: var(--color-cyan-rgb); }
+.dtf-outline .is-hue-yellow { --dtf-outline-hue: var(--color-yellow-rgb); }
+
+/* ─ Anchor rows ─ */
+
+.dtf-outline-row.is-anchor .dtf-outline-folder-name {
+	font-weight: 650;
+}
+
+.dtf-outline-system-name {
+	font-weight: 600;
+	color: var(--dtf-outline-muted);
+}
+
+.dtf-outline-system-name[data-dtf-outline-hue] {
+	color: color-mix(in srgb, rgb(var(--dtf-outline-hue)) 45%, var(--text-normal));
+}
+
+/* Step 1 selection is the accent, never a system hue. */
+.dtf-outline-row.is-anchor.is-open {
+	background: hsla(var(--interactive-accent-hsl), 0.1);
+}
+
+.dtf-outline-row.is-anchor.is-open:hover {
+	background: hsla(var(--interactive-accent-hsl), 0.16);
+}
+
+.dtf-outline-row.is-anchor.is-managed {
+	background: rgba(var(--dtf-outline-hue), 0.08);
+}
+
+.dtf-outline-row.is-anchor.is-managed:hover {
+	background: rgba(var(--dtf-outline-hue), 0.14);
+}
+
+.dtf-outline-row.is-anchor.is-managed .dtf-outline-name-sep {
+	color: var(--dtf-outline-muted);
+}
+
+.dtf-outline-row.is-evidence .dtf-outline-folder-name {
+	color: var(--dtf-outline-ink);
+}
+
+/* Fold toggle: a word, styled like a link, that says what it reveals. */
+.dtf-outline button.dtf-outline-fold {
+	height: auto;
+	min-height: 0;
+	margin: 0;
+	padding: 0 2px;
+	border: 0;
+	background: transparent;
+	box-shadow: none;
+	color: var(--interactive-accent);
+	font-size: var(--font-ui-small);
+	font-weight: 500;
+	line-height: 1.3;
+	white-space: nowrap;
+	cursor: pointer;
+}
+
+.dtf-outline button.dtf-outline-fold:hover {
+	text-decoration: underline;
+}
+
+.dtf-outline button.dtf-outline-fold:focus-visible {
+	box-shadow: 0 0 0 2px var(--interactive-accent);
+	border-radius: 3px;
+}
+
+/* State text: only "Too few" is a warning. */
+.dtf-outline-completeness.is-too-few,
+.dtf-outline-completeness.has-too-few {
+	color: color-mix(in srgb, var(--dtf-outline-warn) 45%, var(--text-normal));
+}
+
+.dtf-outline-row.is-anchor.is-too-few .dtf-outline-folder-name {
+	color: var(--dtf-outline-ink);
+}
+
+.dtf-outline-role {
+	color: var(--dtf-outline-muted);
+}
+
+.dtf-outline-role[class*='is-hue-'] {
+	color: color-mix(in srgb, rgb(var(--dtf-outline-hue)) 45%, var(--text-normal));
+}
+
+/* ─ Brackets: one 2px lane in the gutter of the member rows ─ */
+
+.dtf-outline-bracket {
+	position: absolute;
+	width: 2px;
+	border-radius: 1px;
+	background: var(--dtf-outline-faint);
+	opacity: 0.55;
+}
+
+.dtf-outline-bracket.is-coloured {
+	background: rgb(var(--dtf-outline-hue));
+	opacity: 0.85;
+}
+
+.dtf-outline-bracket.is-dashed {
+	background: repeating-linear-gradient(
+		to bottom,
+		var(--dtf-outline-warn) 0 4px,
+		transparent 4px 7px
+	);
+	opacity: 0.8;
+}
+
+/* ─ Step 2: manage ─ */
+
+.dtf-outline label.dtf-outline-manage {
+	margin-left: 10px;
+	color: var(--dtf-outline-muted);
+	font-size: var(--font-ui-small);
+	font-weight: 500;
+	cursor: pointer;
+}
+
+.dtf-outline label.dtf-outline-manage:hover {
+	color: var(--dtf-outline-ink);
+}
+
+.dtf-outline label.dtf-outline-manage.is-checked {
+	color: var(--interactive-accent);
+}
+
+.dtf-outline-manage-note {
+	color: var(--dtf-outline-muted);
+}
+
+.dtf-outline-row.is-included .dtf-outline-manage-note {
+	color: var(--dtf-outline-muted);
+	font-style: italic;
+}
+
+.dtf-outline-row.is-choice {
+	min-height: 26px;
+}
+
+/* A radio sub-row names a system too, so it wraps rather than cut it mid-word. */
+.dtf-outline-row.is-choice .dtf-outline-name {
+	white-space: normal;
+	overflow: visible;
+	text-overflow: clip;
+	overflow-wrap: break-word;
+}
+
+.dtf-outline label.dtf-outline-choice {
+	cursor: pointer;
+	font-size: var(--font-ui-small);
+}
+
+.dtf-outline-choice-label {
+	color: var(--dtf-outline-muted);
+	font-weight: 500;
+}
+
+.dtf-outline-choice-evidence {
+	color: var(--dtf-outline-muted);
+	font-size: var(--font-ui-small);
+}
+
+/* ─ Ghost rows: what is missing ─ */
+
+.dtf-outline-row.is-ghost .dtf-outline-folder-name {
+	color: var(--dtf-outline-faint);
+	font-style: italic;
+}
+
+.dtf-outline-ghost-text {
+	color: color-mix(in srgb, var(--dtf-outline-warn) 45%, var(--text-normal));
+}
+
+.dtf-outline-row.is-elision,
+.dtf-outline-row.is-toggle {
+	min-height: 24px;
+	color: var(--dtf-outline-faint);
+	font-size: var(--font-ui-small);
+}
+
+.dtf-outline-row.is-toggle .dtf-outline-name {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+}
+
+/* ─ Step 3: the delta reading ─ */
+
+.dtf-outline-marker {
+	display: inline-block;
+	width: 8px;
+	height: 8px;
+	border-radius: 50%;
+	background: var(--dtf-outline-faint);
+}
+
+.dtf-outline-marker.is-coloured {
+	background: rgb(var(--dtf-outline-hue));
+}
+
+.dtf-outline-result {
+	display: inline-flex;
+	align-items: center;
+	flex-wrap: wrap;
+	gap: 6px;
+	min-width: 0;
+}
+
+.dtf-outline-tick {
+	color: var(--dtf-outline-faint);
+	font-size: var(--font-ui-small);
+}
+
+.dtf-outline-tag,
+.dtf-outline-delta {
+	display: inline-block;
+	max-width: 100%;
+	padding: 1px 7px;
+	border-radius: 5px;
+	background: rgba(var(--dtf-outline-hue, 127, 127, 127), 0.12);
+	color: var(--text-normal);
+	font-family: var(--font-monospace);
+	font-size: var(--font-ui-small);
+	line-height: 1.5;
+	white-space: normal;
+	overflow-wrap: anywhere;
+}
+
+.dtf-outline-tag:not([class*='is-hue-']),
+.dtf-outline-delta:not([class*='is-hue-']) {
+	color: var(--dtf-outline-muted);
+	background: var(--background-modifier-hover);
+}
+
+.dtf-outline-delta-arrow {
+	color: var(--dtf-outline-muted);
+}
+
+/* The stated tag root is never truncated: it wraps in its own sub-row instead. */
+.dtf-outline-tag.is-wrapping {
+	white-space: normal;
+	overflow: visible;
+	text-overflow: clip;
+	overflow-wrap: anywhere;
+}
+
+.dtf-outline-no-tag {
+	padding: 1px 8px;
+	border-radius: 5px;
+	background: rgba(var(--color-orange-rgb), 0.12);
+	color: color-mix(in srgb, var(--dtf-outline-warn) 45%, var(--text-normal));
+	font-size: var(--font-ui-small);
+}
+
+.dtf-outline-row.is-no-tag .dtf-outline-folder-name {
+	color: var(--dtf-outline-muted);
+}
+
+.dtf-outline-row.is-expandable {
+	cursor: pointer;
+}
+
+.dtf-outline-root {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	color: var(--dtf-outline-muted);
+}
+
+.dtf-outline-row.is-tag-root .dtf-outline-line {
+	font-size: var(--font-ui-small);
+}
+
+/* ─ Footer ─ */
+
+.dtf-outline-footer {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	padding: 0 4px;
+}
+
+.dtf-outline-summary {
+	color: var(--dtf-outline-muted);
+	font-size: var(--font-ui-small);
+}
+
+.dtf-outline-footer-controls {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 8px 16px;
+}
+
+.dtf-outline-check {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	color: var(--dtf-outline-muted);
+	font-size: var(--font-ui-small);
+	cursor: pointer;
+}
+
+.dtf-outline-check:hover {
+	color: var(--dtf-outline-ink);
+}
+
+.dtf-outline-check input {
+	margin: 0;
+}
+
+.dtf-outline button.dtf-outline-save {
+	margin-left: auto;
+}
+
+.dtf-outline-save-note {
+	font-size: var(--font-ui-small);
+}
+
+/* ─ Narrow (≤480px): annotation stacks under the name; the status follows ─ */
+
+.dtf-outline.is-outline-narrow .dtf-outline-row {
+	grid-template-columns: var(--dtf-outline-gutter) var(--dtf-outline-control) minmax(0, 1fr);
+	row-gap: 2px;
+}
+
+.dtf-outline.is-outline-narrow .dtf-outline-trailing {
+	grid-column: 3;
+	justify-content: flex-start;
+	justify-self: start;
+}
+
+.dtf-outline.is-outline-narrow .dtf-outline-annotation,
+.dtf-outline.is-outline-narrow .dtf-outline-status {
+	justify-content: flex-start;
+	text-align: left;
+	white-space: normal;
+}
+
+.dtf-outline.is-outline-narrow .dtf-outline-line {
+	grid-column: 3;
+}
+
+.dtf-outline.is-outline-narrow .dtf-outline-name,
+.dtf-outline.is-outline-narrow .dtf-outline-row.is-anchor .dtf-outline-name {
+	white-space: normal;
+	overflow-wrap: anywhere;
+	max-height: none;
+}
+
+/* Narrow keeps the whole folder name, wrapped, rather than an ellipsis. */
+.dtf-outline.is-outline-narrow .dtf-outline-row.is-anchor .dtf-outline-folder-name {
+	display: inline;
+	white-space: normal;
+	overflow: visible;
+	text-overflow: clip;
+}
+
+.dtf-outline.is-outline-narrow .dtf-outline-step-full {
+	display: none;
+}
+
+.dtf-outline.is-outline-narrow .dtf-outline-step-short {
+	display: inline;
+}
+
+.dtf-outline.is-outline-narrow .dtf-outline-tag,
+.dtf-outline.is-outline-narrow .dtf-outline-delta {
+	white-space: normal;
+	overflow-wrap: anywhere;
+}
+
+.dtf-outline.is-outline-narrow button.dtf-outline-save {
+	margin-left: 0;
+}
+
+/* Comparisons belong to a folder's content columns, never the rail gutter. */
+.dtf-outline .dtf-outline-row.is-conflict {
+	padding-bottom: 12px;
+}
+.dtf-outline .dtf-outline-comparison {
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-m);
+	background: var(--background-primary-alt);
+	padding: 12px 14px;
+	font-size: var(--font-ui-small);
+	line-height: 1.5;
+	color: var(--text-normal);
+}
+.dtf-outline .dtf-outline-comparison-title {
+	font-weight: 600;
+	margin-bottom: 6px;
+}
+.dtf-outline .dtf-outline-proposed-output {
+	display: flex;
+	align-items: baseline;
+	flex-wrap: wrap;
+	gap: 4px 10px;
+	margin-bottom: 6px;
+}
+.dtf-outline summary {
+	cursor: pointer;
+	color: var(--text-normal);
+	padding: 4px 0;
+	line-height: 1.5;
+	overflow-wrap: anywhere;
+}
+.dtf-outline summary:hover {
+	color: var(--text-accent);
+}
+.dtf-outline :is(button, summary, input):focus-visible {
+	outline: 2px solid var(--interactive-accent);
+	outline-offset: 2px;
+}
+.dtf-outline .dtf-outline-compare-body {
+	display: flex;
+	flex-direction: column;
+	gap: 12px;
+	padding-top: 8px;
+}
+.dtf-outline .dtf-outline-compare-options {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	gap: 12px;
+}
+.dtf-outline .dtf-outline-compare-option {
+	min-width: 0;
+	display: flex;
+	flex-direction: column;
+	align-items: flex-start;
+	gap: 6px;
+	padding: 10px 12px;
+	background: var(--background-primary);
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-s);
+}
+.dtf-outline .dtf-outline-option-state,
+.dtf-outline .dtf-outline-option-anchor,
+.dtf-outline .dtf-outline-rule-name {
+	color: var(--text-muted);
+}
+.dtf-outline .dtf-outline-option-system {
+	font-weight: 600;
+}
+.dtf-outline .dtf-outline-option-system::before {
+	content: '';
+	display: inline-block;
+	width: 8px;
+	height: 8px;
+	border-radius: 50%;
+	margin-right: 6px;
+	background: rgb(var(--dtf-outline-hue, 127, 127, 127));
+}
+.dtf-outline .dtf-outline-decision {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+}
+.dtf-outline .dtf-outline-review-guidance {
+	border-top: 1px solid var(--background-modifier-border);
+	padding-top: 10px;
+}
+.dtf-outline button.dtf-outline-review,
+.dtf-outline .dtf-outline-review-context button {
+	height: auto;
+	min-height: 32px;
+	padding: 6px 10px;
+	white-space: normal;
+	overflow-wrap: anywhere;
+	max-width: 100%;
+	font-size: var(--font-ui-small);
+	line-height: 1.4;
+	margin-top: auto;
+}
+.dtf-outline .dtf-outline-review-context {
+	display: flex;
+	flex-direction: column;
+	align-items: flex-start;
+	gap: 8px;
+	padding: 12px;
+	border: 1px solid var(--interactive-accent);
+	border-radius: var(--radius-m);
+	color: var(--text-normal);
+	font-size: var(--font-ui-small);
+}
+.dtf-outline .is-review-target {
+	box-shadow: inset 0 0 0 2px var(--interactive-accent);
+}
+.dtf-outline .dtf-outline-direction-item {
+	margin: 8px 0 12px;
+	line-height: 1.5;
+	color: var(--text-normal);
+}
+.dtf-outline .is-direction-review .dtf-outline-line > details {
+	width: 100%;
+}
+.dtf-outline button.dtf-outline-tag-toggle {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	border: 0;
+	background: transparent;
+	box-shadow: none;
+	color: var(--text-muted);
+	height: auto;
+	min-height: 28px;
+	padding: 2px 4px;
+	font-size: var(--font-ui-small);
+	white-space: normal;
+	text-align: left;
+}
+.dtf-outline .dtf-outline-tick { color: var(--text-muted); }
+.dtf-outline .dtf-outline-raw-output { white-space: pre-wrap; overflow-wrap: anywhere; }
+.dtf-outline.is-outline-narrow .dtf-outline-compare-options { grid-template-columns: minmax(0, 1fr); }
+.dtf-outline.is-outline-narrow .dtf-outline-comparison { padding: 10px; }
+.dtf-outline.is-outline-narrow .dtf-outline-compare-option { padding: 8px; }
+.dtf-outline.is-outline-narrow { --dtf-outline-indent: 12px; }
+.dtf-outline.is-outline-narrow .dtf-outline-proposed-output { flex-direction: column; }
+.dtf-outline.is-outline-narrow .dtf-outline-row.is-toggle .dtf-outline-name { flex-wrap: wrap; }
+
+/* ─ Header: one line on the outline surface ─ */
+
+.dtf-workbench-shell.is-workbench-prototype .dtf-workbench-header {
+	max-width: 760px;
+	margin: 0 auto;
+	padding: 4px 8px 0;
+	align-items: baseline;
+	gap: 12px;
+}
+
+.dtf-workbench-shell.is-workbench-prototype .dtf-workbench-header h2 {
+	margin: 0;
+	font-size: var(--font-ui-small);
+	font-weight: 600;
+	color: var(--text-muted);
+}
+
+.dtf-workbench-shell.is-workbench-prototype .dtf-workbench-header [data-dtf-workbench-status] {
+	margin: 0;
+	font-size: var(--font-ui-smaller);
+	color: var(--text-faint);
 }

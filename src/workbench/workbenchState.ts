@@ -1,6 +1,11 @@
 export const WORKBENCH_STATE_VERSION = 2 as const;
 
-export type WorkbenchSurface = 'map' | 'scope' | 'candidates';
+/**
+ * `outline` is a hidden prototype surface. It is deliberately absent from the
+ * visible surface navigation and is reachable only through its own command or
+ * an explicit view state.
+ */
+export type WorkbenchSurface = 'map' | 'scope' | 'candidates' | 'outline';
 export type WorkbenchMapMode = 'detected' | 'rules' | 'both';
 export type CandidateSource = 'scope-selection' | 'detected-instances';
 export type CandidateSort = 'noise' | 'conflict';
@@ -26,7 +31,7 @@ export interface WorkbenchCandidateState {
 }
 
 export interface WorkbenchPreferences {
-	/** Presentation only. Incomplete occurrences remain non-actionable. */
+	/** @deprecated Retained for version-2 workspace compatibility; all occurrences are now grouped visibly. */
 	showIncompleteSystems: boolean;
 }
 
@@ -50,7 +55,7 @@ export interface WorkbenchStateReconciliationInput {
 	validDetailPaths?: readonly string[];
 }
 
-export type WorkbenchRoute = 'map' | 'legacy-scan' | 'legacy-draft';
+export type WorkbenchRoute = 'map' | 'legacy-scan' | 'legacy-draft' | 'outline';
 
 export function createDefaultWorkbenchState(): WorkbenchState {
 	return {
@@ -86,7 +91,6 @@ export function validateWorkbenchState(value: unknown): WorkbenchState {
 
 	const scope = isRecord(value.scope) ? value.scope : null;
 	const candidates = isRecord(value.candidates) ? value.candidates : null;
-	const preferences = isRecord(value.preferences) ? value.preferences : null;
 
 	return {
 		version: WORKBENCH_STATE_VERSION,
@@ -113,10 +117,9 @@ export function validateWorkbenchState(value: unknown): WorkbenchState {
 		},
 		selectedSystemInstanceKey: validateNullableKey(value.selectedSystemInstanceKey),
 		preferences: {
-			showIncompleteSystems: preferences
-				&& typeof preferences.showIncompleteSystems === 'boolean'
-				? preferences.showIncompleteSystems
-				: defaults.preferences.showIncompleteSystems,
+			// The field remains in the version-2 shape so restored workspace state is
+			// compatible, but every occurrence is now rendered in an explained group.
+			showIncompleteSystems: true,
 		},
 		detailPath: validateNullablePath(value.detailPath),
 	};
@@ -177,6 +180,11 @@ export function routeLegacyDraft(state: unknown): WorkbenchState {
 	};
 }
 
+/** Open the hidden annotated-outline prototype, preserving every other choice. */
+export function routeToOutline(state: unknown): WorkbenchState {
+	return { ...validateWorkbenchState(state), surface: 'outline' };
+}
+
 export function reduceWorkbenchRoute(state: unknown, route: WorkbenchRoute): WorkbenchState {
 	switch (route) {
 		case 'map':
@@ -185,6 +193,8 @@ export function reduceWorkbenchRoute(state: unknown, route: WorkbenchRoute): Wor
 			return routeLegacyScan(state);
 		case 'legacy-draft':
 			return routeLegacyDraft(state);
+		case 'outline':
+			return routeToOutline(state);
 	}
 }
 
@@ -368,7 +378,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function isWorkbenchSurface(value: unknown): value is WorkbenchSurface {
-	return value === 'map' || value === 'scope' || value === 'candidates';
+	return value === 'map'
+		|| value === 'scope'
+		|| value === 'candidates'
+		|| value === 'outline';
 }
 
 function isWorkbenchMapMode(value: unknown): value is WorkbenchMapMode {

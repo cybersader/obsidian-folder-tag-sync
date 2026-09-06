@@ -67,6 +67,33 @@ export interface CandidateCoverage {
 	previewUnavailableReason?: 'inverse-only';
 }
 
+export interface CandidateConflictTarget {
+	/** Persisted rule identity of the other candidate. */
+	ruleId: string;
+	/** User-facing rule name of the other candidate. */
+	ruleName: string;
+	/** Deduplicated sample folders where both candidates match. */
+	sampleFolders: string[];
+	/** Exact UI identity of the other candidate placement. */
+	candidateKey: string;
+	/** Exact detected occurrence identity of the other candidate placement. */
+	occurrenceKey: string;
+	/** Source pack identity and display name for the other candidate. */
+	sourcePackId: string;
+	sourcePackName: string;
+	/** Anchor branch of the other candidate. '' = vault root. */
+	anchorPath: string;
+}
+
+export interface InstalledConflictTarget {
+	/** Persisted rule identity of the installed rule. */
+	ruleId: string;
+	/** User-facing name of the installed rule. */
+	ruleName: string;
+	/** Deduplicated sample folders where the candidate and installed rule match. */
+	sampleFolders: string[];
+}
+
 export interface CandidateConflict {
 	/** Does this candidate overlap ANY other rule (candidate OR existing) on ≥1 folder? */
 	conflicts: boolean;
@@ -79,6 +106,18 @@ export interface CandidateConflict {
 	collidesWithExisting: boolean;
 	/** Up to a few folders where this candidate overlaps some other rule. */
 	overlappingFolderSample: string[];
+	/**
+	 * Exact other candidate placements, deduplicated by `candidateKey`.
+	 * Optional only so older in-memory fixtures remain source-compatible;
+	 * planner-produced conflicts always include the array.
+	 */
+	candidateTargets?: CandidateConflictTarget[];
+	/**
+	 * Exact already-installed rules, deduplicated by persisted rule id.
+	 * Optional only so older in-memory fixtures remain source-compatible;
+	 * planner-produced conflicts always include the array.
+	 */
+	installedTargets?: InstalledConflictTarget[];
 	/**
 	 * At a sample overlapping folder, which rule id actually wins per
 	 * `findBestMatch` (group → confidence → priority) over the union of all
@@ -163,6 +202,8 @@ type RuleSource = 'candidate' | 'existing';
 interface SourcedRule {
 	rule: MappingRule;
 	source: RuleSource;
+	/** Present only for candidate rules, preserving exact placement identity. */
+	candidate?: CandidateScaffoldRow;
 }
 
 // ─── Main entry point ───────────────────────────────────────────────────────
@@ -324,25 +365,29 @@ export function buildScanAndSnapPlan(input: ScanAndSnapInput): ScanAndSnapPlan {
 	}
 
 	disambiguateCollidingCandidateRuleIds(scaffolds.map((scaffold) => scaffold.row));
-	const candidateRules = scaffolds.map((s) => s.row.rule);
 
 	// 2. Build the SOURCED union: candidate rules + existing rules, each tagged
 	//    by provenance so conflict reporting can tell candidate-vs-candidate
 	//    apart from candidate-vs-EXISTING. `computeConflicts` only sees what we
 	//    pass it, so existing rules MUST be unioned in here.
-	const sourcedById = new Map<string, RuleSource>();
+	const sourcedById = new Map<string, SourcedRule>();
 	const unionRules: MappingRule[] = [];
-	for (const r of candidateRules) {
+	for (const scaffold of scaffolds) {
+		const r = scaffold.row.rule;
 		// First write wins — candidate rules keep their 'candidate' tag even if
 		// (improbably) an existing rule shares the id.
 		if (!sourcedById.has(r.id)) {
-			sourcedById.set(r.id, 'candidate');
+			sourcedById.set(r.id, {
+				rule: r,
+				source: 'candidate',
+				candidate: scaffold.row,
+			});
 			unionRules.push(r);
 		}
 	}
 	for (const r of existingRules) {
 		if (!sourcedById.has(r.id)) {
-			sourcedById.set(r.id, 'existing');
+			sourcedById.set(r.id, { rule: r, source: 'existing' });
 			unionRules.push(r);
 		}
 	}
@@ -393,18 +438,52 @@ export function buildScanAndSnapPlan(input: ScanAndSnapInput): ScanAndSnapPlan {
 		const overlaps = overlapByRuleId.get(rule.id) ?? [];
 		const conflicts = overlaps.length > 0;
 
-		let collidesWithExisting = false;
 		const overlappingFolderSample: string[] = [];
+		const candidateTargetsByKey = new Map<string, CandidateConflictTarget>();
+		const installedTargetsByRuleId = new Map<string, InstalledConflictTarget>();
 		for (const o of overlaps) {
-			if (overlappingFolderSample.length < CONFLICT_SAMPLE_CAP) {
-				overlappingFolderSample.push(o.folderPath);
-			}
+			appendConflictSample(overlappingFolderSample, o.folderPath);
 			for (const otherId of o.others) {
-				if (sourcedById.get(otherId) === 'existing') {
-					collidesWithExisting = true;
+				const sourced = sourcedById.get(otherId);
+				if (!sourced) continue;
+				if (sourced.source === 'candidate') {
+					const other = sourced.candidate;
+					// Exact placement identity, rather than rule id alone, excludes
+					// this row while preserving repeated occurrences as distinct targets.
+					if (!other || other.key === row.key) continue;
+					let target = candidateTargetsByKey.get(other.key);
+					if (!target) {
+						target = {
+							ruleId: other.rule.id,
+							ruleName: other.rule.name,
+							sampleFolders: [],
+							candidateKey: other.key,
+							occurrenceKey: other.occurrenceKey,
+							sourcePackId: other.sourcePackId,
+							sourcePackName: other.sourcePackName,
+							anchorPath: other.anchorPath,
+						};
+						candidateTargetsByKey.set(other.key, target);
+					}
+					appendConflictSample(target.sampleFolders, o.folderPath);
+					continue;
 				}
+
+				let target = installedTargetsByRuleId.get(sourced.rule.id);
+				if (!target) {
+					target = {
+						ruleId: sourced.rule.id,
+						ruleName: sourced.rule.name,
+						sampleFolders: [],
+					};
+					installedTargetsByRuleId.set(sourced.rule.id, target);
+				}
+				appendConflictSample(target.sampleFolders, o.folderPath);
 			}
 		}
+		const candidateTargets = [...candidateTargetsByKey.values()];
+		const installedTargets = [...installedTargetsByRuleId.values()];
+		const collidesWithExisting = installedTargets.length > 0;
 
 		// Predicted winner — at the first overlapping folder, run findBestMatch
 		// over the union (forward direction) to name the rule the runtime would
@@ -425,6 +504,8 @@ export function buildScanAndSnapPlan(input: ScanAndSnapInput): ScanAndSnapPlan {
 			conflicts,
 			collidesWithExisting,
 			overlappingFolderSample,
+			candidateTargets,
+			installedTargets,
 			predictedWinnerId,
 			...(supportsForward ? {} : { analysisUnavailableReason: 'inverse-only' as const }),
 		};
@@ -447,6 +528,11 @@ export function buildScanAndSnapPlan(input: ScanAndSnapInput): ScanAndSnapPlan {
 }
 
 const CONFLICT_SAMPLE_CAP = 5;
+
+function appendConflictSample(samples: string[], folderPath: string): void {
+	if (samples.length >= CONFLICT_SAMPLE_CAP || samples.includes(folderPath)) return;
+	samples.push(folderPath);
+}
 
 // ─── Bijectivity verdict resolution ─────────────────────────────────────────
 

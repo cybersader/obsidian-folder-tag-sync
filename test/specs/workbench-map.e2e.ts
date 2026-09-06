@@ -141,11 +141,25 @@ describe('Taxonomy Workbench map — consolidated shell and routing', function (
 				hasMap: Boolean(map),
 				mapHasDetectTree: Boolean(map?.querySelector('[data-dtf-detect-tree="1"]')),
 				shellHasDetectTree: Boolean(shell?.querySelector('[data-dtf-detect-tree="1"]')),
-				navSurfaces: Array.from(
+				jobs: Array.from(
 					shell?.querySelectorAll<HTMLElement>('[data-dtf-workbench-surface-button]') ?? [],
-				).map((button) => button.dataset.dtfWorkbenchSurfaceButton),
+				).map((button) => ({
+					value: button.dataset.dtfWorkbenchSurfaceButton,
+					label: button.getAttribute('aria-label'),
+					long: button.querySelector('.dtf-workbench-job-label-full')?.textContent ?? null,
+					short: button.querySelector('.dtf-workbench-job-label-short')?.textContent ?? null,
+				})),
 				activeSurface: shell?.querySelector<HTMLElement>('[data-dtf-workbench-active-surface="1"]')
 					?.dataset.dtfWorkbenchSurfaceButton ?? null,
+				heading: shell?.querySelector('.dtf-workbench-map-title')?.textContent ?? null,
+				modes: Array.from(shell?.querySelectorAll<HTMLElement>('[data-dtf-mode]') ?? [])
+					.map((button) => ({
+						value: button.dataset.dtfMode,
+						label: button.getAttribute('aria-label'),
+					})),
+				primaryAction: shell?.querySelector<HTMLElement>('[data-dtf-map-primary-action]')
+					?.textContent?.trim() ?? null,
+				hasRetiredPrimaryAction: shell?.querySelector('[data-dtf-explore-primary-action="1"]') !== null,
 			};
 		});
 		expect(initial.leafCount).toBe(1);
@@ -153,8 +167,20 @@ describe('Taxonomy Workbench map — consolidated shell and routing', function (
 		expect(initial.hasMap).toBe(true);
 		expect(initial.mapHasDetectTree).toBe(false);
 		expect(initial.shellHasDetectTree).toBe(false);
-		expect(initial.navSurfaces).toEqual(['map', 'scope', 'candidates']);
+		expect(initial.jobs).toEqual([
+			{ value: 'map', label: 'Explore your vault', long: 'Explore your vault', short: 'Explore' },
+			{ value: 'scope', label: 'Choose where rules apply', long: 'Choose where rules apply', short: 'Choose' },
+			{ value: 'candidates', label: 'Review proposed rules', long: 'Review proposed rules', short: 'Review' },
+		]);
 		expect(initial.activeSurface).toBe('map');
+		expect(initial.heading).toBe('Explore your vault');
+		expect(initial.modes).toEqual([
+			{ value: 'detected', label: 'Organizational systems' },
+			{ value: 'rules', label: 'Active rules' },
+			{ value: 'both', label: 'Both' },
+		]);
+		expect(initial.primaryAction).toBe('Choose an organizational system');
+			expect(initial.hasRetiredPrimaryAction).toBe(false);
 
 		for (const surface of ['scope', 'candidates', 'map'] as const) {
 			const clicked = await browser.executeObsidian((_context, target) => {
@@ -238,7 +264,7 @@ describe('Taxonomy Workbench map — consolidated shell and routing', function (
 				mode: document.querySelector<HTMLButtonElement>('[data-dtf-mode="both"]')
 					?.getAttribute('aria-pressed') ?? null,
 				intro: document.querySelector('.dtf-workbench-map-intro')?.textContent ?? null,
-				modeExplanation: document.querySelector('[data-dtf-map-mode-explanation="both"]')?.textContent ?? null,
+				modeExplanation: document.querySelector('[data-dtf-map-mode-explanation="both"] > div')?.textContent ?? null,
 				relationLabels: Array.from(map.querySelectorAll<HTMLElement>('.dtf-folder-occurrence-relation'))
 					.map((element) => element.textContent ?? ''),
 				relationAnchors: Array.from(map.querySelectorAll<HTMLElement>('[data-dtf-semantic-path="map-occurrence-anchor"]'))
@@ -252,10 +278,11 @@ describe('Taxonomy Workbench map — consolidated shell and routing', function (
 		expect(info.tintedRowCount).toBe(0);
 		expect(info.maxOccurrenceRelationsInARow).toBeGreaterThanOrEqual(2);
 		expect(info.mode).toBe('true');
-		expect(info.intro).toContain('Read-only view');
-		expect(info.modeExplanation).toContain('separate annotations');
-		expect(info.relationLabels).toContain('Member of');
-		expect(info.relationAnchors.every((label) => label.includes('System anchor:'))).toBe(true);
+		expect(info.intro).toBe('Find recognizable organizational systems and inspect what your currently enabled rules would produce. This view does not change your vault.');
+		expect(info.modeExplanation).toBe('Both shows organizational system evidence and enabled-rule output as separate annotations on the same folders.');
+		expect(info.relationLabels).toContain('Identifies');
+			expect(info.relationLabels.every((label) => ['Identifies', 'Supports'].includes(label))).toBe(true);
+		expect(info.relationAnchors.every((label) => label.includes('Recognized here:'))).toBe(true);
 
 		const restore = await browser.executeObsidian(() => ({
 			width: window.outerWidth,

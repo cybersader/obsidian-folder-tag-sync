@@ -15,14 +15,14 @@ The whole glossary is one page on purpose — use your browser's find (Ctrl/Cmd-
 These are the terms from the v0.1.22–0.1.27 visibility campaign and the consolidated Taxonomy Workbench that now owns detection, scoping, and candidate review.
 
 ### Taxonomy Workbench
-**In plain terms:** The one persistent Obsidian pane for understanding organizational systems and turning that evidence into reviewable rules. It has three surfaces — **Map**, **Scope**, and **Candidates** — while detection, scope planning, candidate analysis, and installation stay separate pure/testable engines underneath.
+**In plain terms:** The one persistent Obsidian pane for understanding organizational systems and turning that evidence into reviewable rules. Its visible jobs are **Explore your vault**, **Choose where rules apply**, and **Review proposed rules**. Internal `map`, `scope`, and `candidates` state remains stable while detection, scope planning, candidate analysis, and installation stay separate pure/testable engines underneath.
 
-Legacy commands are compatibility routes, not separate products: the old detect command opens Scope, the old draft command opens Candidates from detected instances, and the map command opens Map. The same Workbench leaf is reused so navigation does not discard unrelated state.
+Legacy command IDs are compatibility routes, not separate products. They now use job-oriented visible names and reuse the same Workbench leaf so navigation does not discard unrelated state.
 
 *Lives in:* `src/ui/TaxonomyWorkbenchView.ts`; state/routing in `src/workbench/workbenchState.ts`; snapshot orchestration in `src/workbench/WorkbenchSession.ts`; panels in `src/ui/workbench/` · *Related:* Organizational systems deck, Workbench Map, Workbench Scope, Workbench Candidates, disabled draft, hierarchy-first detection view
 
 ### Semantic path / parent context / focused segment
-**In plain terms:** A Workbench path is presented as two meanings rather than one flat string. **Parent context** answers “inside what larger structure?” while the bold **focused segment** answers “which folder matters for this object or action?” The focus label changes by surface: **Applies here**, **Evidence folder**, **Folder inspected**, **Inclusion boundary**, **System anchor**, or **Rule anchor**.
+**In plain terms:** A Workbench path is presented as two meanings rather than one flat string. **Parent context** answers “inside what larger structure?” while the bold **focused segment** answers “which folder matters for this object or action?” User-facing labels now include **Found here**, **Folder inspected**, **Starts here**, **Rules start here**, and **Applies from**; internal anchor/boundary terms remain available in code and advanced explanation.
 
 **Example:** For `OrgDeckFixture/Work`, an occurrence card renders muted parent context `OrgDeckFixture` and emphasized **Applies here** `Work`. Assistive text still exposes the complete path and both labels. Vault root is written explicitly as **Vault root** rather than an empty string.
 
@@ -42,8 +42,8 @@ Legacy commands are compatibility routes, not separate products: the old detect 
 
 *Lives in:* selection state and plan rendering in `src/ui/workbench/WorkbenchScopePanel.ts`; pure reduction in `src/engine/scopeRules.ts` · *Related:* system anchor, scope point, minimal scope cover, absorbed selection
 
-### Candidate group / candidate rule
-**In plain terms:** A **Candidate group** is one exact source system occurrence, identified by `occurrenceKey` and system anchor. A **Candidate rule** is one proposed rule row inside that group. Focusing the group does not select its rows; checking a row queues that individual rule as a disabled draft.
+### Candidate group / proposed rule
+**In plain terms:** A **Candidate group** is the internal plan grouping for one exact source system occurrence, identified by `occurrenceKey` and system anchor. The UI calls each row a **Proposed rule**. Focusing the group does not change checked rows; a checked proposal will be saved as an individual disabled draft after confirmation.
 
 *Lives in:* grouping in `src/engine/scanAndSnapPlan.ts`; rendering in `src/ui/workbench/WorkbenchCandidatePanel.ts` · *Related:* Workbench Candidates, organizational-system occurrence, disabled draft
 
@@ -62,11 +62,18 @@ Occurrence confidence is local: evidence under unrelated parents cannot combine 
 *Lives in:* rule-pack `detection.anyOf` metadata plus `src/engine/detectPacks.ts` · *Related:* signal, organizational-system occurrence, incomplete occurrence
 
 ### Organizational systems deck
-**In plain terms:** The occurrence-card content inside the responsive **Organizational systems** browser. A compact summary remains visible above Map, Scope, and Candidates; the full browser sits beside the active surface at wide Workbench widths and opens as a temporary drawer at narrow widths. It renders one selectable **System occurrence** card per anchor, separates parent context from **Applies here**, states complete versus inspect-only consequences, preserves selection across surfaces, and shows incomplete occurrences by default.
+**In plain terms:** The occurrence-card content inside the responsive **Organizational systems** browser. A compact focused-system context remains available across the Workbench, while the full **Organizational systems in this vault** browser remains a global overview across Explore, Choose, and Review. It becomes a side column only when width and height support it; otherwise it is an overlay. It renders **Ready organizational systems** first and a collapsed **Organizational systems needing more folders** group for incomplete/suppressed occurrences.
 
-Selecting a card focuses the same occurrence across Map, Scope, and Candidates; it does not add or enable rules. Selected detail separates Member roles, Support evidence, missing roles, and parent-system relationships. Folder rows and candidate-group headers carry typed textual relations back to exact occurrence keys. Those labels are the complete relationship language: decorative cross-panel connectors were removed after visual testing showed that they crossed content and recreated unexplained line noise.
+Card activation focuses the exact occurrence and expands **Why Folder Tag Sync recognized this organizational system** directly beneath that card. The evidence scrolls with the card list and is intentionally not sticky. A Ready card offers the explicit next action that seeds folder choice from its exact anchor; a possible card explains missing evidence and cannot continue. Folder rows and proposed-rule group headers still carry exact textual relations and `occurrenceKey` identity.
 
-*Lives in:* shell/summary/browser ownership in `src/ui/TaxonomyWorkbenchView.ts`; cards in `src/ui/workbench/OrganizationalSystemsDeck.ts`; projection in `src/workbench/organizationalSystemsProjection.ts` · *Related:* organizational-system occurrence, typed relation, Workbench Map, Workbench Candidates
+*Lives in:* shell/summary/browser ownership in `src/ui/TaxonomyWorkbenchView.ts`; cards in `src/ui/workbench/OrganizationalSystemsDeck.ts`; projection in `src/workbench/organizationalSystemsProjection.ts` · *Related:* organizational-system occurrence, organizational-system marker, typed relation, Workbench Map, Workbench Candidates
+
+### Organizational-system marker
+**In plain terms:** A small deterministic visual cue assigned to one exact organizational-system occurrence so the same occurrence can be followed across the compact overview, card, Explore relation, Scope context, and Scope plan.
+
+The full collision-safe `occurrenceKey` is hashed rather than only the pack ID, so `PARA at Studio` and `PARA at Home` can have different markers. The palette is intentionally limited and can repeat, so the marker is `aria-hidden` and never authoritative. System name, status, **Identifies**/**Supports** relation, exact semantic path, and occurrence key carry the accessible meaning.
+
+*Lives in:* `src/ui/workbench/organizationalSystemMarker.ts`; rendered in `TaxonomyWorkbenchView.ts`, `OrganizationalSystemsDeck.ts`, `annotatedTreeRender.ts`, and `WorkbenchScopePanel.ts` · *Related:* organizational-system occurrence, Organizational systems deck, typed relation
 
 ### Installed rule layers
 **In plain terms:** The collapsed browser view of installed rules grouped by `MappingRule.group` in runtime precedence order, with Ungrouped last. Every card is labelled **Runtime layer** because this is execution structure, not a detected system and not proof that one organizational system owns those rules. Occurrence links say **Possible system link — inferred** or **No system link recorded**.
@@ -78,24 +85,49 @@ Selecting a card focuses the same occurrence across Map, Scope, and Candidates; 
 
 *Lives in:* `src/workbench/organizationalSystemsProjection.ts`; rendered by the persistent deck and folder/candidate chips · *Related:* Installed rule layers, organizational-system occurrence, candidate provenance
 
-### Workbench Map
-**In plain terms:** The read-only **understand** surface. It overlays structured **Member of** / **Support for** occurrence evidence and the neutral results of enabled installed rules onto the same folder hierarchy without merging those layers. Each relation labels its system anchor separately. Folder detail identifies the inspected folder, enabled winner, predicted tag output, other matching rules, and actions **For this folder**. Rows do not use arbitrary pack-colour rails or inherited tints; multiple rule matches are labelled with textual **Conflict** badges.
+### Explore your vault / Workbench Map
+**In plain terms:** The read-only first job (`map` internally) and the Workbench's tree-first spatial anchor. The hierarchy is the primary Explore scroller; shell chrome, active panel, and root stay fixed. **Systems / Active rules / Both** overlays structured Member/Support evidence and neutral enabled-rule results without merging them.
 
-*Lives in:* `src/ui/workbench/WorkbenchMapPanel.ts`; sparse rendering in `src/ui/annotatedTreeRender.ts`; installed-rule sensing in `src/engine/folderRuleView.ts` · *Related:* Taxonomy Workbench, detection tree, cross-pack hit map
+Collapsed rows show one deterministic exact relation plus `+N systems` when more occurrences overlap. Folder disclosure changes topology only, row activation opens detail only, and relation activation focuses that occurrence only. Predicted tags are inline. Generic Settings and redundant preview actions are absent; an exact winner can open **Review winning rule in Settings**, and **Organize this folder and everything below** is an alternate explicit handoff to folder choice.
 
-### Workbench Scope
-**In plain terms:** The interactive hierarchy-first **choose what to include** surface. A user selects vault root or folder branches as **Inclusion boundaries**, sees supporting scope tint and parent-covered selections, and previews the exact system anchors that will generate candidates. The plan summary deliberately lists boundaries and anchors in separate sections. Signal filtering changes emphasis only; it never removes hidden pack hits from deployment calculation.
+*Lives in:* `src/ui/workbench/WorkbenchMapPanel.ts`; sparse rendering in `src/ui/annotatedTreeRender.ts`; layout policy in `src/ui/workbench/workbenchLayout.ts`; installed-rule sensing in `src/engine/folderRuleView.ts` · *Related:* Taxonomy Workbench, Workbench layout tier, Map presentation state, detection tree, cross-pack hit map
 
-Only actionable occurrences can create deployments. Rows containing only incomplete or suppressed evidence stay visible as **Inspect only**, with disabled checkboxes. Ancestor selection intentionally includes actionable occurrences below that branch, while root selection includes every actionable occurrence. Deployments remain anchored at `occurrence.anchorPath` rather than blindly at the clicked boundary or signal path, preventing duplicated shapes such as `Projects/Projects`.
+### Workbench layout tier
+**In plain terms:** A pure classification of the space the Workbench actually owns. `spacious`, `compact`, and `tight` density depend on active-panel width and height; systems-browser and folder-inspector side/overlay decisions have their own two-dimensional thresholds. A window can therefore be globally large while one split leaf correctly behaves as compact or tight.
 
-*Lives in:* `src/ui/workbench/WorkbenchScopePanel.ts`; pure planning in `src/engine/scopePackPlan.ts` · *Related:* scope point, minimal scope cover, surfaced detection, Workbench Candidates
+*Lives in:* `src/ui/workbench/workbenchLayout.ts`; measured and exposed by `src/ui/TaxonomyWorkbenchView.ts`; consumed in `styles.css` · *Related:* Workbench Map, Organizational systems deck, Map presentation state
 
-### Workbench Candidates
-**In plain terms:** The **review disabled drafts** surface. A group header identifies one exact source **System occurrence** and its system anchor; each row identifies one **Candidate rule** and its rule anchor. Rows report `Matches N folders`, `Round trip`, conflict analysis, examples, sorting, and exact selection counts before confirmation.
+### Map presentation state
+**In plain terms:** View-local navigation memory for expanded folder paths, expanded relation groups, tree scroll offset, and the folder that should regain focus after closing detail. It survives Map rerenders, snapshot refresh, and Map → Scope → Map inside one open Workbench, but it is deliberately not part of persisted `WorkbenchState` because pixel offsets and transient disclosure choices are not detection or planning decisions.
 
-Focusing a group does not select its candidate rows. Checking a row queues that candidate as a disabled rule draft, and the action is named **Add selected disabled drafts**. Candidates can come from explicit Scope deployments or actionable detected occurrences. Rows are grouped by exact `occurrenceKey`, and low-signal/conflict sorting happens inside each occurrence group without changing candidate-key selection. The analysis temporarily treats source-disabled rules as enabled so preview/conflict evidence is honest; persistence creates fresh disabled copies. Inverse-only (`tag-to-folder`) candidates are labelled explicitly: folder coverage is not applicable and tag-side overlaps are not claimed because the Workbench does not collect a complete tag inventory.
+*Lives in:* `src/ui/workbench/workbenchMapPresentation.ts`; owned by `src/ui/TaxonomyWorkbenchView.ts` and consumed by `WorkbenchMapPanel.ts` / `annotatedTreeRender.ts` · *Related:* Workbench layout tier, Workbench Map, Taxonomy Workbench
 
-*Lives in:* `src/ui/workbench/WorkbenchCandidatePanel.ts`; planning in `src/engine/scanAndSnapPlan.ts`; installation reduction in `src/engine/ruleInstallPlan.ts` · *Related:* Taxonomy Workbench, anchored instances, disabled draft
+### Choose where rules apply / Workbench Scope
+**In plain terms:** The hierarchy-first second job (`scope` internally). The user checks the highest folder to organize; everything below it is included. **What happens next** lists **Folders included** separately from **Organizational systems that will propose rules**, preserving each occurrence's exact anchor.
+
+The **Current organizational system** is context only. It may be marked **Current focus** in the plan, but focus never filters deployments: checked folders are the only planning input. Only Ready/actionable occurrences can continue; folders containing only occurrences needing more evidence remain **Inspect only** with disabled checkboxes.
+
+The chooser and plan have separate scroll regions joined by an accessible horizontal **Resize folder chooser and plan** separator. Pointer dragging, Arrow Up/Down, Shift+Arrow, Home/End, and double-click are supported. Preferred divider height and both scroll offsets are view-local presentation state. Rows reserve stable rail, checkbox, and disclosure slots so topology/state changes do not shift controls horizontally. Raw evidence and weak/suppressed diagnostics remain explanatory and cannot change checked folders or deployments.
+
+*Lives in:* `src/ui/workbench/WorkbenchScopePanel.ts`; view-local split state in `src/ui/workbench/workbenchScopePresentation.ts`; pure planning in `src/engine/scopePackPlan.ts` · *Related:* scope point, minimal scope cover, surfaced detection, Workbench Candidates, organizational-system marker
+
+### Review proposed rules / Workbench Candidates
+**In plain terms:** The third job (`candidates` internally). A **Suggested from** group identifies one exact source occurrence, and each **Proposed rule** row shows where it applies, folder → tag examples, coverage, independent directional status, and exact overlap targets.
+
+The direction disclosure reports **Folder → tag** and **Tag → folder** separately as Exact, Available, Conditional, Lossy, Unavailable, or Uncertain. It does not pretend a lossy round trip proves that both directions lose information.
+
+A **Rule overlap** section names each exact proposed or installed target. Choosing a proposed target focuses and briefly highlights that exact Candidate row without changing checkboxes. Choosing an installed target opens Settings centered on that exact rule. The sampled predicted winner is shown by exact rule name.
+
+Focusing a group does not change checked proposals. Current installable proposals start checked; **Include all** and **Clear selection** remain available. **Save N draft rules** confirms once and persists fresh disabled copies. One post-save action opens and highlights the exact first saved Settings row. Candidate source, keys, exact `occurrenceKey` grouping, sorting, inverse-only uncertainty, stale protection, and install reduction remain internal/domain terminology and behavior.
+
+*Lives in:* `src/ui/workbench/WorkbenchCandidatePanel.ts`; directional presentation in `src/ui/workbench/candidateDirectionStatus.ts`; planning in `src/engine/scanAndSnapPlan.ts`; installation reduction in `src/engine/ruleInstallPlan.ts` · *Related:* Taxonomy Workbench, anchored instances, disabled draft, exact conflict target
+
+### Exact conflict target
+**In plain terms:** A named proposed or installed rule that overlaps the Candidate row being reviewed, with enough identity to navigate to the actual target instead of showing only “Conflict” or an opaque rule ID.
+
+A proposed target carries its candidate key, source organizational system, anchor, and shared-folder samples; activating it focuses and briefly highlights that exact Candidate row without changing selection. An installed target carries its persisted rule ID; activating it opens Settings centered on that exact rule. Predicted-winner text resolves IDs back to exact rule names whenever the snapshot contains the target.
+
+*Lives in:* conflict target generation in `src/engine/scanAndSnapPlan.ts`; rendering/navigation in `src/ui/workbench/WorkbenchCandidatePanel.ts` · *Related:* Review proposed rules, disabled draft, specificity-aware matching
 
 ### Surfaced detection
 **In plain terms:** The compatibility pack-level summary meaning “this pack has at least one actionable occurrence.” New action consumers use occurrence status directly; pack-level `score >= 1` remains only for legacy hand-built results without occurrence data.

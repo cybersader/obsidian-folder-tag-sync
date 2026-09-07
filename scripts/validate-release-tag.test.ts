@@ -172,7 +172,28 @@ describe('release workflow declarations', () => {
 
 	it('offers a manual dispatch gate with a confirmation input', () => {
 		expect(triggers).toHaveProperty('workflow_dispatch');
-		expect(Object.keys(triggers.workflow_dispatch.inputs)).toEqual(['tag', 'confirm']);
+		expect(Object.keys(triggers.workflow_dispatch.inputs)).toEqual(['tag', 'confirm', 'validation_only']);
+	});
+
+	it('defaults manual runs to validation and guards the release side effect', () => {
+		expect(triggers.workflow_dispatch.inputs.validation_only).toEqual({
+			description: 'Run validation and build without creating or updating a release',
+			required: true,
+			type: 'boolean',
+			default: true,
+		});
+		expect(releaseStep.if).toBe("github.event_name != 'workflow_dispatch' || !inputs.validation_only");
+		const confirmation = workflow.jobs.classify.steps.find(
+			(step: { name?: string }) => step.name === 'Require explicit confirmation on manual dispatch',
+		);
+		expect(confirmation.if).toBe(
+			"github.event_name == 'workflow_dispatch' && !inputs.validation_only && inputs.confirm != 'PUBLISH'",
+		);
+		// Validation still exercises dependency setup and the production build.
+		expect(publish.if).toBeUndefined();
+		const build = publish.steps.find((step: { run?: string }) => step.run === 'bun run build');
+		expect(build).toBeDefined();
+		expect(build.if).toBeUndefined();
 	});
 
 	it('grants no permissions by default and write only to the publishing job', () => {

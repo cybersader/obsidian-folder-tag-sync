@@ -36,9 +36,14 @@ on:
         required: true
         type: string
       confirm:
-        description: 'Type PUBLISH to confirm you intend to create a public GitHub release'
-        required: true
+        description: 'Type PUBLISH to create a release; leave blank for validation only'
+        required: false
         type: string
+      validation_only:
+        description: 'Run validation and build without creating or updating a release'
+        required: true
+        type: boolean
+        default: true
 
 # Least privilege: nothing by default, and only the publishing job gets write.
 permissions: {}
@@ -59,7 +64,7 @@ jobs:
       make_latest: ${{ steps.gate.outputs.make_latest }}
     steps:
       - name: Require explicit confirmation on manual dispatch
-        if: github.event_name == 'workflow_dispatch' && inputs.confirm != 'PUBLISH'
+        if: github.event_name == 'workflow_dispatch' && !inputs.validation_only && inputs.confirm != 'PUBLISH'
         run: |
           echo "::error::Manual release requires the confirm input to be exactly PUBLISH."
           exit 1
@@ -215,6 +220,7 @@ jobs:
       # v3 exposes `make_latest`; the previous `@v1` did not, and defaulted to a
       # normal, latest release.
       - name: Create release
+        if: github.event_name != 'workflow_dispatch' || !inputs.validation_only
         uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
           tag_name: ${{ needs.classify.outputs.tag }}

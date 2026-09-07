@@ -137,6 +137,11 @@ jobs:
             --stable-tags "$STABLE_TAGS" \
             --stable-releases "$STABLE_RELEASES"
 
+      # The self-tests parse this workflow with yaml from the locked dependency
+      # tree. This job does not build the plugin or need dependency scripts.
+      - name: Install validator test dependencies
+        run: bun install --frozen-lockfile --ignore-scripts
+
       - name: Self-test the validator
         run: bun test scripts
 

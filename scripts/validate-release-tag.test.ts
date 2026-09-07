@@ -189,6 +189,29 @@ describe('release workflow declarations', () => {
 		expect(gate).toContain('validate-release-tag.mjs');
 	});
 
+	it('installs locked dependencies after the gate and before validator self-tests', () => {
+		const steps = workflow.jobs.classify.steps as Array<{
+			id?: string;
+			uses?: string;
+			run?: string;
+			'continue-on-error'?: boolean;
+		}>;
+		const checkout = steps.findIndex((step) => step.uses?.startsWith('actions/checkout@'));
+		const setup = steps.findIndex((step) => step.uses?.startsWith('oven-sh/setup-bun@'));
+		const gate = steps.findIndex((step) => step.id === 'gate');
+		const install = steps.findIndex((step) => step.run?.startsWith('bun install'));
+		const selfTest = steps.findIndex((step) => step.run === 'bun test scripts');
+
+		expect(checkout).toBeGreaterThanOrEqual(0);
+		expect(setup).toBeGreaterThan(checkout);
+		expect(gate).toBeGreaterThan(setup);
+		expect(install).toBeGreaterThan(gate);
+		expect(selfTest).toBeGreaterThan(install);
+		expect(steps[install]?.run).toBe('bun install --frozen-lockfile --ignore-scripts');
+		expect(steps[install]?.['continue-on-error']).not.toBe(true);
+		expect(steps[selfTest]?.['continue-on-error']).not.toBe(true);
+	});
+
 	it('checks the base version against published, non-draft releases, not just tags', () => {
 		const steps = workflow.jobs.classify.steps as Array<{ id?: string; run?: string }>;
 		const published = steps.find((step) => step.id === 'published');

@@ -773,10 +773,13 @@ export function resolveOutlineGroupChoice(
 	if (!group.collides || ready.length < 2) return { chosenKey: null, declinedKeys: [] };
 
 	const remaining = ready.filter((occurrence) => !declined.has(occurrence.key));
+	if (remaining.length === 0) {
+		return { chosenKey: null, declinedKeys: ready.map((occurrence) => occurrence.key) };
+	}
 	const fallback = group.predictedWinnerKey !== null
-		&& ready.some((occurrence) => occurrence.key === group.predictedWinnerKey)
+		&& remaining.some((occurrence) => occurrence.key === group.predictedWinnerKey)
 		? group.predictedWinnerKey
-		: ready[0].key;
+		: remaining[0].key;
 	const chosenKey = remaining.length === 1 ? remaining[0].key : fallback;
 
 	return {

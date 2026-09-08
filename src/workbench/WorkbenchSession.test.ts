@@ -196,6 +196,9 @@ describe('WorkbenchSession snapshot', () => {
 		}, createDefaultWorkbenchState(), { yieldControl: async () => {} });
 
 		expect(snapshot.sourceRevision).toBe(7);
+		expect(snapshot.installedRules).toEqual(installed);
+		expect(snapshot.installedRules).not.toBe(installed);
+		expect(Object.isFrozen(snapshot.installedRules)).toBe(true);
 		expect(snapshot.folderPaths).toEqual(['Areas', 'Nested', 'Projects', 'Projects/Web']);
 		expect(snapshot.surfacedResults.map((result) => result.packId)).toEqual(['alpha', 'beta']);
 		expect(snapshot.belowThresholdResults.map((result) => result.packId)).toEqual(['weak']);

@@ -54,6 +54,7 @@ describe('workbench state validation', () => {
 		expect(state.scope.selectedPaths).toEqual(['Areas', 'Projects/Web']);
 		expect(state.candidates.sort).toBe('conflict');
 		expect(state.selectedSystemInstanceKey).toBeNull();
+		expect(state.outline.excludedOccurrenceKeys).toEqual([]);
 		expect(state.preferences.showIncompleteSystems).toBe(true);
 	});
 
@@ -65,6 +66,20 @@ describe('workbench state validation', () => {
 		});
 		expect(state.selectedSystemInstanceKey).toBe('occurrence:para');
 		expect(state.preferences.showIncompleteSystems).toBe(true);
+	});
+
+	test('normalizes consequential outline occurrence exclusions without persisting review approval', () => {
+		const state = validateWorkbenchState({
+			...createDefaultWorkbenchState(),
+			outline: {
+				excludedOccurrenceKeys: [' occ:para ', 'occ:jd', 'occ:para', '', 42],
+				reviewApproved: true,
+			},
+		});
+		expect(state.outline).toEqual({
+			excludedOccurrenceKeys: ['occ:jd', 'occ:para'],
+		});
+		expect('reviewApproved' in state.outline).toBe(false);
 	});
 
 	test('accepts valid fields independently while rejecting invalid enums and object shapes', () => {
@@ -92,6 +107,7 @@ describe('workbench state validation', () => {
 				selectedKeys: null,
 			},
 			selectedSystemInstanceKey: null,
+			outline: { excludedOccurrenceKeys: [] },
 			preferences: { showIncompleteSystems: true },
 			detailPath: null,
 		});
@@ -207,6 +223,17 @@ describe('restored-state reconciliation', () => {
 		expect(reconcileWorkbenchState(state, {
 			validSystemInstanceKeys: ['occurrence:jd'],
 		}).selectedSystemInstanceKey).toBeNull();
+	});
+
+	test('reconciles outline exclusions by exact current occurrence key', () => {
+		const state = validateWorkbenchState({
+			...createDefaultWorkbenchState(),
+			outline: { excludedOccurrenceKeys: ['occ:para', 'occ:jd', 'occ:missing'] },
+		});
+		const reconciled = reconcileWorkbenchState(state, {
+			validSystemInstanceKeys: ['occ:para', 'occ:jd-nested'],
+		});
+		expect(reconciled.outline.excludedOccurrenceKeys).toEqual(['occ:para']);
 	});
 
 	test('uses exact stable signal identity rather than transient indexes or labels', () => {

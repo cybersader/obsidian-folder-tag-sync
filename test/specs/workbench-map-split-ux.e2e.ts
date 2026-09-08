@@ -114,7 +114,7 @@ async function setWorkbenchSplitDimension(
 	axis: 'width' | 'height',
 	pixels: number,
 ): Promise<{ width: number; height: number }> {
-	const measured = await browser.executeObsidian(async (_context, request) => {
+	const measured = await browser.executeObsidian((_context, request) => {
 		type LeafLike = { containerEl: HTMLElement };
 		const globals = globalThis as unknown as {
 			__dtfUxWorkbenchLeaf?: LeafLike;
@@ -123,6 +123,7 @@ async function setWorkbenchSplitDimension(
 		};
 		const leaf = globals.__dtfUxWorkbenchLeaf;
 		if (!leaf) throw new Error('Missing Workbench split leaf');
+
 
 		const storedTarget = request.axis === 'width'
 			? globals.__dtfUxWidthTarget
@@ -181,17 +182,113 @@ async function setWorkbenchSplitDimension(
 			sibling.style.setProperty('min-height', '0', 'important');
 		}
 		window.dispatchEvent(new Event('resize'));
-		await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+		// Reading clientWidth/clientHeight forces the synchronous layout, so the
+		// measurement below is already the post-resize geometry. Do NOT await a
+		// double requestAnimationFrame here: in this harness the frame callback
+		// does not run while the Obsidian window is not being painted, so the
+		// promise never settles and every call wedges the renderer for the full
+		// 30s script timeout. That is what failed all six tests in this file —
+		// the "Could not find actual height split container" throw was only the
+		// downstream cascade, because the timed-out earlier test never got to
+		// create the horizontal companion. `settleSplit` below observes the same
+		// thing the frame callback would have, without needing a painted frame.
 		const shell = document.querySelector<HTMLElement>('[data-dtf-workbench-shell="1"]');
 		return { width: shell?.clientWidth ?? 0, height: shell?.clientHeight ?? 0 };
 	}, { axis, pixels });
-	await browser.pause(150);
+	await settleSplit();
 	return measured;
+}
+
+/**
+ * Settle on a stable geometry fixpoint rather than on a painted frame — the
+ * same contract test/specs/workbench-outline-prototype.e2e.ts uses in
+ * `settleOutline`.
+ */
+// Measured in this harness: after a scripted style mutation the renderer does
+// not reach a rendering opportunity on its own, so ResizeObserver callbacks
+// never fire and the product's published layout attributes stay stale. A real
+// WebDriver pointer move does NOT produce a frame; the screenshot capture path
+// does, because it must composite. takeScreenshot is used rather than
+// saveScreenshot so no PNG is written per settle.
+async function forceRenderingOpportunity(): Promise<void> {
+	await browser.takeScreenshot();
+}
+
+// Diagnostic snapshot for a focus wait. Read-only: it never moves focus and
+// never calls product code, so it cannot manufacture the state it reports.
+async function focusDiagnostics(selector: string): Promise<unknown> {
+	return browser.executeObsidian((_context, target) => {
+		const active = document.activeElement as HTMLElement | null;
+		const intended = document.querySelector<HTMLElement>(target);
+		const rect = intended?.getBoundingClientRect();
+		const ancestorIds: string[] = [];
+		for (let node: HTMLElement | null = active; node; node = node.parentElement) {
+			if (node.id) ancestorIds.push(node.id);
+			if (node.dataset.dtfFolderPath) ancestorIds.push(`path:${node.dataset.dtfFolderPath}`);
+		}
+		return {
+			documentHasFocus: document.hasFocus(),
+			visibilityState: document.visibilityState,
+			activeTag: active?.tagName ?? null,
+			activeId: active?.id || null,
+			activeLabel: active?.getAttribute('aria-label') ?? null,
+			activeIsBody: active === document.body,
+			activeAncestorIds: ancestorIds.slice(0, 8),
+			activeInsideTarget: Boolean(intended && active && intended.contains(active)),
+			intendedConnected: intended?.isConnected ?? null,
+			intendedAriaHidden: intended?.getAttribute('aria-hidden') ?? null,
+			intendedDisplay: intended ? getComputedStyle(intended).display : null,
+			intendedVisibility: intended ? getComputedStyle(intended).visibility : null,
+			intendedBox: rect ? { w: Math.round(rect.width), h: Math.round(rect.height) } : null,
+			focusablesInTarget: intended
+				? intended.querySelectorAll('[tabindex], button, input, a[href]').length
+				: -1,
+		};
+	}, selector);
+}
+
+async function settleSplit(): Promise<void> {
+	await forceRenderingOpportunity();
+	let previous = '';
+	await browser.waitUntil(async () => {
+		const signature = await browser.executeObsidian(() => {
+			const shell = document.querySelector<HTMLElement>('[data-dtf-workbench-shell="1"]');
+			if (!shell) return 'missing';
+			// Include the body/panel boxes the product's own classifier measures
+			// (TaxonomyWorkbenchView.updateWorkbenchLayout -> classifyWorkbenchLayout),
+			// not just the shell: the ResizeObserver that reclassifies is delivered
+			// on a later frame, so settling only on the shell can return while the
+			// published density/mode attributes are still the previous layout's.
+			const body = document.querySelector<HTMLElement>('[data-dtf-workbench-body="1"]');
+			const panel = document.querySelector<HTMLElement>('.dtf-workbench-active-panel');
+			return JSON.stringify({
+				width: shell.clientWidth,
+				height: shell.clientHeight,
+				scrollWidth: shell.scrollWidth,
+				scrollHeight: shell.scrollHeight,
+				bodyWidth: body?.clientWidth ?? 0,
+				bodyHeight: body?.clientHeight ?? 0,
+				panelWidth: panel?.clientWidth ?? 0,
+				panelHeight: panel?.clientHeight ?? 0,
+				browserMode: shell.dataset.dtfSystemsBrowserMode ?? '',
+				inspectorMode: shell.dataset.dtfFolderInspectorMode ?? '',
+				density: shell.dataset.dtfWorkbenchDensity ?? '',
+			});
+		});
+		const stable = signature !== 'missing' && signature === previous;
+		previous = signature;
+		return stable;
+	}, {
+		timeout: 10_000,
+		interval: 100,
+		timeoutMsg: 'Workbench shell geometry did not reach a stable rendered state',
+	});
 }
 
 async function createHorizontalCompanion(): Promise<void> {
 	await browser.executeObsidian(async ({ app }) => {
 		type LeafLike = {
+			containerEl: HTMLElement;
 			setViewState(state: Record<string, unknown>): Promise<void>;
 		};
 		const globals = globalThis as unknown as {
@@ -200,7 +297,11 @@ async function createHorizontalCompanion(): Promise<void> {
 			__dtfUxWidthTarget?: HTMLElement;
 			__dtfUxHeightTarget?: HTMLElement;
 		};
-		if (globals.__dtfUxHorizontalLeaf) return;
+		// Remembering the leaf object is not the same as the split still existing:
+		// once its container leaves the document there is no stacked sibling, and
+		// a later height request fails with "Could not find actual height split
+		// container". Recreate whenever the companion is no longer connected.
+		if (globals.__dtfUxHorizontalLeaf?.containerEl.isConnected) return;
 		const workspace = app.workspace as unknown as {
 			createLeafBySplit(leaf: LeafLike, direction: 'horizontal', before?: boolean): LeafLike;
 		};
@@ -412,12 +513,68 @@ describe('Taxonomy Workbench Map — real split tree-first UX', function () {
 	it('gives the hierarchy primary space and makes the tree the vertical scroll owner in a wide split', async function () {
 		const size = await setWorkbenchSplitDimension('width', 1180);
 		expect(size.width).toBeGreaterThanOrEqual(1120);
-		await browser.waitUntil(async () => browser.executeObsidian(() => {
-			const shell = document.querySelector<HTMLElement>('[data-dtf-workbench-shell="1"]');
-			return shell?.dataset.dtfSystemsBrowserMode === 'side'
-				&& shell.dataset.dtfWorkbenchDensity === 'spacious';
-		}), { timeout: 5_000, timeoutMsg: 'Wide split was not classified as spacious side mode' });
+		// wdio builds timeoutMsg before the wait runs, so the failure has to be
+		// raised lazily to carry the classifier inputs that produced the verdict.
+		// Measured: with the side browser open at shell 1180 the panel is only 806,
+		// below the 840 spacious threshold, while the body is 1156 (>= 1120) so the
+		// browser is correctly 'side'. Side and spacious are therefore not
+		// simultaneously reachable at this width, and the original wait demanded
+		// both. Close the browser first -- exactly the state the assertions below
+		// already require. No assertion or threshold is relaxed.
 		await setBrowserOpen(false);
+		let wideObserved: unknown = null;
+		await browser.waitUntil(async () => {
+			wideObserved = await browser.executeObsidian(() => {
+				const globals = globalThis as unknown as {
+					__dtfUxWorkbenchLeaf?: { containerEl: HTMLElement };
+					__dtfRoProbe?: { count: number; targets: number; lastWidths: number[] };
+				};
+				const describe = (element: HTMLElement | null) => (element
+					? {
+						width: element.clientWidth,
+						height: element.clientHeight,
+						connected: element.isConnected,
+						density: element.dataset.dtfWorkbenchDensity ?? null,
+						browserMode: element.dataset.dtfSystemsBrowserMode ?? null,
+						inspectorMode: element.dataset.dtfFolderInspectorMode ?? null,
+					}
+					: null);
+				// Every shell in the document, not just the first one querySelector
+				// happens to reach: a second workbench leaf left over from an earlier
+				// test would make the test measure one shell and the product publish
+				// onto another.
+				const allShells = Array.from(
+					document.querySelectorAll<HTMLElement>('[data-dtf-workbench-shell="1"]'),
+				);
+				const scope = globals.__dtfUxWorkbenchLeaf?.containerEl ?? null;
+				const ownedShell = scope?.querySelector<HTMLElement>('[data-dtf-workbench-shell="1"]') ?? null;
+				const queriedShell = document.querySelector<HTMLElement>('[data-dtf-workbench-shell="1"]');
+				const bodyEl = document.querySelector<HTMLElement>('[data-dtf-workbench-body="1"]');
+				const panelEl = document.querySelector<HTMLElement>('.dtf-workbench-active-panel');
+				return {
+					visibilityState: document.visibilityState,
+					documentHasFocus: document.hasFocus(),
+					shellCount: allShells.length,
+					shells: allShells.map(describe),
+					leafScopeConnected: scope?.isConnected ?? null,
+					ownedIsQueried: ownedShell !== null && ownedShell === queriedShell,
+					ownedShell: describe(ownedShell),
+					shellWidth: queriedShell?.clientWidth ?? -1,
+					shellHeight: queriedShell?.clientHeight ?? -1,
+					bodyWidth: bodyEl?.clientWidth ?? -1,
+					bodyHeight: bodyEl?.clientHeight ?? -1,
+					panelWidth: panelEl?.clientWidth ?? -1,
+					panelHeight: panelEl?.clientHeight ?? -1,
+					browserMode: queriedShell?.dataset.dtfSystemsBrowserMode ?? null,
+					density: queriedShell?.dataset.dtfWorkbenchDensity ?? null,
+				};
+			});
+			const seen = wideObserved as { browserMode: string | null; density: string | null };
+			return seen.browserMode === 'side' && seen.density === 'spacious';
+		}, { timeout: 5_000, timeoutMsg: 'Wide split was not classified as spacious side mode' })
+			.catch((error: Error) => {
+				throw new Error(`${error.message}: last observation ${JSON.stringify(wideObserved)}`);
+			});
 
 		const layout = await browser.executeObsidian(() => {
 			const shell = document.querySelector<HTMLElement>('[data-dtf-workbench-shell="1"]')!;
@@ -826,6 +983,11 @@ describe('Taxonomy Workbench Map — real split tree-first UX', function () {
 
 	it('preserves explicit browser preference across side and overlay modes and captures 480/320 splits', async function () {
 		await resizeWindow(1900, 1000);
+		// A height request needs a real stacked sibling. Ask for the companion
+		// here instead of inheriting one from an earlier test in this file: the
+		// helper is a no-op when the split is still connected, so this preserves
+		// the same real horizontal split direction without an order dependency.
+		await createHorizontalCompanion();
 		await setWorkbenchSplitDimension('height', 850);
 		await setWorkbenchSplitDimension('width', 1450);
 		await setBrowserOpen(false);
@@ -846,8 +1008,17 @@ describe('Taxonomy Workbench Map — real split tree-first UX', function () {
 				if (full && getComputedStyle(full).display !== 'none') return full.textContent;
 				return null;
 			};
+			// Report the boxes the product classifier actually measures so a
+			// density mismatch says whether the panel is stale or genuinely
+			// wider than the shell, instead of only naming the verdict.
+			const bodyEl = document.querySelector<HTMLElement>('[data-dtf-workbench-body="1"]');
+			const panelEl = document.querySelector<HTMLElement>('.dtf-workbench-active-panel');
 			return {
 				width: shell.clientWidth,
+				bodyWidth: bodyEl?.clientWidth ?? -1,
+				bodyHeight: bodyEl?.clientHeight ?? -1,
+				panelWidth: panelEl?.clientWidth ?? -1,
+				panelHeight: panelEl?.clientHeight ?? -1,
 				density: shell.dataset.dtfWorkbenchDensity,
 				browserMode: shell.dataset.dtfSystemsBrowserMode,
 				inspectorMode: shell.dataset.dtfFolderInspectorMode,
@@ -870,7 +1041,23 @@ describe('Taxonomy Workbench Map — real split tree-first UX', function () {
 		});
 		expect(narrow.width).toBeGreaterThanOrEqual(450);
 		expect(narrow.width).toBeLessThanOrEqual(500);
-		expect(narrow.density).toBe('tight');
+		// Same strength as expect(narrow.density).toBe('tight'), but a failure
+		// prints the classifier inputs that produced the verdict.
+		expect({
+			density: narrow.density,
+			shellWidth: narrow.width,
+			bodyWidth: narrow.bodyWidth,
+			bodyHeight: narrow.bodyHeight,
+			panelWidth: narrow.panelWidth,
+			panelHeight: narrow.panelHeight,
+		}).toEqual({
+			density: 'tight',
+			shellWidth: narrow.width,
+			bodyWidth: narrow.bodyWidth,
+			bodyHeight: narrow.bodyHeight,
+			panelWidth: narrow.panelWidth,
+			panelHeight: narrow.panelHeight,
+		});
 		expect(narrow.browserMode).toBe('overlay');
 		expect(narrow.inspectorMode).toBe('overlay');
 		expect(narrow.overflow).toBeLessThanOrEqual(1);
@@ -905,10 +1092,20 @@ describe('Taxonomy Workbench Map — real split tree-first UX', function () {
 		await browser.pause(100);
 
 		await setBrowserOpen(true);
+		// Pump exactly one frame after the input and before the wait. The product
+		// defers this focus move until after a render, and this harness produces
+		// no frame on its own following scripted input. Kept out of the wait
+		// predicate so repeated polling cannot perturb focus. The assertion below
+		// is unchanged.
+		await forceRenderingOpportunity();
 		await browser.waitUntil(async () => browser.executeObsidian(() => {
 			const systems = document.querySelector<HTMLElement>('[data-dtf-systems-browser="1"]');
 			return Boolean(systems && document.activeElement && systems.contains(document.activeElement));
-		}), { timeout: 3_000, timeoutMsg: 'Opening the overlay did not move focus into the organizational systems browser' });
+		}), { timeout: 3_000, timeoutMsg: 'Opening the overlay did not move focus into the organizational systems browser' })
+			.catch(async (error: Error) => {
+				const diag = await focusDiagnostics('[data-dtf-systems-browser="1"]');
+				throw new Error(`${error.message}: ${JSON.stringify(diag)}`);
+			});
 		const openOverlay = await browser.executeObsidian(() => {
 			const systems = document.querySelector<HTMLElement>('[data-dtf-systems-browser="1"]')!;
 			const panel = document.querySelector<HTMLElement>('.dtf-workbench-active-panel')!;
@@ -955,11 +1152,17 @@ describe('Taxonomy Workbench Map — real split tree-first UX', function () {
 				new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }),
 			);
 		});
+		// Deferred focus restore: one frame after the input, outside the predicate.
+		await forceRenderingOpportunity();
 		await browser.waitUntil(async () => browser.executeObsidian(() =>
 			document.querySelector('[data-dtf-systems-browser-toggle="1"]')?.getAttribute('aria-expanded') === 'false'
 				&& document.querySelector('[data-dtf-systems-browser-toggle="1"]')?.getAttribute('aria-label') === 'Open organizational systems drawer'
 				&& document.activeElement?.getAttribute('data-dtf-systems-browser-toggle') === '1',
-		), { timeout: 3_000, timeoutMsg: 'Escape did not close the organizational systems browser and restore icon-toggle focus' });
+		), { timeout: 3_000, timeoutMsg: 'Escape did not close the organizational systems browser and restore icon-toggle focus' })
+			.catch(async (error: Error) => {
+				const diag = await focusDiagnostics('[data-dtf-systems-browser-toggle="1"]');
+				throw new Error(`${error.message}: ${JSON.stringify(diag)}`);
+			});
 		const tightInspectorAction = await browser.executeObsidian(() => {
 			const inspector = document.querySelector<HTMLElement>('[data-dtf-folder-detail="1"]')!;
 			const action = inspector.querySelector<HTMLButtonElement>('[data-dtf-choose-branch-in-scope="1"]')!;
@@ -1088,12 +1291,19 @@ describe('Taxonomy Workbench Map — real split tree-first UX', function () {
 			close?.focus();
 			close?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
 		});
+		// Same reason as the overlay wait: the focus restore is deferred until
+		// after a render. One frame, after the input, outside the predicate.
+		await forceRenderingOpportunity();
 		await browser.waitUntil(async () => browser.executeObsidian((_context, detailPath) => {
 			const detail = document.querySelector<HTMLElement>('[data-dtf-folder-detail="1"]');
 			return detail?.getAttribute('aria-hidden') === 'true'
 				&& document.activeElement?.closest<HTMLElement>('[data-dtf-folder-path]')
 					?.dataset.dtfFolderPath === detailPath;
-		}, DETAIL_PATH), { timeout: 3_000, timeoutMsg: 'Closing the inspector did not restore folder-row focus' });
+		}, DETAIL_PATH), { timeout: 3_000, timeoutMsg: 'Closing the inspector did not restore folder-row focus' })
+			.catch(async (error: Error) => {
+				const diag = await focusDiagnostics('[data-dtf-folder-detail="1"]');
+				throw new Error(`${error.message}: ${JSON.stringify(diag)}`);
+			});
 
 		await ensurePathVisible(RELATION_PATH);
 		const relationFocus = await browser.executeObsidian((_context, relationPath, key) => {
@@ -1105,9 +1315,16 @@ describe('Taxonomy Workbench Map — real split tree-first UX', function () {
 			return Boolean(chip);
 		}, RELATION_PATH, enterpriseOccurrenceKey);
 		expect(relationFocus).toBe(true);
+		// Deferred focus move after the relation click: one frame, outside the
+		// predicate. The real click above is unchanged.
+		await forceRenderingOpportunity();
 		await browser.waitUntil(async () => browser.executeObsidian((_context, key) =>
 			(document.activeElement as HTMLElement | null)?.dataset.dtfSystemOccurrenceKey === key,
-		enterpriseOccurrenceKey), { timeout: 3_000, timeoutMsg: 'Relation action did not focus the exact organizational-system card' });
+		enterpriseOccurrenceKey), { timeout: 3_000, timeoutMsg: 'Relation action did not focus the exact organizational-system card' })
+			.catch(async (error: Error) => {
+				const diag = await focusDiagnostics('[data-dtf-systems-browser="1"]');
+				throw new Error(`${error.message}: ${JSON.stringify(diag)}`);
+			});
 		const finalFocus = await browser.executeObsidian(() => ({
 			key: (document.activeElement as HTMLElement | null)?.dataset.dtfSystemOccurrenceKey ?? null,
 			browserExpanded: document.querySelector('[data-dtf-systems-browser-toggle="1"]')?.getAttribute('aria-expanded') ?? null,

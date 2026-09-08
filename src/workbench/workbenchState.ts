@@ -30,6 +30,11 @@ export interface WorkbenchCandidateState {
 	selectedKeys: string[] | null;
 }
 
+export interface WorkbenchOutlineState {
+	/** Exact occurrence choices excluded from the reviewed deployment set. */
+	excludedOccurrenceKeys: string[];
+}
+
 export interface WorkbenchPreferences {
 	/** @deprecated Retained for version-2 workspace compatibility; all occurrences are now grouped visibly. */
 	showIncompleteSystems: boolean;
@@ -43,6 +48,7 @@ export interface WorkbenchState {
 	candidates: WorkbenchCandidateState;
 	/** Cross-surface anchored occurrence selection. */
 	selectedSystemInstanceKey: string | null;
+	outline: WorkbenchOutlineState;
 	preferences: WorkbenchPreferences;
 	detailPath: string | null;
 }
@@ -72,6 +78,9 @@ export function createDefaultWorkbenchState(): WorkbenchState {
 			selectedKeys: null,
 		},
 		selectedSystemInstanceKey: null,
+		outline: {
+			excludedOccurrenceKeys: [],
+		},
 		preferences: {
 			showIncompleteSystems: true,
 		},
@@ -91,6 +100,7 @@ export function validateWorkbenchState(value: unknown): WorkbenchState {
 
 	const scope = isRecord(value.scope) ? value.scope : null;
 	const candidates = isRecord(value.candidates) ? value.candidates : null;
+	const outline = isRecord(value.outline) ? value.outline : null;
 
 	return {
 		version: WORKBENCH_STATE_VERSION,
@@ -116,6 +126,11 @@ export function validateWorkbenchState(value: unknown): WorkbenchState {
 				: defaults.candidates.selectedKeys,
 		},
 		selectedSystemInstanceKey: validateNullableKey(value.selectedSystemInstanceKey),
+		outline: {
+			excludedOccurrenceKeys: outline
+				? normalizeStringList(outline.excludedOccurrenceKeys, normalizeCandidateKey)
+				: defaults.outline.excludedOccurrenceKeys,
+		},
 		preferences: {
 			// The field remains in the version-2 shape so restored workspace state is
 			// compatible, but every occurrence is now rendered in an explained group.
@@ -143,6 +158,9 @@ export function isWorkbenchState(value: unknown): value is WorkbenchState {
 	}
 	if (value.selectedSystemInstanceKey !== null
 		&& typeof value.selectedSystemInstanceKey !== 'string') return false;
+	if (!isRecord(value.outline)
+		|| !Array.isArray(value.outline.excludedOccurrenceKeys)
+		|| !value.outline.excludedOccurrenceKeys.every((key) => typeof key === 'string')) return false;
 	if (!isRecord(value.preferences)
 		|| typeof value.preferences.showIncompleteSystems !== 'boolean') return false;
 	return value.detailPath === null || typeof value.detailPath === 'string';
@@ -286,6 +304,9 @@ export function reconcileWorkbenchState(
 	const selectedSystemInstanceKey = input.validSystemInstanceKeys
 		? reconcileNullableKey(current.selectedSystemInstanceKey, input.validSystemInstanceKeys)
 		: current.selectedSystemInstanceKey;
+	const excludedOccurrenceKeys = input.validSystemInstanceKeys
+		? reconcileExactKeys(current.outline.excludedOccurrenceKeys, input.validSystemInstanceKeys)
+		: [...current.outline.excludedOccurrenceKeys];
 	const detailPath = input.validDetailPaths
 		? reconcileDetailPath(current.detailPath, input.validDetailPaths)
 		: current.detailPath;
@@ -295,6 +316,7 @@ export function reconcileWorkbenchState(
 		scope: { selectedPaths, signalFilter },
 		candidates: { ...current.candidates, selectedKeys },
 		selectedSystemInstanceKey,
+		outline: { excludedOccurrenceKeys },
 		detailPath,
 	};
 }
@@ -324,6 +346,14 @@ function reconcileNullableKey(
 	const normalized = validateNullableKey(value);
 	if (normalized === null) return null;
 	return new Set(validKeys).has(normalized) ? normalized : null;
+}
+
+function reconcileExactKeys(
+	values: readonly string[],
+	validKeys: readonly string[],
+): string[] {
+	const valid = new Set(normalizeStringList(validKeys, normalizeCandidateKey));
+	return normalizeStringList(values, normalizeCandidateKey).filter((key) => valid.has(key));
 }
 
 function validateSignalFilterIdentity(value: unknown): SignalFilterIdentity | null {

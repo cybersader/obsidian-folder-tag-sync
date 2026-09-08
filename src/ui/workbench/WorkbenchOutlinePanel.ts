@@ -15,9 +15,8 @@
  * and the plan is `buildScopePackPlan`, exactly as the Scope surface. Nothing
  * here writes rules, folders, notes, or tags.
  *
- * Prototype-local state that would become Settings candidates if the outline
- * is adopted: the declined co-anchored alternatives (`declined`) and the
- * "Show full tags" column mode (`showFullTags`).
+ * Exact occurrence exclusions live in normalized Workbench state and drive the
+ * canonical review/save plan. Display-only tag expansion remains panel-local.
  */
 
 import type { DetectionOccurrence } from '../../engine/detectPacks';
@@ -27,13 +26,19 @@ import {
 	type CrossPackHitMap,
 } from '../../engine/detectionTree';
 import { type RuleMatch } from '../../engine/ruleMatcher';
+import type { RuleInstallPlan } from '../../engine/ruleInstallPlan';
 import { previewRule } from '../../engine/rulePreview';
 import type { CandidateRow } from '../../engine/scanAndSnapPlan';
-import { buildScopePackPlan, type ScopePackPlan } from '../../engine/scopePackPlan';
 import type { MappingRule } from '../../types/settings';
 import type { WorkbenchSessionSnapshot } from '../../workbench/WorkbenchSession';
-import type { WorkbenchScopeState } from '../../workbench/workbenchState';
+import type { WorkbenchOutlineState, WorkbenchScopeState } from '../../workbench/workbenchState';
 import { getCandidateDirectionalStatus } from './candidateDirectionStatus';
+import {
+	buildOutlineReviewPlan,
+	type OutlineFolderComparison,
+	type OutlineReviewPlan,
+	type OutlineRuleOutcome,
+} from './outlineReviewPlan';
 import {
 	OUTLINE_STEPS,
 	OutlineHueRegistry,
@@ -98,6 +103,22 @@ export interface WorkbenchOutlinePanelOptions {
 	scope: WorkbenchScopeState;
 	/** The one shared checked-folder input, identical to the Scope surface. */
 	onSelectedPathsChange(selectedPaths: string[]): void;
+	/** Persist exact occurrence exclusions; review confirmation remains panel-local. */
+	onOutlineStateChange(state: WorkbenchOutlineState): void | Promise<void>;
+	/** Existing guarded, forced-disabled Workbench installation seam. */
+	onInstall(selectedRules: readonly MappingRule[]): Promise<RuleInstallPlan>;
+	onReviewRule(ruleId: string): void | Promise<void>;
+	isSnapshotStale(): boolean;
+}
+
+/** A definite refusal before the guarded persistence seam mutates settings. */
+export class OutlineStaleReviewError extends Error {
+	readonly code = 'outline-stale-review';
+
+	constructor(message: string) {
+		super(message);
+		this.name = 'OutlineStaleReviewError';
+	}
 }
 
 type OutlineRowKind =
@@ -148,6 +169,8 @@ interface OutlineFolderResult {
 
 interface OutlineStepThreeModel {
 	resultByFolder: Map<string, OutlineFolderResult>;
+	comparisonByFolder: Map<string, OutlineFolderComparison>;
+	reviewPlan: OutlineReviewPlan;
 	/** The tag every member tag under the anchor starts with, per anchor. */
 	rootByAnchor: Map<string, string | null>;
 	conflictFolderCount: number;
@@ -155,29 +178,44 @@ interface OutlineStepThreeModel {
 	outputFolderCount: number;
 	skippedCount: number;
 	exactRuleCount: number;
-	ruleCount: number;
+	newRulePreviewCount: number;
+}
+
+interface OutlineReviewPlanCache {
+	snapshot: WorkbenchSessionSnapshot;
+	sourceRevision: number;
+	selectedPathsKey: string;
+	excludedOccurrenceKeysKey: string;
+	plan: OutlineReviewPlan;
+}
+
+interface OutlineInstallReceipt {
+	result: RuleInstallPlan;
+	snapshot: WorkbenchSessionSnapshot;
+	sourceRevision: number;
+	selectionKey: string;
 }
 
 export class WorkbenchOutlinePanel {
 	private snapshot: WorkbenchSessionSnapshot;
 	private scope: WorkbenchScopeState;
 	private readonly onSelectedPathsChange: (selectedPaths: string[]) => void;
+	private readonly onOutlineStateChange: (state: WorkbenchOutlineState) => void | Promise<void>;
+	private readonly onInstall: (selectedRules: readonly MappingRule[]) => Promise<RuleInstallPlan>;
+	private readonly onReviewRule: (ruleId: string) => void | Promise<void>;
+	private readonly isSnapshotStale: () => boolean;
 
 	private step: OutlineStep = 1;
 	/** Step 1: the anchor whose matched folders are shown. */
 	private openAnchor: string | null = null;
 	private showAllFolders = false;
-	/**
-	 * Co-anchored alternatives the user is not taking.
-	 *
-	 * Deliberate P7 deviation, panel-local for the prototype: the engine has no
-	 * notion of "declined occurrence", so this set never reaches
-	 * `WorkbenchState` or `buildScopePackPlan`. The plan still deploys both
-	 * co-anchored systems; the panel filters the declined key out of what it
-	 * shows and counts. Adopting the outline would move this into state so the
-	 * candidate plan itself could drop the declined rule. Settings candidate.
-	 */
-	private declined = new Set<string>();
+	/** Exact user choices excluded from review, preview, confirmation, and save. */
+	private excludedOccurrenceKeys = new Set<string>();
+	private reviewPlanCache: OutlineReviewPlanCache | null = null;
+	private confirmationOpen = false;
+	private installing = false;
+	private feedback: { kind: 'info' | 'error'; message: string } | null = null;
+	private installReceipt: OutlineInstallReceipt | null = null;
 	/**
 	 * Step 3 column mode. Off = the delta reading (✓ / → segment); on = full
 	 * tag chips. Panel-local for the prototype; a later Settings candidate.
@@ -224,13 +262,27 @@ export class WorkbenchOutlinePanel {
 		this.snapshot = options.snapshot;
 		this.scope = cloneScope(options.scope);
 		this.onSelectedPathsChange = options.onSelectedPathsChange;
+		this.onOutlineStateChange = options.onOutlineStateChange;
+		this.onInstall = options.onInstall;
+		this.onReviewRule = options.onReviewRule;
+		this.isSnapshotStale = options.isSnapshotStale;
+		this.excludedOccurrenceKeys = new Set(options.snapshot.state.outline.excludedOccurrenceKeys);
 		this.render();
 		this.observeWidth();
 	}
 
 	update(snapshot: WorkbenchSessionSnapshot, scope: WorkbenchScopeState): void {
+		if (snapshot !== this.snapshot) this.reviewPlanCache = null;
+		if (this.installReceipt
+			&& (snapshot !== this.installReceipt.snapshot
+				|| snapshot.sourceRevision !== this.installReceipt.sourceRevision)) {
+			this.installReceipt = null;
+		}
 		this.snapshot = snapshot;
 		this.scope = cloneScope(scope);
+		this.excludedOccurrenceKeys = new Set(snapshot.state.outline.excludedOccurrenceKeys);
+		this.confirmationOpen = false;
+		this.feedback = null;
 		this.render();
 	}
 
@@ -255,13 +307,6 @@ export class WorkbenchOutlinePanel {
 				const byAnchor = compareCodePoints(a.anchorPath, b.anchorPath);
 				return byAnchor !== 0 ? byAnchor : compareCodePoints(a.packName, b.packName);
 			});
-	}
-
-	private scopePlan(): ScopePackPlan {
-		return buildScopePackPlan({
-			selectedPaths: this.scope.selectedPaths,
-			hitMap: this.snapshot.hitMap,
-		});
 	}
 
 	private allCandidates(): readonly CandidateRow[] {
@@ -290,6 +335,40 @@ export class WorkbenchOutlinePanel {
 	/** Do not infer this from installed layers: an ordered group may have no installed rules. */
 	private groupPrecedence(): string[] {
 		return [...(this.snapshot.groupPrecedence ?? [])];
+	}
+
+	private reviewPlan(excludedOccurrenceKeys: ReadonlySet<string>): OutlineReviewPlan {
+		const selectedPathsKey = normalizedStringKey(this.scope.selectedPaths);
+		const excludedOccurrenceKeysKey = normalizedStringKey(this.excludedOccurrenceKeys);
+		const cached = this.reviewPlanCache;
+		if (cached
+			&& cached.snapshot === this.snapshot
+			&& cached.sourceRevision === this.snapshot.sourceRevision
+			&& cached.selectedPathsKey === selectedPathsKey
+			&& cached.excludedOccurrenceKeysKey === excludedOccurrenceKeysKey) {
+			return cached.plan;
+		}
+		const plan = buildOutlineReviewPlan({
+			selectedPaths: this.scope.selectedPaths,
+			hitMap: this.snapshot.hitMap,
+			excludedOccurrenceKeys: [...excludedOccurrenceKeys],
+			candidates: this.allCandidates(),
+			installedRules: this.snapshot.installedRules,
+			folderPaths: this.snapshot.folderPaths,
+			groupPrecedence: this.snapshot.groupPrecedence,
+		});
+		this.reviewPlanCache = {
+			snapshot: this.snapshot,
+			sourceRevision: this.snapshot.sourceRevision,
+			selectedPathsKey,
+			excludedOccurrenceKeysKey,
+			plan,
+		};
+		return plan;
+	}
+
+	private selectionKey(): string {
+		return `${normalizedStringKey(this.scope.selectedPaths)}|${normalizedStringKey(this.excludedOccurrenceKeys)}`;
 	}
 
 	/**
@@ -321,8 +400,6 @@ export class WorkbenchOutlinePanel {
 		this.controlId = 0;
 
 		const occurrences = this.visibleOccurrences();
-		const plan = this.scopePlan();
-		const deployedKeys = new Set(plan.deployments.map((deployment) => deployment.occurrenceKey));
 		const allGroups = buildOutlineGroups(occurrences, this.candidateLikes());
 		this.predictionSamples.clear();
 		for (const group of allGroups) {
@@ -341,12 +418,16 @@ export class WorkbenchOutlinePanel {
 			group.predictedWinnerKey = prediction?.occurrenceKey ?? null;
 			if (prediction) this.predictionSamples.set(group.anchorPath, prediction.sampleFolder);
 		}
-		const effectiveDeclined = collectOutlineDeclinedKeys(allGroups, this.declined);
-		const managedKeys = new Set(
-			[...deployedKeys].filter((key) => !effectiveDeclined.has(key)),
+		const effectiveExcluded = collectOutlineDeclinedKeys(allGroups, this.excludedOccurrenceKeys);
+		for (const key of this.excludedOccurrenceKeys) effectiveExcluded.add(key);
+		const reviewPlan = this.reviewPlan(effectiveExcluded);
+		const deployedKeys = new Set(
+			reviewPlan.scopePlan.deployments.map((deployment) => deployment.occurrenceKey),
 		);
-		const proposedRuleCount = this.allCandidates()
-			.filter((candidate) => !effectiveDeclined.has(candidate.occurrenceKey)).length;
+		const managedKeys = new Set(
+			reviewPlan.deployments.map((deployment) => deployment.occurrenceKey),
+		);
+		const proposedRuleCount = reviewPlan.newRuleCount;
 
 		// Hue appears only once a system is checked; it is then keyed to the
 		// pack id for the rest of the session. Co-anchored packs are declared so
@@ -383,6 +464,13 @@ export class WorkbenchOutlinePanel {
 		const hintEl = lead.createDiv({ cls: 'dtf-outline-hint' });
 		hintEl.dataset.dtfOutlineHint = '1';
 		hintEl.setAttr('aria-live', 'polite');
+		if (occurrences.length === 0 || (this.scope.selectedPaths.length > 0 && reviewPlan.reviewedRuleCount === 0)) {
+			const custom = lead.createDiv({ cls: 'dtf-outline-custom-route' });
+			custom.createSpan({ text: 'No built-in system proposal is available here. That is not a judgment about the quality of this organization.' });
+			custom.createDiv({ text: 'Use Add rule in settings to create a custom mapping. This action does not create or enable a rule.' });
+			const settings = custom.createEl('button', { text: 'Open rule settings' });
+			settings.addEventListener('click', () => void this.onReviewRule(''));
+		}
 
 		const rows = root.createDiv({ cls: 'dtf-outline-rows' });
 		rows.dataset.dtfOutlineRows = '1';
@@ -417,7 +505,7 @@ export class WorkbenchOutlinePanel {
 		});
 		const childrenByParent = groupChildren(treePaths);
 
-		const model = step3 ? this.buildStepThreeModel(bracketed) : null;
+		const model = step3 ? this.buildStepThreeModel(bracketed, reviewPlan) : null;
 
 		// Root-anchored systems annotate a "vault root" row that heads the outline.
 		const rootGroup = groupsByAnchor.get('');
@@ -470,7 +558,7 @@ export class WorkbenchOutlinePanel {
 			conflictFolderCount,
 			exactRuleCount: model?.exactRuleCount ?? 0,
 		});
-		this.renderFooter(root, managedKeys, proposedRuleCount, model);
+		this.renderFooter(root, managedKeys, proposedRuleCount, model, reviewPlan);
 		this.applyRovingTabindex();
 		this.applyWidthClass();
 		requestAnimationFrame(() => {
@@ -541,6 +629,8 @@ export class WorkbenchOutlinePanel {
 			return;
 		}
 		this.step = step;
+		this.confirmationOpen = false;
+		this.feedback = null;
 		this.render();
 		requestAnimationFrame(() => this.focusByKey(`step-${step}`));
 	}
@@ -593,6 +683,7 @@ export class WorkbenchOutlinePanel {
 		managedKeys: ReadonlySet<string>,
 		proposedRuleCount: number,
 		model: OutlineStepThreeModel | null,
+		reviewPlan: OutlineReviewPlan,
 	): void {
 		const footer = root.createDiv({ cls: 'dtf-outline-footer' });
 		footer.dataset.dtfOutlineFooter = '1';
@@ -609,8 +700,8 @@ export class WorkbenchOutlinePanel {
 			summary.setText(`Preview: ${describeOutlineResultSummary({
 				systemCount: managedKeys.size,
 				tagCount: model.tagCount,
-				skippedCount: 0,
-			})} across ${model.outputFolderCount} folders · ${model.ruleCount} proposed rules`);
+				skippedCount: model.skippedCount,
+			})} across ${model.outputFolderCount} folders · ${model.newRulePreviewCount} new rule ${model.newRulePreviewCount === 1 ? 'preview' : 'previews'}`);
 			if (model.skippedCount > 0) {
 				summary.createDiv({ text: `${model.skippedCount} matched ${model.skippedCount === 1 ? 'folder has' : 'folders have'} no usable forward tag.` });
 			}
@@ -647,15 +738,174 @@ export class WorkbenchOutlinePanel {
 		});
 		label.createSpan({ text: 'Show full tags' });
 
+		this.renderReviewStatus(controls, reviewPlan);
+		if (this.confirmationOpen) {
+			this.renderSaveConfirmation(controls, reviewPlan);
+			return;
+		}
+
+		const stale = this.isSnapshotStale();
 		const save = controls.createEl('button', { cls: 'mod-cta dtf-outline-save' });
 		save.dataset.dtfOutlineSave = '1';
-		save.setText(proposedRuleCount === 0
-			? 'Nothing to save'
-			: `Save ${proposedRuleCount} ${proposedRuleCount === 1 ? 'rule' : 'rules'} as drafts`);
-		save.disabled = true;
-		save.setAttr('aria-disabled', 'true');
+		save.setText(reviewPlan.newRuleCount === 0
+			? 'No new rules to save'
+			: `Save ${reviewPlan.newRuleCount} disabled ${reviewPlan.newRuleCount === 1 ? 'rule' : 'rules'}`);
+		save.disabled = !reviewPlan.canSave || this.installing || stale;
+		save.setAttr('aria-disabled', String(save.disabled));
+		save.addEventListener('click', () => {
+			if (this.isSnapshotStale()) {
+				this.feedback = { kind: 'error', message: 'The reviewed inputs changed. Refresh and review the updated rules before saving.' };
+				this.render();
+				return;
+			}
+			this.confirmationOpen = true;
+			this.feedback = null;
+			this.render();
+		});
 		const note = controls.createSpan({ cls: 'dtf-outline-muted dtf-outline-save-note' });
-		note.setText('Saving is not part of the prototype.');
+		note.setText('New rules are saved disabled. No folders, notes, tags, or active rule states change.');
+	}
+
+	private renderReviewStatus(parent: HTMLElement, plan: OutlineReviewPlan): void {
+		const status = parent.createDiv({ cls: 'dtf-outline-review-status' });
+		status.dataset.dtfOutlineReviewStatus = '1';
+		status.setText(`${plan.reviewedSystemCount} ${plan.reviewedSystemCount === 1 ? 'system' : 'systems'} · ${plan.reviewedRuleCount} reviewed ${plan.reviewedRuleCount === 1 ? 'rule' : 'rules'} · ${plan.newRuleCount} new`);
+		if (plan.savedRuleCount > 0) {
+			const savedEntries = plan.reviewedRules.filter((entry) => entry.installStatus === 'saved');
+			const activeCount = savedEntries.filter((entry) => entry.installedRule?.enabled).length;
+			const disabledCount = savedEntries.length - activeCount;
+			status.createDiv({ text: `${plan.savedRuleCount} already saved ${plan.savedRuleCount === 1 ? 'rule is' : 'rules are'} unchanged and will not be duplicated · ${activeCount} active · ${disabledCount} disabled.` });
+		}
+		if (plan.changedRuleCount > 0) {
+			const changed = status.createDiv({ cls: 'dtf-outline-warning' });
+			changed.createSpan({ text: `${plan.changedRuleCount} existing same-ID ${plan.changedRuleCount === 1 ? 'rule has' : 'rules have'} changed. Saving will not overwrite ${plan.changedRuleCount === 1 ? 'it' : 'them'}.` });
+			for (const entry of plan.reviewedRules.filter((item) => item.installStatus === 'changed')) {
+				const review = changed.createEl('button', { text: `Review ${entry.installedRule?.name ?? entry.rule.name} in settings` });
+				review.addEventListener('click', () => void this.onReviewRule(entry.rule.id));
+			}
+		}
+		if (plan.invalidDraftOutputs.length > 0) {
+			const warning = status.createDiv({ cls: 'dtf-outline-error' });
+			warning.createEl('strong', { text: 'Save blocked: a chosen draft generates invalid tag syntax.' });
+			for (const invalid of plan.invalidDraftOutputs) {
+				const item = warning.createDiv();
+				item.createSpan({ text: `${invalid.ruleName} at ${invalid.folderPath || 'vault root'}: ${invalid.error}` });
+				const owner = plan.reviewedRules.find((entry) => entry.rule.id === invalid.ruleId);
+				if (owner) {
+					const remove = item.createEl('button', { text: `Deselect ${owner.candidate.sourcePackName}` });
+					remove.addEventListener('click', () => this.setOccurrenceIncluded(owner.candidate.occurrenceKey, false));
+				}
+			}
+		}
+		if (this.isSnapshotStale()) {
+			status.createDiv({ cls: 'dtf-outline-warning', text: 'The vault or rule settings changed. Saving is paused until the refreshed proposal is reviewed.' });
+		}
+		if (this.feedback) {
+			const feedback = status.createDiv({
+				cls: this.feedback.kind === 'error' ? 'dtf-outline-error' : 'dtf-outline-muted',
+				text: this.feedback.message,
+			});
+			feedback.dataset.dtfOutlineFeedback = this.feedback.kind;
+		}
+		if (this.installReceipt && this.installReceipt.selectionKey === this.selectionKey()) {
+			const result = this.installReceipt.result;
+			const line = status.createDiv({ cls: 'dtf-outline-success' });
+			line.setText(`${result.addedRuleIds.length} disabled ${result.addedRuleIds.length === 1 ? 'rule' : 'rules'} saved · ${result.skippedExistingIds.length} existing skipped · ${result.skippedDuplicateCount} duplicate selections skipped.`);
+			if (result.addedRuleIds[0]) {
+				const review = line.createEl('button', { text: 'Review saved rule in settings' });
+				review.addEventListener('click', () => void this.onReviewRule(result.addedRuleIds[0]));
+			}
+		}
+	}
+
+	private renderSaveConfirmation(parent: HTMLElement, plan: OutlineReviewPlan): void {
+		const confirmation = parent.createDiv({ cls: 'dtf-outline-confirmation' });
+		confirmation.dataset.dtfOutlineConfirmation = '1';
+		confirmation.createEl('strong', { text: `Save ${plan.newRuleCount} disabled ${plan.newRuleCount === 1 ? 'rule' : 'rules'}?` });
+		confirmation.createDiv({ text: `${plan.reviewedSystemCount} selected ${plan.reviewedSystemCount === 1 ? 'system' : 'systems'} produce ${plan.reviewedRuleCount} reviewed ${plan.reviewedRuleCount === 1 ? 'rule' : 'rules'}; ${plan.savedRuleCount} are already saved and ${plan.changedRuleCount} have changed existing same-ID definitions.` });
+		confirmation.createDiv({ text: 'Only the new rules shown here will be added, always disabled. No file or folder content changes.' });
+		const actions = confirmation.createDiv({ cls: 'dtf-outline-confirmation-actions' });
+		const cancel = actions.createEl('button', { text: 'Cancel' });
+		cancel.disabled = this.installing;
+		cancel.addEventListener('click', () => {
+			this.confirmationOpen = false;
+			this.feedback = null;
+			this.render();
+		});
+		const confirm = actions.createEl('button', {
+			cls: 'mod-cta',
+			text: this.installing
+				? 'Saving disabled rules…'
+				: `Save ${plan.newRuleCount} disabled ${plan.newRuleCount === 1 ? 'rule' : 'rules'}`,
+		});
+		confirm.disabled = this.installing || !plan.canSave || this.isSnapshotStale();
+		confirm.addEventListener('click', () => void this.installReviewedRules(plan));
+	}
+
+	private async installReviewedRules(plan: OutlineReviewPlan): Promise<void> {
+		if (this.installing || !plan.canSave) return;
+		if (this.isSnapshotStale()) {
+			this.confirmationOpen = false;
+			this.feedback = { kind: 'error', message: 'Saving was not attempted because the reviewed inputs changed. Refresh and review the updated proposal.' };
+			this.render();
+			return;
+		}
+		const selectionKey = this.selectionKey();
+		let persistenceAttempted = false;
+		this.installing = true;
+		this.feedback = { kind: 'info', message: 'Saving reviewed disabled rules…' };
+		this.render();
+		try {
+			if (this.isSnapshotStale()) {
+				throw new OutlineStaleReviewError('The reviewed inputs changed immediately before saving.');
+			}
+			persistenceAttempted = true;
+			const result = await this.onInstall(plan.rulesForSave);
+			if (!result || !Array.isArray(result.addedRuleIds)
+				|| !Array.isArray(result.skippedExistingIds)
+				|| !Array.isArray(result.skippedDuplicateIds)) {
+				throw new Error('The install callback returned an invalid result.');
+			}
+			this.installReceipt = this.selectionKey() === selectionKey
+				? {
+					result,
+					snapshot: this.snapshot,
+					sourceRevision: this.snapshot.sourceRevision,
+					selectionKey,
+				}
+				: null;
+			this.confirmationOpen = false;
+			this.feedback = null;
+		} catch (error) {
+			this.confirmationOpen = false;
+			this.installReceipt = null;
+			this.feedback = error instanceof OutlineStaleReviewError
+				? {
+					kind: 'error',
+					message: `Saving was not attempted because the reviewed inputs changed. ${errorMessage(error)} Refresh and review the updated proposal.`,
+				}
+				: {
+					kind: 'error',
+					message: persistenceAttempted
+						? `Saving disabled rules failed after persistence was attempted: ${errorMessage(error)} The review remains available; refresh before retrying because persistence may have partially completed.`
+						: `Saving disabled rules failed before persistence was attempted: ${errorMessage(error)}`,
+				};
+		} finally {
+			this.installing = false;
+			this.render();
+		}
+	}
+
+	private setOccurrenceIncluded(occurrenceKey: string, included: boolean): void {
+		if (included) this.excludedOccurrenceKeys.delete(occurrenceKey);
+		else this.excludedOccurrenceKeys.add(occurrenceKey);
+		this.installReceipt = null;
+		this.confirmationOpen = false;
+		this.feedback = null;
+		void this.onOutlineStateChange({
+			excludedOccurrenceKeys: [...this.excludedOccurrenceKeys].sort(compareCodePoints),
+		});
+		this.render();
 	}
 
 	// ─── Rows ──────────────────────────────────────────────────────────────
@@ -873,8 +1123,8 @@ export class WorkbenchOutlinePanel {
 				line.dataset.dtfOutlineGroupInclusion = path;
 				line.setText(describeOutlineGroupInclusion(managed.length));
 			}
-			if (managed.length > 0 && group.collides) {
-				this.renderChoiceRows(path, depth, group, managedKeys, completeness);
+			if (ready.some((occurrence) => deployedKeys.has(occurrence.key))) {
+				this.renderChoiceRows(path, depth, group, deployedKeys, completeness);
 			}
 			this.renderReviewContext(path, depth, group);
 			return;
@@ -905,6 +1155,26 @@ export class WorkbenchOutlinePanel {
 				const rootEl = status.createSpan({ cls: 'dtf-outline-root' });
 				rootEl.dataset.dtfOutlineRoot = '';
 				rootEl.setText(describeOutlineTagRoot({ root: null, tagCount: new Set(tags).size, allSame: false }));
+			}
+			for (const occurrence of managed) {
+				const coverage = model.reviewPlan.occurrenceCoverage.find((entry) =>
+					entry.occurrenceKey === occurrence.key);
+				if (!coverage) continue;
+				const line = this.createSubRow(path, depth, 'is-coverage');
+				const details = line.createEl('details', { cls: 'dtf-outline-coverage' });
+				details.dataset.dtfOutlineCoverage = occurrence.key;
+				details.createEl('summary', {
+					text: `${occurrence.packName} rules start at ${coverage.anchorPath || 'vault root'} · match ${coverage.matchingFolders.length} current ${coverage.matchingFolders.length === 1 ? 'folder' : 'folders'}`,
+				});
+				let populated = false;
+				details.addEventListener('toggle', () => {
+					if (details.open && !populated) {
+						populated = true;
+						details.createDiv({ cls: 'dtf-outline-muted', text: 'Complete coverage of current folders, not a sample. Selecting a detected folder does not limit future runtime matches to that one folder.' });
+						for (const folder of coverage.matchingFolders) details.createDiv({ text: folder || 'vault root' });
+					}
+					this.positionBrackets();
+				});
 			}
 			this.renderDirectionReview(path, depth, managed);
 			this.renderResultCell(parts, path, depth, model, true);
@@ -1051,6 +1321,7 @@ export class WorkbenchOutlinePanel {
 					anchorPath,
 					checkbox.checked,
 				);
+				this.installReceipt = null;
 				this.onSelectedPathsChange([...this.scope.selectedPaths]);
 				this.render();
 			});
@@ -1066,19 +1337,21 @@ export class WorkbenchOutlinePanel {
 	}
 
 	/**
-	 * Step 2, a managed anchor whose systems collide: one radio row per system,
-	 * the predicted one preselected, its evidence on the same line.
+	 * Step 2, one inclusion checkbox per deployed occurrence. Colliding systems
+	 * begin with the predicted one selected, but every occurrence can be removed.
 	 */
 	private renderChoiceRows(
 		anchorPath: string,
 		depth: number,
 		group: OutlineGroupOf,
-		managedKeys: ReadonlySet<string>,
+		deployedKeys: ReadonlySet<string>,
 		completeness: readonly OutlineCompleteness[],
 	): void {
-		const choice = resolveOutlineGroupChoice(group, this.declined);
-		const ready = group.occurrences.filter((occurrence) => occurrence.status === 'actionable');
-		const groupName = this.nextControlId('choice');
+		const choice = resolveOutlineGroupChoice(group, this.excludedOccurrenceKeys);
+		const effectiveExcluded = new Set(this.excludedOccurrenceKeys);
+		for (const key of choice.declinedKeys) effectiveExcluded.add(key);
+		const ready = group.occurrences.filter((occurrence) =>
+			occurrence.status === 'actionable' && deployedKeys.has(occurrence.key));
 		for (const occurrence of ready) {
 			const parts = this.createRow('choice', anchorPath, depth + 1);
 			const { row, control, name, annotation, status } = parts;
@@ -1093,27 +1366,39 @@ export class WorkbenchOutlinePanel {
 				state.setText(own.text);
 			}
 			const predicted = occurrence.key === group.predictedWinnerKey;
-			const displayDefault = group.predictedWinnerKey === null && occurrence.key === ready[0].key;
-			const chosen = occurrence.key === choice.chosenKey;
-			const id = this.nextControlId('radio');
-			const radio = control.createEl('input', { type: 'radio' });
-			radio.id = id;
-			radio.name = groupName;
-			radio.checked = chosen;
-			radio.dataset.dtfOutlineChoice = occurrence.key;
-			radio.dataset.dtfOutlineFocus = `choice-${occurrence.key}`;
-			radio.dataset.dtfOutlineChoiceAnchor = anchorPath;
-			radio.addEventListener('change', () => {
-				if (!radio.checked) return;
-				this.declined = chooseOutlineGroupSystem(group, this.declined, occurrence.key);
-				this.render();
+			const displayDefault = group.collides
+				&& group.predictedWinnerKey === null && occurrence.key === ready[0].key;
+			const included = !effectiveExcluded.has(occurrence.key);
+			const id = this.nextControlId('occurrence');
+			const checkbox = control.createEl('input', { type: 'checkbox' });
+			checkbox.id = id;
+			checkbox.checked = included;
+			checkbox.dataset.dtfOutlineChoice = occurrence.key;
+			checkbox.dataset.dtfOutlineFocus = `choice-${occurrence.key}`;
+			checkbox.dataset.dtfOutlineChoiceAnchor = anchorPath;
+			checkbox.setAttr('aria-label', `${included ? 'Exclude' : 'Include'} ${occurrence.packName} draft rules at ${anchorPath || 'vault root'}`);
+			checkbox.addEventListener('change', () => {
+				if (group.collides) {
+					this.excludedOccurrenceKeys = checkbox.checked
+						? chooseOutlineGroupSystem(group, this.excludedOccurrenceKeys, occurrence.key)
+						: new Set([...this.excludedOccurrenceKeys, occurrence.key]);
+					this.installReceipt = null;
+					void this.onOutlineStateChange({
+						excludedOccurrenceKeys: [...this.excludedOccurrenceKeys].sort(compareCodePoints),
+					});
+					this.confirmationOpen = false;
+					this.feedback = null;
+					this.render();
+					return;
+				}
+				this.setOccurrenceIncluded(occurrence.key, checkbox.checked);
 			});
 			const label = name.createEl('label', { cls: 'dtf-outline-choice' });
 			label.htmlFor = id;
 			const system = label.createSpan({ cls: 'dtf-outline-system-name', text: occurrence.packName });
 			system.dataset.dtfOutlineSystem = occurrence.key;
 			system.dataset.dtfOutlinePack = occurrence.packId;
-			const hue = managedKeys.has(occurrence.key) ? this.hueFor(occurrence.packId) : null;
+			const hue = included ? this.hueFor(occurrence.packId) : null;
 			if (hue) {
 				system.addClass(`is-hue-${hue}`);
 				system.dataset.dtfOutlineHue = hue;
@@ -1121,7 +1406,9 @@ export class WorkbenchOutlinePanel {
 			label.createSpan({ cls: 'dtf-outline-name-sep', text: ' · ' });
 			const word = label.createSpan({
 				cls: 'dtf-outline-choice-label',
-				text: describeOutlineChoiceLabel(predicted, displayDefault),
+				text: group.collides
+					? describeOutlineChoiceLabel(predicted, displayDefault)
+					: included ? 'Included in review' : 'Excluded from review',
 			});
 			word.dataset.dtfOutlineChoiceLabel = predicted ? 'predicted' : displayDefault ? 'default' : 'alternative';
 
@@ -1211,17 +1498,22 @@ export class WorkbenchOutlinePanel {
 	 * on one folder resolved the way the runtime would (planner prediction
 	 * first, else the matcher's own precedence), with the reason kept.
 	 */
-	private buildStepThreeModel(bracketed: readonly DetectionOccurrence[]): OutlineStepThreeModel {
+	private buildStepThreeModel(
+		bracketed: readonly DetectionOccurrence[],
+		reviewPlan: OutlineReviewPlan,
+	): OutlineStepThreeModel {
 		const claimsByFolder = new Map<string, OutlineClaim[]>();
-		let ruleCount = 0;
+		let newRulePreviewCount = 0;
 		let exactRuleCount = 0;
 		// Preserve candidate order for a full matcher tie. Never deduplicate or
 		// promote usable outputs before ranking: a winning invalid output matters.
 		const occurrences = new Map(bracketed.map((occurrence) => [occurrence.key, occurrence]));
-		for (const candidate of this.allCandidates()) {
+		for (const reviewed of reviewPlan.reviewedRules) {
+			if (reviewed.installStatus !== 'new') continue;
+			const candidate = reviewed.candidate;
 			const occurrence = occurrences.get(candidate.occurrenceKey);
 			if (!occurrence) continue;
-			ruleCount++;
+			newRulePreviewCount++;
 			const status = getCandidateDirectionalStatus(candidate);
 			if (status.folderToTag.status === 'exact' && status.tagToFolder.status === 'exact') exactRuleCount++;
 			const scoped = this.snapshot.folderPaths.filter((folder) => folder === occurrence.anchorPath || isUnder(folder, occurrence.anchorPath));
@@ -1261,8 +1553,20 @@ export class WorkbenchOutlinePanel {
 			const anchorTag = resultByFolder.get(occurrence.anchorPath)?.winner.tag ?? null;
 			rootByAnchor.set(occurrence.anchorPath, computeOutlineTagRoot(anchorTag, memberTags));
 		}
-		return { resultByFolder, rootByAnchor, conflictFolderCount, tagCount: tags.size,
-			outputFolderCount, skippedCount, exactRuleCount, ruleCount };
+		return {
+			resultByFolder,
+			comparisonByFolder: new Map(
+				reviewPlan.comparisons.map((comparison) => [comparison.folderPath, comparison]),
+			),
+			reviewPlan,
+			rootByAnchor,
+			conflictFolderCount,
+			tagCount: tags.size,
+			outputFolderCount,
+			skippedCount,
+			exactRuleCount,
+			newRulePreviewCount,
+		};
 	}
 
 	private resolveClaims(folder: string, claims: readonly OutlineClaim[]): OutlineFolderResult {
@@ -1311,10 +1615,12 @@ export class WorkbenchOutlinePanel {
 		isAnchor = false,
 	): void {
 		const result = model.resultByFolder.get(folder);
+		const comparison = model.comparisonByFolder.get(folder) ?? null;
 		if (!result) {
 			if (!isAnchor && parts.row.classList.contains('is-evidence')) {
 				parts.annotation.createSpan({ cls: 'dtf-outline-muted', text: describeOutlineMissingOutput(null) });
 			}
+			if (comparison) this.renderBehaviorComparison(folder, depth, comparison);
 			return;
 		}
 		const { row, annotation } = parts;
@@ -1325,9 +1631,13 @@ export class WorkbenchOutlinePanel {
 			row.dataset.dtfOutlineRowConflict = '1';
 			row.addClass('has-conflict');
 			this.renderComparison(folder, depth, result);
+			if (comparison) this.renderBehaviorComparison(folder, depth, comparison);
 			return;
 		}
-		if (isAnchor && cell.kind !== 'none') return;
+		if (isAnchor && cell.kind !== 'none') {
+			if (comparison) this.renderBehaviorComparison(folder, depth, comparison);
+			return;
+		}
 		const cellEl = annotation.createSpan({ cls: 'dtf-outline-result' });
 		const winnerHue = this.hueFor(result.winner.occurrence.packId);
 		if (cell.kind === 'none') {
@@ -1366,6 +1676,43 @@ export class WorkbenchOutlinePanel {
 				line.setText(describeOutlineFullTagLine(cell.tag!, result.winner.occurrence.packName, folderDisplayName(folder)));
 			}
 		}
+		if (comparison) this.renderBehaviorComparison(folder, depth, comparison);
+	}
+
+	private renderBehaviorComparison(
+		folder: string,
+		depth: number,
+		comparison: OutlineFolderComparison,
+	): void {
+		const line = this.createLineRow(folder, depth, 'is-behavior-comparison');
+		const details = line.createEl('details', { cls: 'dtf-outline-behavior-comparison' });
+		details.dataset.dtfOutlineBehaviorComparison = folder;
+		const current = describeRuleOutcome(comparison.current);
+		const hypothetical = describeRuleOutcome(comparison.hypothetical);
+		details.createEl('summary', {
+			text: comparison.change === 'unchanged'
+				? `Current behavior unchanged · ${hypothetical}`
+				: `Behavior changes · ${current} → ${hypothetical}`,
+		});
+		const body = details.createDiv({ cls: 'dtf-outline-behavior-body' });
+		this.renderBehaviorOutcome(body, 'Current behavior', comparison.current);
+		this.renderBehaviorOutcome(body, 'If new drafts were enabled', comparison.hypothetical);
+		body.createDiv({ cls: 'dtf-outline-muted', text: 'This comparison uses enabled installed forward-capable rules, exact new reviewed drafts, configured group order, and the production matcher. Saving does not enable the drafts.' });
+		details.addEventListener('toggle', () => this.positionBrackets());
+	}
+
+	private renderBehaviorOutcome(parent: HTMLElement, label: string, result: OutlineRuleOutcome): void {
+		const row = parent.createDiv({ cls: 'dtf-outline-behavior-outcome' });
+		row.createEl('strong', { text: label });
+		row.createDiv({ text: describeRuleOutcome(result) });
+		if (result.ruleId) {
+			row.createDiv({ text: `${result.origin === 'proposed' ? 'Proposed' : 'Installed'} rule: ${result.ruleName ?? result.ruleId}` });
+			if (result.origin === 'installed') {
+				const review = row.createEl('button', { text: 'Review rule in settings' });
+				review.addEventListener('click', () => void this.onReviewRule(result.ruleId!));
+			}
+		}
+		if (result.error) row.createDiv({ cls: 'dtf-outline-error', text: result.error });
 	}
 
 	/** Folder-attached comparison. Disclosure is native for keyboard and touch;
@@ -1418,7 +1765,7 @@ export class WorkbenchOutlinePanel {
 		if (result.alternatives.some((claim) => claim.occurrence.anchorPath !== result.winner.occurrence.anchorPath)) {
 			body.createDiv({ cls: 'dtf-outline-review-guidance', text: 'A checked parent includes ready nested systems. Step 2 has no per-child exclusion; reviewing a system does not resolve that overlap.' });
 		}
-		body.createDiv({ cls: 'dtf-outline-muted', text: 'Proposals compared as if enabled. Installed rules are not included; nothing changes here.' });
+		body.createDiv({ cls: 'dtf-outline-muted', text: 'This draft-only comparison explains competing proposed systems. The folder’s Current behavior disclosure below includes installed rules and the exact post-save hypothetical.' });
 		details.addEventListener('toggle', () => {
 			if (!details.isConnected) return;
 			if (details.open) this.expandedComparisons.add(folder);
@@ -1778,11 +2125,30 @@ function renderDepth(path: string): number {
 	return path === '' ? -1 : path.split('/').length - 1;
 }
 
+function describeRuleOutcome(outcome: OutlineRuleOutcome): string {
+	switch (outcome.state) {
+		case 'no-match': return 'No forward rule matches';
+		case 'empty': return `${outcome.ruleName ?? 'Matched rule'} produces no tag`;
+		case 'invalid': return `${outcome.ruleName ?? 'Matched rule'} produces invalid output`;
+		case 'valid': return outcome.tags.join(', ');
+	}
+}
+
+function errorMessage(error: unknown): string {
+	if (error instanceof Error && error.message.trim() !== '') return error.message;
+	if (typeof error === 'string' && error.trim() !== '') return error;
+	return 'Unknown error';
+}
+
 function cloneScope(scope: WorkbenchScopeState): WorkbenchScopeState {
 	return {
 		selectedPaths: [...scope.selectedPaths],
 		signalFilter: scope.signalFilter ? { ...scope.signalFilter } : null,
 	};
+}
+
+function normalizedStringKey(values: Iterable<string>): string {
+	return JSON.stringify([...values].sort(compareCodePoints));
 }
 
 function compareCodePoints(a: string, b: string): number {

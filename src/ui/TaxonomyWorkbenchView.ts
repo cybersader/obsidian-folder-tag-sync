@@ -21,6 +21,7 @@ import {
 	resolveSelectedCandidateKeys,
 	validateWorkbenchState,
 	type WorkbenchCandidateState,
+	type WorkbenchOutlineState,
 	type WorkbenchRoute,
 	type WorkbenchState,
 	type WorkbenchSurface,
@@ -31,7 +32,10 @@ import { RuleLayersSection } from './workbench/RuleLayersSection';
 import { renderSemanticPath } from './workbench/SemanticPath';
 import { WorkbenchCandidatePanel } from './workbench/WorkbenchCandidatePanel';
 import { WorkbenchMapPanel } from './workbench/WorkbenchMapPanel';
-import { WorkbenchOutlinePanel } from './workbench/WorkbenchOutlinePanel';
+import {
+	OutlineStaleReviewError,
+	WorkbenchOutlinePanel,
+} from './workbench/WorkbenchOutlinePanel';
 import { describeOrganizationalSystemMarker } from './workbench/organizationalSystemMarker';
 import {
 	createDefaultWorkbenchMapPresentationState,
@@ -809,6 +813,23 @@ export class TaxonomyWorkbenchView extends ItemView {
 					this.acceptScopeState({ ...this.state.scope, selectedPaths });
 					void this.collectSnapshot();
 				},
+				onOutlineStateChange: (outlineState) => {
+					this.acceptOutlineState(outlineState);
+				},
+				onInstall: async (selectedRules) => {
+					if (this.snapshotStale
+						|| this.snapshot?.sourceRevision
+							!== this.plugin.getWorkbenchSourceRevision()) {
+						await this.collectSnapshot();
+						throw new OutlineStaleReviewError('Reviewed rules were refreshed because the vault or rule settings changed.');
+					}
+					const result = await this.plugin.installWorkbenchRules(selectedRules);
+					await this.collectSnapshot();
+					return result;
+				},
+				onReviewRule: (ruleId) => this.openPluginSettings(ruleId),
+				isSnapshotStale: () => this.snapshotStale
+					|| this.snapshot?.sourceRevision !== this.plugin.getWorkbenchSourceRevision(),
 			});
 			return;
 		}
@@ -884,6 +905,17 @@ export class TaxonomyWorkbenchView extends ItemView {
 			scope: {
 				selectedPaths: [...scope.selectedPaths],
 				signalFilter: scope.signalFilter ? { ...scope.signalFilter } : null,
+			},
+		});
+		this.setLocalState(next);
+		this.updateSnapshotState(next);
+	}
+
+	private acceptOutlineState(outlineState: WorkbenchOutlineState): void {
+		const next = freezeWorkbenchState({
+			...cloneWorkbenchState(this.state),
+			outline: {
+				excludedOccurrenceKeys: [...outlineState.excludedOccurrenceKeys],
 			},
 		});
 		this.setLocalState(next);
@@ -1034,7 +1066,7 @@ export class TaxonomyWorkbenchView extends ItemView {
 	}
 
 	private openPluginSettings(ruleId?: string): void {
-		if (ruleId) this.plugin.focusRuleId = ruleId;
+		this.plugin.focusRuleId = ruleId || undefined;
 		const setting = (
 			this.app as unknown as {
 				setting?: { open: () => void; openTabById: (id: string) => unknown };
@@ -1056,6 +1088,8 @@ function freezeWorkbenchState(state: WorkbenchState): WorkbenchState {
 	Object.freeze(clone.scope);
 	if (clone.candidates.selectedKeys) Object.freeze(clone.candidates.selectedKeys);
 	Object.freeze(clone.candidates);
+	Object.freeze(clone.outline.excludedOccurrenceKeys);
+	Object.freeze(clone.outline);
 	Object.freeze(clone.preferences);
 	return Object.freeze(clone);
 }
@@ -1072,6 +1106,9 @@ function cloneWorkbenchState(state: WorkbenchState): WorkbenchState {
 			selectedKeys: state.candidates.selectedKeys === null
 				? null
 				: [...state.candidates.selectedKeys],
+		},
+		outline: {
+			excludedOccurrenceKeys: [...state.outline.excludedOccurrenceKeys],
 		},
 		preferences: { ...state.preferences },
 	};

@@ -2730,6 +2730,57 @@ button.dtf-workbench-folder-system {
 	font-size: var(--font-ui-small);
 }
 
+.dtf-outline-review-status,
+.dtf-outline-confirmation,
+.dtf-outline-custom-route {
+	flex: 1 1 100%;
+	min-width: 0;
+	display: flex;
+	flex-direction: column;
+	align-items: flex-start;
+	gap: 6px;
+	padding: 10px 12px;
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-s);
+	background: var(--background-primary-alt);
+	font-size: var(--font-ui-small);
+	line-height: 1.45;
+	overflow-wrap: anywhere;
+}
+
+.dtf-outline-custom-route {
+	margin-top: 8px;
+}
+
+.dtf-outline-review-status button,
+.dtf-outline-confirmation button,
+.dtf-outline-custom-route button,
+.dtf-outline-behavior-outcome button {
+	height: auto;
+	min-height: 30px;
+	max-width: 100%;
+	padding: 5px 9px;
+	white-space: normal;
+	line-height: 1.35;
+	overflow-wrap: anywhere;
+}
+
+.dtf-outline-confirmation {
+	border-color: var(--interactive-accent);
+}
+
+.dtf-outline-confirmation-actions {
+	display: flex;
+	flex-wrap: wrap;
+	justify-content: flex-end;
+	gap: 8px;
+	width: 100%;
+}
+
+.dtf-outline-warning { color: var(--text-warning); }
+.dtf-outline-error { color: var(--text-error); }
+.dtf-outline-success { color: var(--text-success); }
+
 /* ─ Narrow (≤480px): annotation stacks under the name; the status follows ─ */
 
 .dtf-outline.is-outline-narrow .dtf-outline-row {
@@ -2803,6 +2854,42 @@ button.dtf-workbench-folder-system {
 .dtf-outline .dtf-outline-comparison-title {
 	font-weight: 600;
 	margin-bottom: 6px;
+}
+.dtf-outline .dtf-outline-behavior-comparison,
+.dtf-outline .dtf-outline-coverage {
+	width: 100%;
+	min-width: 0;
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-s);
+	background: var(--background-primary-alt);
+	padding: 6px 10px;
+	font-size: var(--font-ui-small);
+	line-height: 1.45;
+	overflow-wrap: anywhere;
+}
+.dtf-outline .dtf-outline-behavior-body {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	gap: 10px;
+	padding-top: 6px;
+}
+.dtf-outline .dtf-outline-behavior-body > .dtf-outline-muted {
+	grid-column: 1 / -1;
+}
+.dtf-outline .dtf-outline-behavior-outcome {
+	min-width: 0;
+	display: flex;
+	flex-direction: column;
+	align-items: flex-start;
+	gap: 4px;
+	padding: 8px;
+	border-radius: var(--radius-s);
+	background: var(--background-primary);
+	overflow-wrap: anywhere;
+}
+.dtf-outline .dtf-outline-coverage > div {
+	padding: 2px 0;
+	overflow-wrap: anywhere;
 }
 .dtf-outline .dtf-outline-proposed-output {
 	display: flex;
@@ -2924,8 +3011,11 @@ button.dtf-workbench-folder-system {
 }
 .dtf-outline .dtf-outline-tick { color: var(--text-muted); }
 .dtf-outline .dtf-outline-raw-output { white-space: pre-wrap; overflow-wrap: anywhere; }
-.dtf-outline.is-outline-narrow .dtf-outline-compare-options { grid-template-columns: minmax(0, 1fr); }
-.dtf-outline.is-outline-narrow .dtf-outline-comparison { padding: 10px; }
+.dtf-outline.is-outline-narrow .dtf-outline-compare-options,
+.dtf-outline.is-outline-narrow .dtf-outline-behavior-body { grid-template-columns: minmax(0, 1fr); }
+.dtf-outline.is-outline-narrow .dtf-outline-comparison,
+.dtf-outline.is-outline-narrow .dtf-outline-behavior-comparison,
+.dtf-outline.is-outline-narrow .dtf-outline-coverage { padding: 8px; }
 .dtf-outline.is-outline-narrow .dtf-outline-compare-option { padding: 8px; }
 .dtf-outline.is-outline-narrow { --dtf-outline-indent: 12px; }
 .dtf-outline.is-outline-narrow .dtf-outline-proposed-output { flex-direction: column; }

@@ -866,6 +866,36 @@ describe('resolving a colliding group', () => {
 		expect(choice.declinedKeys).toEqual(['jd@Main']);
 	});
 
+	test('explicitly declining every colliding occurrence keeps the group unselected', () => {
+		const choice = resolveOutlineGroupChoice(group, new Set(['para@Main', 'jd@Main']));
+		expect(choice.chosenKey).toBeNull();
+		expect(choice.declinedKeys).toEqual(['para@Main', 'jd@Main']);
+	});
+
+	test('an excluded prediction cannot displace one of several remaining alternatives', () => {
+		const threeWay: OutlineGroup = {
+			...group,
+			occurrences: [
+				...group.occurrences,
+				occurrence({ key: 'ent@Main', anchorPath: 'UX Lab/Main', packId: 'enterprise-jd' }),
+			],
+			predictedWinnerKey: 'para@Main',
+		};
+		const explicit = new Set(['para@Main']);
+		const choice = resolveOutlineGroupChoice(threeWay, explicit);
+		expect(choice.chosenKey).toBe('jd@Main');
+		expect(choice.declinedKeys).toEqual(['para@Main', 'ent@Main']);
+		expect([...explicit]).toEqual(['para@Main']);
+	});
+
+	test('automatic defaults can follow a refreshed prediction without changing explicit exclusions', () => {
+		const explicit = new Set<string>();
+		expect(resolveOutlineGroupChoice(group, explicit).chosenKey).toBe('jd@Main');
+		expect(resolveOutlineGroupChoice({ ...group, predictedWinnerKey: 'para@Main' }, explicit).chosenKey)
+			.toBe('para@Main');
+		expect([...explicit]).toEqual([]);
+	});
+
 	test('a group that does not collide forces no choice at all', () => {
 		const choice = resolveOutlineGroupChoice({ ...group, collides: false }, new Set());
 		expect(choice.chosenKey).toBeNull();

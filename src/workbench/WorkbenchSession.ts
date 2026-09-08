@@ -147,6 +147,8 @@ export interface WorkbenchSessionSnapshot {
 	sourceRevision: number;
 	/** Exact matcher input, including configured groups with no installed rules. */
 	groupPrecedence?: readonly string[];
+	/** Detached persisted rule snapshot used for current-versus-reviewed comparison. */
+	installedRules: readonly MappingRule[];
 	folderPaths: readonly string[];
 	detectionResults: readonly DetectionResult[];
 	surfacedResults: readonly DetectionResult[];
@@ -351,6 +353,7 @@ export async function collectWorkbenchSessionSnapshot(
 		state: freezeJsonish(reconciledState),
 		sourceRevision: stable.sourceRevision,
 		groupPrecedence: Object.freeze([...(stable.settings.groupPrecedence ?? [])]),
+		installedRules: freezeJsonish(stable.settings.rules),
 		folderPaths: Object.freeze([...folderPaths]),
 		detectionResults: freezeJsonish(detectionResults),
 		surfacedResults: freezeJsonish(partition.surfaced),

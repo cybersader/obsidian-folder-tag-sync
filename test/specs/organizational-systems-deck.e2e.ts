@@ -639,6 +639,13 @@ describe('Taxonomy Workbench — responsive Organizational systems browser', fun
 				shell.style.maxWidth = '480px';
 				shell.style.alignSelf = 'flex-start';
 			});
+			// Measured in this harness: after a scripted style mutation the renderer
+			// reaches no rendering opportunity on its own, so the view's
+			// ResizeObserver never fires and dtfSystemsBrowserMode keeps its
+			// pre-resize value. The screenshot capture path forces one frame (a
+			// WebDriver pointer move does not). No PNG is written and no assertion
+			// below is changed.
+			await browser.takeScreenshot();
 			await browser.waitUntil(async () => browser.executeObsidian(() => {
 				const shell = document.querySelector<HTMLElement>('[data-dtf-workbench-shell="1"]');
 				const toggle = document.querySelector('[data-dtf-systems-browser-toggle="1"]');

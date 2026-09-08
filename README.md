@@ -47,7 +47,7 @@ This plugin is in **active beta development**, distributed through GitHub Releas
 > The Workbench refinements marked 🧪 below are evaluation-only and ship solely in a test build. Install one only by pinning that exact version in BRAT, and only against a backup or a dedicated test vault. Everyone else stays on the stable `0.1.41`.
 >
 > - `0.1.41-workbench-outline.1` — published. Split-UX Workbench journey plus a preview-only annotated-outline prototype whose Save control is unconditionally disabled.
-> - `0.1.41-workbench-outline.2` — **prepared and verified locally, not yet published.** Adds the outline review-and-save journey described below.
+> - `0.1.41-workbench-outline.2` — published 2026-09-08. Adds the outline review-and-save journey described below. Saving persists rules **disabled**; it is drafting, not activation.
 
 ### 🤖 AI-Assisted Development
 

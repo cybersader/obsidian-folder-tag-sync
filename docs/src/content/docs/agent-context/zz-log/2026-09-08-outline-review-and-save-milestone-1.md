@@ -59,7 +59,7 @@ The new `test/specs/workbench-outline-saving.e2e.ts` covers the four cases that 
 
 ## Release shape
 
-Staged as the test build `0.1.41-workbench-outline.2`. Per `scripts/validate-release-tag.mjs`, a test tag bumps `manifest.json` only — `versions.json` and `main` stay on stable `0.1.41` — and is accepted only because base `0.1.41` already exists as both a stable tag and a published, non-draft GitHub release. The distribution boundary stays three files: `main.js`, `manifest.json`, `styles.css`, with built-in packs embedded in the bundle.
+Published 2026-09-08 as the test build `0.1.41-workbench-outline.2` (annotated tag `e2b2733` on commit `6ace8f0`), pre-release, never "Latest". Per `scripts/validate-release-tag.mjs`, a test tag bumps `manifest.json` only — `versions.json` and `main` stay on stable `0.1.41` — and is accepted only because base `0.1.41` already exists as both a stable tag and a published, non-draft GitHub release. The distribution boundary stays three files: `main.js`, `manifest.json`, `styles.css`, with built-in packs embedded in the bundle.
 
 ## What is still not permitted
 

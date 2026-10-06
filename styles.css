@@ -3043,3 +3043,45 @@ button.dtf-workbench-folder-system {
 	font-size: var(--font-ui-smaller);
 	color: var(--text-faint);
 }
+
+/* Unsaved note preview: local read-only, content-sized controls and wrapping paths. */
+.modal.dtf-note-preview-modal {
+	width: min(820px, calc(100vw - 32px));
+	max-width: calc(100vw - 32px);
+}
+.dtf-note-preview-modal .modal-content {
+	max-height: 82vh;
+	overflow-y: auto;
+	overflow-wrap: anywhere;
+	min-width: 0;
+}
+.dtf-note-preview-modal [hidden] { display: none !important; }
+.dtf-note-preview-modal h2 { margin-top: 0; }
+.dtf-note-preview-modal h3 { font-size: var(--font-ui-medium); margin: 0 0 8px; }
+.dtf-note-preview-modal p { margin: 8px 0; }
+.dtf-note-preview-notice { font-weight: 600; }
+.dtf-note-preview-counts, .dtf-note-preview-status { color: var(--text-muted); }
+.dtf-note-preview-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 16px 0; }
+.dtf-note-preview-modal button {
+	white-space: normal;
+	height: auto;
+	min-height: 32px;
+	max-width: 100%;
+}
+.dtf-note-preview-row {
+	border: 1px solid var(--background-modifier-border);
+	border-radius: 8px;
+	padding: 14px;
+	margin-bottom: 12px;
+	background: var(--background-secondary);
+}
+.dtf-note-preview-row-state { font-weight: 600; }
+.dtf-note-preview-warning { color: var(--text-warning); }
+.dtf-note-preview-modal summary { cursor: pointer; }
+.dtf-note-preview-modal details { margin-top: 12px; }
+@media (max-width: 600px) {
+	.dtf-guided-modal .dtf-guided-actions { flex-wrap: wrap; }
+	.dtf-guided-modal .dtf-guided-actions > div { flex-wrap: wrap; }
+	.dtf-note-preview-modal .modal-content { padding: 0; }
+	.dtf-note-preview-row { padding: 10px; }
+}

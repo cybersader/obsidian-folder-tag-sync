@@ -57,6 +57,7 @@ import {
 } from '../engine/buildSpec';
 import { EntryPathSuggest, collectFolderSources, collectTagSources } from './suggest/EntryPathSuggest';
 import { ConfirmModal } from './ConfirmModal';
+import { GuidedNotePreviewModal, type GuidedNotePreviewContext } from './GuidedNotePreviewModal';
 
 // ─── Library-science conventions ─────────────────────────────────────────
 // AXIS_CONVENTIONS (the SEACOW axis → tag-prefix-marker table) now lives in
@@ -217,6 +218,8 @@ export class GuidedRuleEditorModal extends Modal {
 	private axisTilesEl!: HTMLElement;
 	private axisDescriptionEl!: HTMLElement;
 	private saveBtn!: HTMLButtonElement;
+	private notePreviewBtn?: HTMLButtonElement;
+	private notePreview: GuidedNotePreviewModal | null = null;
 
 	private readonly onSwitchToAdvanced?: SwitchToAdvancedFn;
 
@@ -225,6 +228,7 @@ export class GuidedRuleEditorModal extends Modal {
 		onSave: (rule: MappingRule | null) => void,
 		mode: GuidedEditorMode = { kind: 'create' },
 		onSwitchToAdvanced?: SwitchToAdvancedFn,
+		private readonly notePreviewContext?: GuidedNotePreviewContext,
 	) {
 		super(app);
 		this.mode = mode;
@@ -1516,6 +1520,17 @@ export class GuidedRuleEditorModal extends Modal {
 		this.saveBtn.disabled = !v.valid;
 		this.saveBtn.title = v.valid ? '' : `Missing: ${v.missing.join(', ')}`;
 		this.saveBtn.style.opacity = v.valid ? '1' : '0.5';
+		if (this.notePreviewBtn) {
+			try {
+				if (!v.valid) throw new Error('Complete required fields first');
+				deriveRule(buildSpec(this.state));
+				this.notePreviewBtn.disabled = false;
+				this.notePreviewBtn.title = 'Preview note changes using the current rule without saving it';
+			} catch {
+				this.notePreviewBtn.disabled = true;
+				this.notePreviewBtn.title = 'Complete a valid, compilable rule first';
+			}
+		}
 	}
 
 	private buildActions(parent: HTMLElement): void {
@@ -1570,6 +1585,21 @@ export class GuidedRuleEditorModal extends Modal {
 			});
 		}
 
+		if (this.notePreviewContext) {
+			this.notePreviewBtn = buttons.createEl('button', { text: 'Preview note changes' });
+			this.notePreviewBtn.addEventListener('click', () => {
+				if (!isFormValid(this.state).valid) return;
+				try {
+					deriveRule(buildSpec(this.state)); // Never use currentPreviewRule's legacy fallback.
+					this.notePreview = new GuidedNotePreviewModal(this.app, this.notePreviewContext!, {
+						getDraft: () => deriveRule(buildSpec(this.state)),
+						getFormFingerprint: () => JSON.stringify(this.state),
+					});
+					this.notePreview.open();
+				} catch { this.updateSaveButtonState(); }
+			});
+		}
+
 		const cancelBtn = buttons.createEl('button', { text: 'Cancel' });
 		cancelBtn.addEventListener('click', () => this.close());
 
@@ -1616,6 +1646,7 @@ export class GuidedRuleEditorModal extends Modal {
 	}
 
 	onClose(): void {
+		this.notePreview?.close(); this.notePreview = null;
 		this.contentEl.empty();
 	}
 }

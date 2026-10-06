@@ -712,6 +712,10 @@ export class SettingsTab extends PluginSettingTab {
 			(forwardedRule) => {
 				this.openRuleEditor(forwardedRule);
 			},
+			{
+				getRules: () => this.plugin.settings.rules,
+				getPrecedence: () => this.plugin.settings.groupPrecedence ?? [],
+			},
 		);
 		modal.open();
 	}
@@ -757,6 +761,10 @@ export class SettingsTab extends PluginSettingTab {
 			// rule); openRuleEditor(null) handles the new-rule case.
 			(forwardedRule) => {
 				this.openRuleEditor(forwardedRule);
+			},
+			{
+				getRules: () => this.plugin.settings.rules,
+				getPrecedence: () => this.plugin.settings.groupPrecedence ?? [],
 			},
 		);
 		modal.open();

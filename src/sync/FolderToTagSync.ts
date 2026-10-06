@@ -6,6 +6,7 @@ import { applyTransformPipeline } from '../transformers/pipeline';
 import { applyRuleForward } from '../engine/applyTransfer';
 import { injectWitness as injectWitnessFn, parseWitness as parseWitnessFn } from './frontmatterWitness';
 import { parseFrontmatterTags, setFrontmatterTags } from './frontmatterTags';
+import { decideForwardTagDelta, normalizeCacheFrontmatterTags, splitForwardFrontmatter } from './forwardTagDelta';
 
 /**
  * Handles folder-to-tag synchronization
@@ -111,40 +112,8 @@ export class FolderToTagSync {
 
       // Parse frontmatter and tags
       const { frontmatter, body } = this.parseFrontmatter(content);
-      const currentTags = this.extractTags(frontmatter);
-
-      // Metadata-cache fallback for the WRITE DECISION only. Obsidian's own
-      // parser (via metadataCache.frontmatter.tags) handles shapes our line
-      // parser intentionally can't (e.g. multiline flow arrays) and removes the
-      // FolderToTag/TagToFolder read asymmetry. We union it with the
-      // text-parsed tags ONLY to decide what's new — the block we actually
-      // reconstruct is still based on `currentTags` (freshly text-parsed), so a
-      // stale cache can suppress a duplicate add (safe) but can never resurrect
-      // a tag the user just deleted.
-      const cacheTags = this.cacheFrontmatterTags(file);
-      const existingForDecision = new Set([...currentTags, ...cacheTags]);
-
-      const newTagsToAdd = tags.filter((t) => !existingForDecision.has(t));
-
-      // A6 — orphan cleanup. When `removeOrphanedTags: true` AND the file
-      // has an `fts:` witness from a prior sync, identify FTS-owned tags
-      // that are no longer emitted and remove them. Without the witness,
-      // we can't tell which tags FTS owns vs which the user added —
-      // skipping cleanup is the safe behavior.
-      let tagsToRemove: string[] = [];
-      if (rule.options.removeOrphanedTags) {
-        const witness = this.parseWitness(frontmatter);
-        if (witness) {
-          // FTS-owned tags from prior sync are listed in witness.tags.
-          // Emitted tags now (from current rule + path) are `tags`.
-          // Remove tags that were FTS-owned but are no longer emitted.
-          const emittedNow = new Set(tags.map((t) => t.replace(/^#/, '')));
-          tagsToRemove = witness.tags
-            .filter((witnessed) => !emittedNow.has(witnessed))
-            .map((t) => `#${t}`)
-            .filter((withHash) => currentTags.includes(withHash));
-        }
-      }
+      const delta = decideForwardTagDelta(frontmatter, this.cacheFrontmatterTags(file), tags, rule.options);
+      const { newTagsToAdd, tagsToRemove, updatedTags } = delta;
 
       if (newTagsToAdd.length === 0 && tagsToRemove.length === 0) {
         await this.logger.info('All emitted tags already present, no orphans, no changes needed', { tags });
@@ -156,9 +125,6 @@ export class FolderToTagSync {
         };
       }
 
-      // Compute final tag set: existing tags + new ones to add, MINUS orphans
-      const tagsToRemoveSet = new Set(tagsToRemove);
-      const updatedTags = [...currentTags.filter((t) => !tagsToRemoveSet.has(t)), ...newTagsToAdd];
       let newFrontmatter = this.updateTags(frontmatter, updatedTags);
 
       // F3 commit 1 — Passive frontmatter witness: when the rule has
@@ -263,26 +229,7 @@ export class FolderToTagSync {
    * CRLF/BOM bytes.
    */
   private parseFrontmatter(content: string): { frontmatter: string; body: string } {
-    let normalized = content;
-    if (normalized.charCodeAt(0) === 0xfeff) {
-      normalized = normalized.slice(1);
-    }
-    normalized = normalized.replace(/\r\n?/g, '\n');
-
-    const fmRegex = /^---\n([\s\S]*?)\n---(?:\n([\s\S]*))?$/;
-    const match = normalized.match(fmRegex);
-
-    if (match) {
-      return {
-        frontmatter: match[1],
-        body: match[2] ?? ''
-      };
-    }
-
-    return {
-      frontmatter: '',
-      body: normalized
-    };
+    return splitForwardFrontmatter(content);
   }
 
   /**
@@ -305,13 +252,7 @@ export class FolderToTagSync {
   private cacheFrontmatterTags(file: TFile): string[] {
     try {
       const cache = this.app.metadataCache.getFileCache(file);
-      const fmTags = cache?.frontmatter?.tags;
-      if (fmTags == null) return [];
-      const raw = Array.isArray(fmTags) ? fmTags : [fmTags];
-      return raw
-        .map((t) => String(t).trim())
-        .filter((t) => t.length > 0)
-        .map((t) => (t.startsWith('#') ? t : `#${t}`));
+      return normalizeCacheFrontmatterTags(cache?.frontmatter?.tags);
     } catch {
       return [];
     }

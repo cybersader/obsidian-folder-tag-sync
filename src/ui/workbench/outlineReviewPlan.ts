@@ -1,6 +1,7 @@
 import type { CrossPackHitMap } from '../../engine/detectionTree';
 import { applyRuleForward } from '../../engine/applyTransfer';
-import { findMatchingRules, selectBestMatch } from '../../engine/ruleMatcher';
+import { findMatchingRules } from '../../engine/ruleMatcher';
+import { evaluateForwardFolder } from '../../engine/forwardFolderOutcome';
 import type { CandidateRow } from '../../engine/scanAndSnapPlan';
 import { buildScopePackPlan, type ScopePackDeployment, type ScopePackPlan } from '../../engine/scopePackPlan';
 import type { MappingRule } from '../../types/settings';
@@ -212,31 +213,11 @@ function evaluateFolder(
 	proposedIds: ReadonlySet<string>,
 	groupPrecedence: readonly string[],
 ): OutlineRuleOutcome {
-	const matches = findMatchingRules(folderPath, [...rules], {
-		input: folderPath,
-		matchType: 'folder',
-		direction: 'folder-to-tag',
-	});
-	const winner = selectBestMatch(matches, [...groupPrecedence]);
-	if (!winner) return noMatchOutcome();
-	const origin: Exclude<OutlineRuleOrigin, null> = proposedIds.has(winner.rule.id)
-		? 'proposed'
-		: 'installed';
-	try {
-		const tags = applyRuleForward(folderPath, winner.rule).tags;
-		if (tags.length === 0) {
-			return outcome('empty', winner.rule, origin, [], null);
-		}
-		if (tags.some(isDegenerateTag)) {
-			return outcome(
-				'invalid', winner.rule, origin, tags,
-				'Matched rule produces unusable tag syntax.',
-			);
-		}
-		return outcome('valid', winner.rule, origin, tags, null);
-	} catch (error) {
-		return outcome('invalid', winner.rule, origin, [], errorMessage(error));
-	}
+	const result = evaluateForwardFolder(folderPath, rules, groupPrecedence);
+	if (!result.winner || result.state === 'no-match') return noMatchOutcome();
+	const origin = proposedIds.has(result.winner.id) ? 'proposed' : 'installed';
+	return outcome(result.state, result.winner, origin, result.tags,
+		result.error?.startsWith('Matched rule produces') ? 'Matched rule produces unusable tag syntax.' : result.error);
 }
 
 function collectInvalidDraftOutputs(

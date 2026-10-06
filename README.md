@@ -96,6 +96,14 @@ If you find issues or have suggestions, please [open an issue](https://github.co
 - ✅ **Manual Sync Commands** — Sync on demand via command palette
 - ✅ **Support bundles and debug logging** — Preview and copy configuration, rule diagnostics, a complete folder-only tree, and a sanitized bounded log tail; optionally anonymize user-authored names before sharing
 
+### Unsaved per-note preview (local development)
+
+In the guided editor, complete the rule and choose **Preview note changes** before Create/Save. A separate read-only modal shows existing disk-parsed frontmatter tags, proposed additions/removals, unchanged tags and folder, and current versus hypothetical winning rules. The unsaved rule competes as if enabled; an edit replaces its same-ID installed rule at the same position. Notes remain in scope when a competing rule wins or the original edited rule used to match. **Back to editing** retains the form; **Preview again** captures a new snapshot. All rows are reachable through **Show more**.
+
+Nothing is saved, enabled, applied, moved, exported or logged by this preview. Results are local and ephemeral; only relevant notes are read on request. Cancellation and stale results are explicitly incomplete. Changed notes, metadata or topology invalidate the snapshot; configuration/form fingerprints are also checked at completion and focus/interaction boundaries, with no polling or automatic rescan.
+
+This predicts the existing forward writer’s tag decision, not YAML bytes, rollback, reverse movement, runtime event eligibility, or write permission. Reverse-only rules are refused; bidirectional rules preview folder → tag only. Empty output is a valid no-change result; invalid winners remain blocked, never replaced by a valid loser. The live writer is not guaranteed to reject invalid output. Additions use disk/cache tags together, but a write reconstructs from disk parsing; mismatches or unsupported shapes show warnings rather than promising that every tag survives. Orphan removal follows actual legacy witness checks, and witnesses may include human-authored tags. The existing guided Save compiler can change advanced options/group; edited-rule differences are disclosed rather than silently repaired. Create/Save remains a separate action with its existing behavior. No mobile, community-theme, assistive-technology or large-vault certification is implied.
+
 ### Workbench quick start
 
 1. **Explore your vault** and open the global **Organizational systems in this vault** overview. Choosing a Ready occurrence expands its evidence in place; the exact text and path identify it, while the marker is only a secondary cross-surface cue.

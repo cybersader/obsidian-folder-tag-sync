@@ -76,13 +76,13 @@ export default class DynamicTagsFoldersPlugin extends Plugin {
 		this.addSettingTab(new SettingsTab(this.app, this));
 
 		// Register the persistent Taxonomy Workbench shell. The historical
-		// view type and command IDs remain stable while Map, Scope, and Candidates
-		// now share one main-area leaf.
+		// view type and command IDs remain stable while Explore, Choose, and Review
+		// share one main-area leaf.
 		this.registerView(
 			TAXONOMY_WORKBENCH_VIEW,
 			(leaf) => new TaxonomyWorkbenchView(leaf, this),
 		);
-		this.addRibbonIcon('layers', 'Open the Taxonomy Workbench map', () => {
+		this.addRibbonIcon('layers', 'Explore your vault in Taxonomy Workbench', () => {
 			void this.activateWorkbenchMap();
 		});
 
@@ -119,7 +119,7 @@ export default class DynamicTagsFoldersPlugin extends Plugin {
 
 		this.addCommand({
 			id: 'scan-vault-for-systems',
-			name: 'Scan vault for organizational systems',
+			name: 'Taxonomy Workbench: choose where rules apply',
 			callback: () => {
 				void this.scanVaultForSystems();
 			}
@@ -127,7 +127,7 @@ export default class DynamicTagsFoldersPlugin extends Plugin {
 
 		this.addCommand({
 			id: 'scan-and-snap-draft-rules',
-			name: 'Taxonomy Workbench: draft rules from detected systems',
+			name: 'Taxonomy Workbench: review proposed rules',
 			callback: () => {
 				this.scanAndSnapDraftRules();
 			}
@@ -143,9 +143,19 @@ export default class DynamicTagsFoldersPlugin extends Plugin {
 
 		this.addCommand({
 			id: 'taxonomy-workbench-open-map',
-			name: 'Taxonomy Workbench: open the map',
+			name: 'Taxonomy Workbench: explore your vault',
 			callback: () => {
 				void this.activateWorkbenchMap();
+			}
+		});
+
+		// Hidden prototype surface. It has no navigation tab; this command is the
+		// only entry point besides an explicit view state.
+		this.addCommand({
+			id: 'taxonomy-workbench-open-outline',
+			name: 'Taxonomy Workbench: open annotated outline prototype',
+			callback: () => {
+				void this.activateTaxonomyWorkbench('outline');
 			}
 		});
 

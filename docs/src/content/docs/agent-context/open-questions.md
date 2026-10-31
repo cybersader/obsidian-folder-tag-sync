@@ -8,7 +8,7 @@ sidebar:
 Questions where the right answer isn't obvious yet. Input welcomed — open an issue.
 
 :::note
-This page was reconciled against the v0.1.38 BRAT release and its occurrence-first Workbench on 2026-07-29. Several former open questions have shipped — see [Resolved](#resolved-since-this-page-was-written) at the bottom. Terms are defined in the [Glossary](/obsidian-folder-tag-sync/agent-context/glossary/).
+This page was reconciled against the v0.1.41 BRAT release and the unreleased local tree-first, task-oriented, evidence/Scope Workbench branch on 2026-07-31. Several former open questions have shipped — see [Resolved](#resolved-since-this-page-was-written) at the bottom. Terms are defined in the [Glossary](/obsidian-folder-tag-sync/agent-context/glossary/).
 :::
 
 ## When a tag could resolve to several folders, how do we pick — and when do we ask the user?
@@ -56,7 +56,9 @@ Templater and QuickAdd users might want `getTargetFolder(tags)` / `getTagsForFol
 
 ## The live wall: installable composition and unknown-structure synthesis
 
-The duplicate detect/draft/Map product surfaces are no longer the open question: the current consolidation puts known-system evidence, branch scoping, candidate preview, and disabled installation into one Taxonomy Workbench.
+The duplicate detect/draft/Map product surfaces are no longer the open question: the current consolidation puts known-system evidence, folder choice, proposed-rule review, and disabled installation into one Taxonomy Workbench. Its novice journey is implemented locally as **Explore your vault → Choose where rules apply → Review proposed rules → Review in Settings**. The global organizational-systems overview, non-sticky selected evidence, exact occurrence markers as secondary cues, explicit focus-to-Scope continuation, focus-as-context rather than filtering, tree-first measured layout, adaptive inspector, compact exact relation disclosure, accessible view-local Scope divider, stable row geometry, directional status, exact conflict-target navigation, and place preservation are implementation decisions rather than open architecture questions.
+
+This documentation/UX-lab follow-up does not authorize publication. No version bump, commit, push, tag, GitHub Release, docs deployment, BRAT release, screenshot publication, or use of private production topology is part of the work. Publication remains a separate decision after complete verification.
 
 The occurrence-first deck makes the next questions more precise:
 

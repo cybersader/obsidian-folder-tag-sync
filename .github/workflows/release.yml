@@ -1,39 +1,239 @@
 name: Release Obsidian Plugin
 
+# Two publication channels, and nothing else.
+#
+#   stable  `X.Y.Z`                       normal release, becomes "Latest"
+#   test    `X.Y.Z-workbench-outline.N`   pre-release, never "Latest",
+#                                         manual dispatch only
+#
+# The old version of this workflow triggered on `tags: ["*"]`, so ANY tag push
+# published a normal, latest release. A workbench-outline prototype tag would
+# have taken over the repo's "Latest release" badge. The push trigger below is
+# narrowed to stable tags only; the experimental channel is reachable only by a
+# deliberate workflow_dispatch with a typed confirmation.
+#
+# scripts/validate-release-tag.mjs classifies the tag and refuses anything it
+# does not recognise. It runs in its own job, before the build and before any
+# release side effect, and it also fails when the tag and manifest.json version
+# disagree -- BRAT overwrites the manifest version with the tag on mismatch, so
+# a mismatch silently changes what testers run.
+#
+# Local equivalents (no GitHub required):
+#   bun scripts/validate-release-tag.mjs 0.1.41
+#   bun test scripts
+
 on:
   push:
     tags:
-      - "*"
+      # Stable releases only. Digits and dots; anything with a pre-release
+      # suffix (including workbench-outline) does not match and must be
+      # dispatched by hand.
+      - '[0-9]+.[0-9]+.[0-9]+'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing tag to publish (e.g. 0.1.41 or 0.1.41-workbench-outline.1)'
+        required: true
+        type: string
+      confirm:
+        description: 'Type PUBLISH to create a release; leave blank for validation only'
+        required: false
+        type: string
+      validation_only:
+        description: 'Run validation and build without creating or updating a release'
+        required: true
+        type: boolean
+        default: true
+
+# Least privilege: nothing by default, and only the publishing job gets write.
+permissions: {}
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
 
 jobs:
-  build:
+  classify:
+    name: Classify and validate tag
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      tag: ${{ steps.gate.outputs.tag }}
+      channel: ${{ steps.gate.outputs.channel }}
+      prerelease: ${{ steps.gate.outputs.prerelease }}
+      make_latest: ${{ steps.gate.outputs.make_latest }}
+    steps:
+      - name: Require explicit confirmation on manual dispatch
+        if: github.event_name == 'workflow_dispatch' && !inputs.validation_only && inputs.confirm != 'PUBLISH'
+        run: |
+          echo "::error::Manual release requires the confirm input to be exactly PUBLISH."
+          exit 1
 
+      - name: Resolve the tag being published
+        id: resolve
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          DISPATCH_TAG: ${{ inputs.tag }}
+          PUSHED_REF: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            TAG="$DISPATCH_TAG"
+          else
+            TAG="$PUSHED_REF"
+          fi
+          # The dispatch input is free text. Reject anything outside the
+          # character set a release tag can use before it reaches $GITHUB_OUTPUT
+          # or the checkout ref -- a newline here would otherwise let a caller
+          # append arbitrary step outputs. The real classification still happens
+          # in the gate step below; this is only a shape guard.
+          case "$TAG" in
+            "" | *[!0-9A-Za-z.-]* )
+              echo "::error::Refusing tag '$TAG': only digits, letters, dots and hyphens are allowed."
+              exit 1
+              ;;
+          esac
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v4
+        with:
+          # The tag must already exist. A dispatch never creates one, so the
+          # release can only ever point at a commit someone already tagged.
+          ref: refs/tags/${{ steps.resolve.outputs.tag }}
+          # Full history + tags so the validator can check that a test tag's
+          # base version is a stable release that already exists.
+          fetch-depth: 0
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      # BRAT does not rank git tags. `grabReleaseFromRepository` reads
+      # /repos/:owner/:repo/releases and picks the semver-highest entry, and that
+      # list contains published releases only -- a draft release is invisible to
+      # it. So a base version that exists as a tag, or only as a draft release,
+      # is no protection: a test build would become the highest release BRAT can
+      # see. Collect the published, non-draft stable releases and make the gate
+      # check those as well as the tags.
+      - name: List published stable releases
+        id: published
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          STABLE_RELEASES="$(gh api --paginate "repos/$REPO/releases" \
+            --jq '.[] | select(.draft == false) | .tag_name' \
+            | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' \
+            | paste -sd, - || true)"
+          echo "Published stable releases: ${STABLE_RELEASES:-(none)}"
+          echo "stable_releases=$STABLE_RELEASES" >> "$GITHUB_OUTPUT"
+
+      - name: Classify tag and check it against manifest.json
+        id: gate
+        env:
+          TAG: ${{ steps.resolve.outputs.tag }}
+          STABLE_RELEASES: ${{ steps.published.outputs.stable_releases }}
+        run: |
+          set -euo pipefail
+          STABLE_TAGS="$(git tag --list '[0-9]*.[0-9]*.[0-9]*' | tr '\n' ',')"
+          bun scripts/validate-release-tag.mjs "$TAG" \
+            --manifest manifest.json \
+            --stable-tags "$STABLE_TAGS" \
+            --stable-releases "$STABLE_RELEASES"
+
+      # The self-tests parse this workflow with yaml from the locked dependency
+      # tree. This job does not build the plugin or need dependency scripts.
+      - name: Install validator test dependencies
+        run: bun install --frozen-lockfile --ignore-scripts
+
+      - name: Self-test the validator
+        run: bun test scripts
+
+      - name: Summarise the decision
+        env:
+          TAG: ${{ steps.gate.outputs.tag }}
+          CHANNEL: ${{ steps.gate.outputs.channel }}
+          PRERELEASE: ${{ steps.gate.outputs.prerelease }}
+          MAKE_LATEST: ${{ steps.gate.outputs.make_latest }}
+        run: |
+          {
+            echo "| field | value |"
+            echo "|---|---|"
+            echo "| tag | \`$TAG\` |"
+            echo "| channel | \`$CHANNEL\` |"
+            echo "| prerelease | \`$PRERELEASE\` |"
+            echo "| make_latest | \`$MAKE_LATEST\` |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  publish:
+    name: Build and publish release
+    needs: classify
+    runs-on: ubuntu-latest
+    permissions:
+      # The only elevated permission in this workflow, and only here.
+      contents: write
     steps:
       - uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          ref: refs/tags/${{ needs.classify.outputs.tag }}
 
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
 
       - name: Install dependencies
-        run: bun install
+        run: bun install --frozen-lockfile
 
       - name: Build plugin
         run: bun run build
 
+      - name: Re-check the built manifest against the tag
+        env:
+          TAG: ${{ needs.classify.outputs.tag }}
+        run: |
+          set -euo pipefail
+          BUILT="$(node -p "require('./manifest.json').version")"
+          if [ "$BUILT" != "$TAG" ]; then
+            echo "::error::Built manifest.json version '$BUILT' does not equal tag '$TAG'."
+            exit 1
+          fi
+
+      - name: Verify the three release assets exist
+        run: |
+          set -euo pipefail
+          for asset in main.js manifest.json styles.css; do
+            if [ ! -f "$asset" ]; then
+              echo "::error::Missing release asset: $asset"
+              exit 1
+            fi
+          done
+
+      # Pinned to a commit SHA rather than a moving tag because this is the one
+      # step in the repo that can publish. The rest of the repo pins first-party
+      # actions to major tags; that convention is kept above.
+      # softprops/action-gh-release v3.0.3 -> efb35369e0ad2afab669f228072c1b0d510eae64
+      # v3 exposes `make_latest`; the previous `@v1` did not, and defaulted to a
+      # normal, latest release.
       - name: Create release
-        uses: softprops/action-gh-release@v1
+        if: github.event_name != 'workflow_dispatch' || !inputs.validation_only
+        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
+          tag_name: ${{ needs.classify.outputs.tag }}
+          name: ${{ needs.classify.outputs.tag }}
+          prerelease: ${{ needs.classify.outputs.prerelease }}
+          make_latest: ${{ needs.classify.outputs.make_latest }}
+          # Exactly the three files an Obsidian/BRAT install needs. Explicit
+          # names, no globs -- a glob here could sweep in screenshots, test
+          # vault content, or logs.
           files: |
             main.js
             manifest.json
             styles.css
+          fail_on_unmatched_files: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

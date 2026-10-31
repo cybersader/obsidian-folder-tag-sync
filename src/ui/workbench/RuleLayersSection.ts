@@ -40,7 +40,7 @@ export class RuleLayersSection {
 		const body = disclosure.createDiv({ cls: 'dtf-rule-layers-body' });
 		body.createDiv({
 			cls: 'dtf-rule-layers-description',
-			text: 'These are installed runtime precedence groups, not detected systems. Higher listed precedence is evaluated first. Any system link shown here is only a current inference.',
+			text: 'These are installed runtime precedence groups, not recognized organizational systems. Higher listed precedence is evaluated first. Any organizational system link shown here is only a current inference.',
 		});
 		const layers = body.createDiv({ cls: 'dtf-rule-layer-list' });
 		if (layerCount === 0) {
@@ -92,18 +92,18 @@ export class RuleLayersSection {
 			association.dataset.dtfRuleAssociation = 'inferred';
 			association.createDiv({
 				cls: 'dtf-rule-layer-association-label',
-				text: 'Possible system link — inferred',
+				text: 'Possible organizational system link — inferred',
 			});
 			association.createDiv({
 				text: associated
-					? 'This layer may relate to the selected system because their current rule-group identities match. No deployment ownership is recorded.'
-					: `Current rule-group identities suggest ${layer.association.occurrenceKeys.length} possible system occurrence link${layer.association.occurrenceKeys.length === 1 ? '' : 's'}. No deployment ownership is recorded.`,
+					? 'This layer may relate to the selected organizational system because their current rule-group identities match. No deployment ownership is recorded.'
+					: `Current rule-group identities suggest ${layer.association.occurrenceKeys.length} possible organizational system occurrence link${layer.association.occurrenceKeys.length === 1 ? '' : 's'}. No deployment ownership is recorded.`,
 			});
 		} else {
 			association.dataset.dtfRuleAssociation = 'unknown';
 			association.createDiv({
 				cls: 'dtf-rule-layer-association-label',
-				text: 'No system link recorded',
+				text: 'No organizational system link recorded',
 			});
 			association.createDiv({
 				text: 'Installed rules do not yet store durable occurrence provenance.',

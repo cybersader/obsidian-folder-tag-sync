@@ -480,6 +480,8 @@ describe('buildScanAndSnapPlan — coverage', () => {
 		});
 		expect(candidate.conflict.analysisUnavailableReason).toBe('inverse-only');
 		expect(candidate.conflict.conflicts).toBe(false);
+		expect(candidate.conflict.candidateTargets).toEqual([]);
+		expect(candidate.conflict.installedTargets).toEqual([]);
 		expect(plan.summary.touchingCandidates).toBe(0);
 	});
 });
@@ -514,11 +516,20 @@ describe('buildScanAndSnapPlan — conflict over the UNION', () => {
 		const proj = plan.candidates.find((c) => c.id === 'para-projects')!;
 		expect(proj.conflict.conflicts).toBe(true);
 		expect(proj.conflict.collidesWithExisting).toBe(true);
-		expect(proj.conflict.overlappingFolderSample.length).toBeGreaterThan(0);
+		expect(proj.conflict.overlappingFolderSample).toEqual(['Projects', 'Projects/Web']);
+		expect(proj.conflict.candidateTargets).toEqual([]);
+		expect(proj.conflict.installedTargets).toEqual([{
+			ruleId: 'existing-catchall',
+			ruleName: 'Existing catch-all',
+			sampleFolders: ['Projects', 'Projects/Web'],
+		}]);
 		// The candidate `^Projects(?:/|$)` is more specific than the existing
 		// catch-all `^Projects(?:/.*)?$`, so per group→confidence→priority the
 		// candidate should be the predicted runtime winner.
 		expect(proj.conflict.predictedWinnerId).toBe('para-projects');
+		// Targets name the competing rule; winner prediction remains a separate field.
+		expect(proj.conflict.installedTargets?.[0].ruleId)
+			.not.toBe(proj.conflict.predictedWinnerId);
 
 		expect(plan.summary.collidingWithExistingCandidates).toBe(1);
 	});
@@ -569,11 +580,73 @@ describe('buildScanAndSnapPlan — conflict over the UNION', () => {
 		expect(other.conflict.conflicts).toBe(true);
 		expect(proj.conflict.collidesWithExisting).toBe(false);
 		expect(other.conflict.collidesWithExisting).toBe(false);
+		expect(proj.conflict.installedTargets).toEqual([]);
+		expect(proj.conflict.candidateTargets).toEqual([{
+			ruleId: other.id,
+			ruleName: other.rule.name,
+			sampleFolders: ['Projects', 'Projects/Web'],
+			candidateKey: other.key,
+			occurrenceKey: other.occurrenceKey,
+			sourcePackId: 'other',
+			sourcePackName: 'Other',
+			anchorPath: '',
+		}]);
+		expect(other.conflict.candidateTargets?.[0].candidateKey).toBe(proj.key);
 		// A winner is still named (deterministic resolution among candidates).
 		expect(proj.conflict.predictedWinnerId).not.toBeNull();
 
 		expect(plan.summary.conflictingCandidates).toBe(2);
 		expect(plan.summary.collidingWithExistingCandidates).toBe(0);
+	});
+
+	test('repeated candidate occurrences remain exact, self-excluding, and deduplicated', () => {
+		const sampleFolders = [
+			'Projects',
+			'Projects/Web',
+			'Projects/API',
+			'Projects/Docs',
+			'Projects/Ops',
+		];
+		const plan = buildScanAndSnapPlan({
+			folderPaths: [
+				'Projects',
+				'Projects',
+				'Projects/Web',
+				'Projects/Web',
+				'Projects/API',
+				'Projects/Docs',
+				'Projects/Ops',
+				'Projects/Extra',
+			],
+			deployments: [
+				{ packId: 'para', occurrenceKey: 'occurrence:alpha', anchorPath: '' },
+				{ packId: 'para', occurrenceKey: 'occurrence:beta', anchorPath: '' },
+			],
+			packRulesById: new Map([['para', [paraRule('Projects')]]]),
+			existingRules: [],
+			packNamesById: PACK_NAMES,
+		});
+
+		expect(plan.candidates).toHaveLength(2);
+		const [alpha, beta] = plan.candidates;
+		expect(alpha.occurrenceKey).toBe('occurrence:alpha');
+		expect(beta.occurrenceKey).toBe('occurrence:beta');
+		for (const [candidate, other] of [[alpha, beta], [beta, alpha]]) {
+			expect(candidate.conflict.candidateTargets).toEqual([{
+				ruleId: other.id,
+				ruleName: other.rule.name,
+				sampleFolders,
+				candidateKey: other.key,
+				occurrenceKey: other.occurrenceKey,
+				sourcePackId: other.sourcePackId,
+				sourcePackName: other.sourcePackName,
+				anchorPath: other.anchorPath,
+			}]);
+			expect(candidate.conflict.candidateTargets?.[0].candidateKey)
+				.not.toBe(candidate.key);
+			expect(candidate.conflict.installedTargets).toEqual([]);
+			expect(candidate.conflict.overlappingFolderSample).toEqual(sampleFolders);
+		}
 	});
 
 	test('non-overlapping candidate → no conflict, null predicted winner', () => {
@@ -588,6 +661,8 @@ describe('buildScanAndSnapPlan — conflict over the UNION', () => {
 		for (const c of plan.candidates) {
 			expect(c.conflict.conflicts).toBe(false);
 			expect(c.conflict.collidesWithExisting).toBe(false);
+			expect(c.conflict.candidateTargets).toEqual([]);
+			expect(c.conflict.installedTargets).toEqual([]);
 			expect(c.conflict.predictedWinnerId).toBeNull();
 		}
 	});

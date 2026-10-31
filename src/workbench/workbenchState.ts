@@ -1,6 +1,11 @@
 export const WORKBENCH_STATE_VERSION = 2 as const;
 
-export type WorkbenchSurface = 'map' | 'scope' | 'candidates';
+/**
+ * `outline` is a hidden prototype surface. It is deliberately absent from the
+ * visible surface navigation and is reachable only through its own command or
+ * an explicit view state.
+ */
+export type WorkbenchSurface = 'map' | 'scope' | 'candidates' | 'outline';
 export type WorkbenchMapMode = 'detected' | 'rules' | 'both';
 export type CandidateSource = 'scope-selection' | 'detected-instances';
 export type CandidateSort = 'noise' | 'conflict';
@@ -25,8 +30,13 @@ export interface WorkbenchCandidateState {
 	selectedKeys: string[] | null;
 }
 
+export interface WorkbenchOutlineState {
+	/** Exact occurrence choices excluded from the reviewed deployment set. */
+	excludedOccurrenceKeys: string[];
+}
+
 export interface WorkbenchPreferences {
-	/** Presentation only. Incomplete occurrences remain non-actionable. */
+	/** @deprecated Retained for version-2 workspace compatibility; all occurrences are now grouped visibly. */
 	showIncompleteSystems: boolean;
 }
 
@@ -38,6 +48,7 @@ export interface WorkbenchState {
 	candidates: WorkbenchCandidateState;
 	/** Cross-surface anchored occurrence selection. */
 	selectedSystemInstanceKey: string | null;
+	outline: WorkbenchOutlineState;
 	preferences: WorkbenchPreferences;
 	detailPath: string | null;
 }
@@ -50,7 +61,7 @@ export interface WorkbenchStateReconciliationInput {
 	validDetailPaths?: readonly string[];
 }
 
-export type WorkbenchRoute = 'map' | 'legacy-scan' | 'legacy-draft';
+export type WorkbenchRoute = 'map' | 'legacy-scan' | 'legacy-draft' | 'outline';
 
 export function createDefaultWorkbenchState(): WorkbenchState {
 	return {
@@ -67,6 +78,9 @@ export function createDefaultWorkbenchState(): WorkbenchState {
 			selectedKeys: null,
 		},
 		selectedSystemInstanceKey: null,
+		outline: {
+			excludedOccurrenceKeys: [],
+		},
 		preferences: {
 			showIncompleteSystems: true,
 		},
@@ -86,7 +100,7 @@ export function validateWorkbenchState(value: unknown): WorkbenchState {
 
 	const scope = isRecord(value.scope) ? value.scope : null;
 	const candidates = isRecord(value.candidates) ? value.candidates : null;
-	const preferences = isRecord(value.preferences) ? value.preferences : null;
+	const outline = isRecord(value.outline) ? value.outline : null;
 
 	return {
 		version: WORKBENCH_STATE_VERSION,
@@ -112,11 +126,15 @@ export function validateWorkbenchState(value: unknown): WorkbenchState {
 				: defaults.candidates.selectedKeys,
 		},
 		selectedSystemInstanceKey: validateNullableKey(value.selectedSystemInstanceKey),
+		outline: {
+			excludedOccurrenceKeys: outline
+				? normalizeStringList(outline.excludedOccurrenceKeys, normalizeCandidateKey)
+				: defaults.outline.excludedOccurrenceKeys,
+		},
 		preferences: {
-			showIncompleteSystems: preferences
-				&& typeof preferences.showIncompleteSystems === 'boolean'
-				? preferences.showIncompleteSystems
-				: defaults.preferences.showIncompleteSystems,
+			// The field remains in the version-2 shape so restored workspace state is
+			// compatible, but every occurrence is now rendered in an explained group.
+			showIncompleteSystems: true,
 		},
 		detailPath: validateNullablePath(value.detailPath),
 	};
@@ -140,6 +158,9 @@ export function isWorkbenchState(value: unknown): value is WorkbenchState {
 	}
 	if (value.selectedSystemInstanceKey !== null
 		&& typeof value.selectedSystemInstanceKey !== 'string') return false;
+	if (!isRecord(value.outline)
+		|| !Array.isArray(value.outline.excludedOccurrenceKeys)
+		|| !value.outline.excludedOccurrenceKeys.every((key) => typeof key === 'string')) return false;
 	if (!isRecord(value.preferences)
 		|| typeof value.preferences.showIncompleteSystems !== 'boolean') return false;
 	return value.detailPath === null || typeof value.detailPath === 'string';
@@ -177,6 +198,11 @@ export function routeLegacyDraft(state: unknown): WorkbenchState {
 	};
 }
 
+/** Open the hidden annotated-outline prototype, preserving every other choice. */
+export function routeToOutline(state: unknown): WorkbenchState {
+	return { ...validateWorkbenchState(state), surface: 'outline' };
+}
+
 export function reduceWorkbenchRoute(state: unknown, route: WorkbenchRoute): WorkbenchState {
 	switch (route) {
 		case 'map':
@@ -185,6 +211,8 @@ export function reduceWorkbenchRoute(state: unknown, route: WorkbenchRoute): Wor
 			return routeLegacyScan(state);
 		case 'legacy-draft':
 			return routeLegacyDraft(state);
+		case 'outline':
+			return routeToOutline(state);
 	}
 }
 
@@ -276,6 +304,9 @@ export function reconcileWorkbenchState(
 	const selectedSystemInstanceKey = input.validSystemInstanceKeys
 		? reconcileNullableKey(current.selectedSystemInstanceKey, input.validSystemInstanceKeys)
 		: current.selectedSystemInstanceKey;
+	const excludedOccurrenceKeys = input.validSystemInstanceKeys
+		? reconcileExactKeys(current.outline.excludedOccurrenceKeys, input.validSystemInstanceKeys)
+		: [...current.outline.excludedOccurrenceKeys];
 	const detailPath = input.validDetailPaths
 		? reconcileDetailPath(current.detailPath, input.validDetailPaths)
 		: current.detailPath;
@@ -285,6 +316,7 @@ export function reconcileWorkbenchState(
 		scope: { selectedPaths, signalFilter },
 		candidates: { ...current.candidates, selectedKeys },
 		selectedSystemInstanceKey,
+		outline: { excludedOccurrenceKeys },
 		detailPath,
 	};
 }
@@ -314,6 +346,14 @@ function reconcileNullableKey(
 	const normalized = validateNullableKey(value);
 	if (normalized === null) return null;
 	return new Set(validKeys).has(normalized) ? normalized : null;
+}
+
+function reconcileExactKeys(
+	values: readonly string[],
+	validKeys: readonly string[],
+): string[] {
+	const valid = new Set(normalizeStringList(validKeys, normalizeCandidateKey));
+	return normalizeStringList(values, normalizeCandidateKey).filter((key) => valid.has(key));
 }
 
 function validateSignalFilterIdentity(value: unknown): SignalFilterIdentity | null {
@@ -368,7 +408,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function isWorkbenchSurface(value: unknown): value is WorkbenchSurface {
-	return value === 'map' || value === 'scope' || value === 'candidates';
+	return value === 'map'
+		|| value === 'scope'
+		|| value === 'candidates'
+		|| value === 'outline';
 }
 
 function isWorkbenchMapMode(value: unknown): value is WorkbenchMapMode {

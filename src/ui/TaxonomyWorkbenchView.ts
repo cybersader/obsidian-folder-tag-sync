@@ -1,6 +1,7 @@
 import {
 	ItemView,
 	Notice,
+	setIcon,
 	type ViewStateResult,
 	WorkspaceLeaf,
 } from 'obsidian';
@@ -20,6 +21,7 @@ import {
 	resolveSelectedCandidateKeys,
 	validateWorkbenchState,
 	type WorkbenchCandidateState,
+	type WorkbenchOutlineState,
 	type WorkbenchRoute,
 	type WorkbenchState,
 	type WorkbenchSurface,
@@ -30,35 +32,65 @@ import { RuleLayersSection } from './workbench/RuleLayersSection';
 import { renderSemanticPath } from './workbench/SemanticPath';
 import { WorkbenchCandidatePanel } from './workbench/WorkbenchCandidatePanel';
 import { WorkbenchMapPanel } from './workbench/WorkbenchMapPanel';
+import {
+	OutlineStaleReviewError,
+	WorkbenchOutlinePanel,
+} from './workbench/WorkbenchOutlinePanel';
+import { describeOrganizationalSystemMarker } from './workbench/organizationalSystemMarker';
+import {
+	createDefaultWorkbenchMapPresentationState,
+	type WorkbenchMapPresentationState,
+} from './workbench/workbenchMapPresentation';
 import { WorkbenchScopePanel } from './workbench/WorkbenchScopePanel';
+import {
+	createDefaultWorkbenchScopePresentationState,
+	type WorkbenchScopePresentationState,
+} from './workbench/workbenchScopePresentation';
+import {
+	classifyWorkbenchLayout,
+	type WorkbenchLayout,
+} from './workbench/workbenchLayout';
 
 export const TAXONOMY_WORKBENCH_VIEW = 'taxonomy-workbench-map';
 
 type ActiveWorkbenchPanel =
 	| WorkbenchMapPanel
 	| WorkbenchScopePanel
-	| WorkbenchCandidatePanel;
+	| WorkbenchCandidatePanel
+	| WorkbenchOutlinePanel;
 
 /** Persistent ItemView shell for the Map, Scope, and Candidates surfaces. */
 export class TaxonomyWorkbenchView extends ItemView {
 	private readonly plugin: DynamicTagsFoldersPlugin;
 	private state: WorkbenchState = freezeWorkbenchState(createDefaultWorkbenchState());
+	private mapPresentationState: WorkbenchMapPresentationState =
+		createDefaultWorkbenchMapPresentationState();
+	private scopePresentationState: WorkbenchScopePresentationState =
+		createDefaultWorkbenchScopePresentationState();
 	private snapshot: WorkbenchSessionSnapshot | null = null;
 	private activePanel: ActiveWorkbenchPanel | null = null;
 	private activePanelSurface: WorkbenchSurface | null = null;
 	private navigationEl: HTMLElement | null = null;
 	private statusEl: HTMLElement | null = null;
+	private headerEl: HTMLElement | null = null;
 	private systemsSummaryEl: HTMLElement | null = null;
 	private systemsToggleEl: HTMLButtonElement | null = null;
 	private systemsBrowserEl: HTMLElement | null = null;
 	private systemsScrimEl: HTMLButtonElement | null = null;
+	private bodyEl: HTMLElement | null = null;
 	private deckEl: HTMLElement | null = null;
 	private panelEl: HTMLElement | null = null;
 	private systemsDeck: OrganizationalSystemsDeck | null = null;
 	private ruleLayersSection: RuleLayersSection | null = null;
 	private layoutObserver: ResizeObserver | null = null;
+	private layout: WorkbenchLayout = classifyWorkbenchLayout({
+		bodyWidth: 0,
+		bodyHeight: 0,
+		panelWidth: 0,
+		panelHeight: 0,
+	});
+	private layoutInitialized = false;
 	private systemsBrowserOpen = false;
-	private narrowLayout = false;
 	private collectionGeneration = 0;
 	private opened = false;
 	private scanning = false;
@@ -150,19 +182,30 @@ export class TaxonomyWorkbenchView extends ItemView {
 		this.layoutObserver?.disconnect();
 		this.layoutObserver = null;
 		this.snapshot = null;
+		this.mapPresentationState = createDefaultWorkbenchMapPresentationState();
+		this.scopePresentationState = createDefaultWorkbenchScopePresentationState();
 		this.navigationEl = null;
 		this.statusEl = null;
 		this.systemsSummaryEl = null;
 		this.systemsToggleEl = null;
 		this.systemsBrowserEl = null;
 		this.systemsScrimEl = null;
+		this.bodyEl = null;
 		this.deckEl = null;
 		this.panelEl = null;
 		this.systemsBrowserOpen = false;
-		this.narrowLayout = false;
+		this.layoutInitialized = false;
+		this.layout = classifyWorkbenchLayout({
+			bodyWidth: 0,
+			bodyHeight: 0,
+			panelWidth: 0,
+			panelHeight: 0,
+		});
 		this.contentEl.empty();
 		this.contentEl.removeClass('dtf-workbench-shell');
-		this.contentEl.removeClass('is-short-workbench');
+		this.contentEl.removeClass('is-workbench-spacious');
+		this.contentEl.removeClass('is-workbench-compact');
+		this.contentEl.removeClass('is-workbench-tight');
 	}
 
 	private buildShell(): void {
@@ -177,7 +220,8 @@ export class TaxonomyWorkbenchView extends ItemView {
 		root.style.padding = '0.6em 0.8em';
 		root.style.gap = '0.55em';
 
-		const header = root.createDiv();
+		const header = root.createDiv({ cls: 'dtf-workbench-header' });
+		this.headerEl = header;
 		header.style.display = 'flex';
 		header.style.alignItems = 'center';
 		header.style.justifyContent = 'space-between';
@@ -203,6 +247,7 @@ export class TaxonomyWorkbenchView extends ItemView {
 		this.statusEl.style.flex = '0 0 auto';
 		this.statusEl.setAttr('aria-live', 'polite');
 		this.renderStatus();
+		this.placeStatus();
 
 		this.systemsSummaryEl = root.createDiv({ cls: 'dtf-workbench-systems-summary' });
 		this.systemsSummaryEl.dataset.dtfSystemsSummary = '1';
@@ -210,6 +255,7 @@ export class TaxonomyWorkbenchView extends ItemView {
 
 		const body = root.createDiv({ cls: 'dtf-workbench-body' });
 		body.dataset.dtfWorkbenchBody = '1';
+		this.bodyEl = body;
 
 		this.systemsScrimEl = body.createEl('button', {
 			cls: 'dtf-workbench-systems-scrim',
@@ -221,42 +267,69 @@ export class TaxonomyWorkbenchView extends ItemView {
 		this.systemsBrowserEl.id = 'dtf-workbench-systems-browser';
 		this.systemsBrowserEl.dataset.dtfSystemsBrowser = '1';
 		const browserToolbar = this.systemsBrowserEl.createDiv({ cls: 'dtf-systems-browser-toolbar' });
-		browserToolbar.createDiv({ text: 'Systems browser' });
+		browserToolbar.createDiv({ text: 'Organizational systems' });
 		const closeBrowser = browserToolbar.createEl('button', { text: 'Close' });
 		closeBrowser.dataset.dtfSystemsBrowserClose = '1';
 		closeBrowser.setAttr('aria-label', 'Close organizational systems browser');
 		closeBrowser.addEventListener('click', () => this.setSystemsBrowserOpen(false));
 		this.systemsBrowserEl.addEventListener('keydown', (event) => {
-			if (event.key !== 'Escape' || !this.systemsBrowserOpen) return;
-			event.preventDefault();
-			this.setSystemsBrowserOpen(false);
+			if (!this.systemsBrowserOpen) return;
+			if (event.key === 'Escape') {
+				event.preventDefault();
+				this.setSystemsBrowserOpen(false);
+				return;
+			}
+			if (event.key === 'Tab' && this.layout.systemsBrowser === 'overlay') {
+				this.trapSystemsBrowserFocus(event);
+			}
 		});
 
 		this.deckEl = this.systemsBrowserEl.createDiv({ cls: 'dtf-workbench-persistent-deck' });
 		this.deckEl.dataset.dtfWorkbenchPersistentDeck = '1';
 
-		this.panelEl = body.createDiv({ cls: 'dtf-workbench-active-panel' });
-		this.panelEl.id = 'dtf-workbench-active-panel';
-		this.panelEl.setAttr('role', 'tabpanel');
-		this.panelEl.dataset.dtfWorkbenchCurrentSurface = this.state.surface;
+		const panel = body.createDiv({ cls: 'dtf-workbench-active-panel' });
+		this.panelEl = panel;
+		panel.id = 'dtf-workbench-active-panel';
+		panel.setAttr('role', 'tabpanel');
+		panel.dataset.dtfWorkbenchCurrentSurface = this.state.surface;
 
-		const initialWidth = root.clientWidth;
-		const initialHeight = root.clientHeight;
-		this.narrowLayout = initialWidth === 0 || initialWidth <= 750;
-		root.toggleClass('is-short-workbench', initialHeight > 0 && initialHeight <= 560);
-		this.systemsBrowserOpen = !this.narrowLayout;
-		this.updateSystemsBrowserState();
-		this.layoutObserver = new ResizeObserver((entries) => {
-			const width = entries[0]?.contentRect.width ?? root.clientWidth;
-			const height = entries[0]?.contentRect.height ?? root.clientHeight;
-			root.toggleClass('is-short-workbench', height > 0 && height <= 560);
-			const narrow = width <= 750;
-			if (narrow === this.narrowLayout) return;
-			this.narrowLayout = narrow;
-			this.systemsBrowserOpen = !narrow;
-			this.updateSystemsBrowserState();
+		this.layoutObserver = new ResizeObserver(() => {
+			this.updateWorkbenchLayout();
 		});
 		this.layoutObserver.observe(root);
+		this.layoutObserver.observe(body);
+		this.layoutObserver.observe(panel);
+		this.updateWorkbenchLayout();
+		requestAnimationFrame(() => this.updateWorkbenchLayout());
+	}
+
+	private updateWorkbenchLayout(): void {
+		const body = this.bodyEl;
+		const panel = this.panelEl;
+		if (!body || !panel) return;
+
+		const next = classifyWorkbenchLayout({
+			bodyWidth: body.clientWidth,
+			bodyHeight: body.clientHeight,
+			panelWidth: panel.clientWidth,
+			panelHeight: panel.clientHeight,
+		});
+		this.layout = next;
+		this.contentEl.dataset.dtfWorkbenchDensity = next.density;
+		this.contentEl.dataset.dtfSystemsBrowserMode = next.systemsBrowser;
+		this.contentEl.dataset.dtfFolderInspectorMode = next.folderInspector;
+		this.contentEl.toggleClass('is-workbench-spacious', next.density === 'spacious');
+		this.contentEl.toggleClass('is-workbench-compact', next.density === 'compact');
+		this.contentEl.toggleClass('is-workbench-tight', next.density === 'tight');
+
+		const hasUsableMeasurements = body.clientWidth > 0
+			&& body.clientHeight > 0
+			&& panel.clientWidth > 0
+			&& panel.clientHeight > 0;
+		if (!this.layoutInitialized && hasUsableMeasurements) {
+			this.layoutInitialized = true;
+			this.systemsBrowserOpen = next.systemsBrowser === 'side';
+		}
 		this.updateSystemsBrowserState();
 	}
 
@@ -265,53 +338,70 @@ export class TaxonomyWorkbenchView extends ItemView {
 		if (!summary) return;
 		summary.empty();
 
-		const snapshot = this.snapshot;
-		const identity = summary.createDiv({ cls: 'dtf-systems-summary-identity' });
-		identity.createSpan({ cls: 'dtf-systems-summary-label', text: 'Organizational systems' });
-		if (!snapshot) {
-			identity.createSpan({ cls: 'dtf-systems-summary-detail', text: 'Collecting…' });
-		} else {
-			const selected = snapshot.organizationalSystems.cards.find((card) =>
-				card.occurrenceKey === this.state.selectedSystemInstanceKey);
-			const counts = `${snapshot.occurrenceStats.actionableCount} complete · `
-				+ `${snapshot.occurrenceStats.incompleteCount} incomplete`;
-			identity.createSpan({ cls: 'dtf-systems-summary-counts', text: counts });
-			const detail = identity.createDiv({ cls: 'dtf-systems-summary-detail' });
-			if (selected) {
-				detail.dataset.dtfSelectedSystemSummary = '1';
-				detail.createSpan({
-					cls: 'dtf-workbench-object-kind',
-					text: 'Selected system',
-				});
-				detail.createSpan({
-					cls: 'dtf-systems-summary-name',
-					text: selected.packName,
-				});
-				detail.createSpan({
-					cls: `dtf-orgsys-status is-${selected.status}`,
-					text: selected.status === 'actionable'
-						? 'Complete'
-						: selected.status === 'suppressed'
-							? 'Suppressed'
-							: 'Incomplete',
-				});
-				renderSemanticPath(detail, selected.anchorPath, {
-					role: 'summary-selected-system-anchor',
-					focusLabel: 'Applies here',
-					variant: 'compact',
-				});
-			} else {
-				detail.setText('No system selected');
-			}
+		if (this.isPrototypeSurface()) {
+			summary.setAttr('aria-hidden', 'true');
+			this.systemsToggleEl = null;
+			// The drawer must not keep the panel inert while it is hidden.
+			this.systemsBrowserOpen = false;
+			this.updateSystemsBrowserState();
+			return;
 		}
+		summary.removeAttribute('aria-hidden');
 
-		this.systemsToggleEl = summary.createEl('button', { text: 'Browse systems' });
+		const snapshot = this.snapshot;
+		const selected = snapshot?.organizationalSystems.cards.find((card) =>
+			card.occurrenceKey === this.state.selectedSystemInstanceKey) ?? null;
+
+		this.systemsToggleEl = summary.createEl('button', {
+			cls: 'dtf-systems-sidebar-toggle clickable-icon',
+		});
 		this.systemsToggleEl.dataset.dtfSystemsBrowserToggle = '1';
 		this.systemsToggleEl.setAttr('aria-controls', 'dtf-workbench-systems-browser');
 		this.systemsToggleEl.disabled = snapshot === null;
 		this.systemsToggleEl.addEventListener('click', () => {
 			this.setSystemsBrowserOpen(!this.systemsBrowserOpen);
 		});
+
+		const identity = summary.createDiv({ cls: 'dtf-systems-summary-identity' });
+		identity.createSpan({ cls: 'dtf-systems-summary-label', text: 'Organizational systems' });
+		if (!snapshot) {
+			identity.createSpan({ cls: 'dtf-systems-summary-detail', text: 'Collecting…' });
+		} else {
+			const possibleCount = snapshot.occurrenceStats.incompleteCount
+				+ snapshot.occurrenceStats.suppressedCount;
+			identity.createSpan({
+				cls: 'dtf-systems-summary-counts',
+				text: `${snapshot.occurrenceStats.actionableCount} ready · ${possibleCount} possible`,
+			});
+			const detail = identity.createDiv({ cls: 'dtf-systems-summary-detail' });
+			if (selected) {
+				detail.dataset.dtfSelectedSystemSummary = '1';
+				const marker = describeOrganizationalSystemMarker(selected.occurrenceKey);
+				const markerEl = detail.createSpan({ cls: 'dtf-organizational-system-marker' });
+				markerEl.dataset.dtfOrganizationalSystemMarker = selected.occurrenceKey;
+				markerEl.style.setProperty('--dtf-organizational-system-marker-color', marker.colorToken);
+				markerEl.setAttr('aria-hidden', 'true');
+				detail.createSpan({
+					cls: 'dtf-workbench-object-kind',
+					text: 'Focused organizational system',
+				});
+				detail.createSpan({ cls: 'dtf-systems-summary-name', text: selected.packName });
+				detail.createSpan({
+					cls: `dtf-orgsys-status is-${selected.status}`,
+					text: selected.status === 'actionable' ? 'Ready' : 'More folders needed',
+				});
+				renderSemanticPath(detail, selected.anchorPath, {
+					role: 'summary-selected-system-anchor',
+					focusLabel: 'Recognized here',
+					variant: 'compact',
+				});
+			} else {
+				detail.setText(
+					'Choose a ready organizational system to start, or inspect the folder tree first.',
+				);
+			}
+		}
+
 		this.updateSystemsBrowserState();
 	}
 
@@ -320,8 +410,13 @@ export class TaxonomyWorkbenchView extends ItemView {
 		this.systemsBrowserOpen = open;
 		this.updateSystemsBrowserState();
 		if (open) {
+			this.systemsDeck?.revealSelected();
 			requestAnimationFrame(() => {
-				this.systemsBrowserEl?.querySelector<HTMLElement>('.dtf-systems-browser-toolbar button')?.focus();
+				const selected = this.systemsBrowserEl
+					?.querySelector<HTMLElement>('[data-dtf-system-occurrence-key][aria-selected="true"]');
+				(selected ?? this.systemsBrowserEl
+					?.querySelector<HTMLElement>('.dtf-systems-browser-toolbar button'))
+					?.focus({ preventScroll: true });
 			});
 		} else {
 			requestAnimationFrame(() => this.systemsToggleEl?.focus());
@@ -330,7 +425,8 @@ export class TaxonomyWorkbenchView extends ItemView {
 
 	private updateSystemsBrowserState(): void {
 		const open = this.systemsBrowserOpen;
-		const overlayOpen = open && this.narrowLayout;
+		const overlay = this.layout.systemsBrowser === 'overlay';
+		const overlayOpen = open && overlay;
 		if (open) this.contentEl.addClass('is-systems-browser-open');
 		else this.contentEl.removeClass('is-systems-browser-open');
 
@@ -339,12 +435,24 @@ export class TaxonomyWorkbenchView extends ItemView {
 		if (this.systemsBrowserEl) {
 			if (open) this.systemsBrowserEl.removeAttribute('inert');
 			else this.systemsBrowserEl.setAttribute('inert', '');
+			if (overlayOpen) {
+				this.systemsBrowserEl.setAttr('role', 'dialog');
+				this.systemsBrowserEl.setAttr('aria-modal', 'true');
+				this.systemsBrowserEl.setAttr('aria-label', 'Organizational systems');
+			} else {
+				this.systemsBrowserEl.removeAttribute('role');
+				this.systemsBrowserEl.removeAttribute('aria-modal');
+				this.systemsBrowserEl.removeAttribute('aria-label');
+			}
 		}
 		this.systemsToggleEl?.setAttr('aria-expanded', String(open));
 		if (this.systemsToggleEl) {
-			this.systemsToggleEl.setText(
-				open ? (this.narrowLayout ? 'Close systems' : 'Hide systems') : 'Browse systems',
-			);
+			const label = overlay
+				? `${open ? 'Close' : 'Open'} organizational systems drawer`
+				: `${open ? 'Hide' : 'Show'} organizational systems sidebar`;
+			this.systemsToggleEl.setAttr('aria-label', label);
+			this.systemsToggleEl.setAttr('title', label);
+			setIcon(this.systemsToggleEl, open ? 'panel-left-close' : 'panel-left');
 		}
 		this.systemsScrimEl?.setAttr('aria-hidden', String(!overlayOpen));
 		if (this.systemsScrimEl) this.systemsScrimEl.tabIndex = overlayOpen ? 0 : -1;
@@ -359,23 +467,75 @@ export class TaxonomyWorkbenchView extends ItemView {
 		}
 	}
 
+	private trapSystemsBrowserFocus(event: KeyboardEvent): void {
+		const browser = this.systemsBrowserEl;
+		if (!browser) return;
+		const focusable = Array.from(browser.querySelectorAll<HTMLElement>(
+			'button:not([disabled]), details > summary, [href], [tabindex]:not([tabindex="-1"])',
+		)).filter((element) => element.offsetParent !== null);
+		if (focusable.length === 0) return;
+		const first = focusable[0];
+		const last = focusable[focusable.length - 1];
+		if (event.shiftKey && document.activeElement === first) {
+			event.preventDefault();
+			last.focus();
+		} else if (!event.shiftKey && document.activeElement === last) {
+			event.preventDefault();
+			first.focus();
+		}
+	}
+
+	/** The hidden outline prototype owns the whole pane: no tabs, no deck. */
+	private isPrototypeSurface(): boolean {
+		return this.state.surface === 'outline';
+	}
+
+	/**
+	 * The outline prototype collapses the title and the status line into one
+	 * header row; every other surface keeps the status on its own line.
+	 */
+	private placeStatus(): void {
+		const status = this.statusEl;
+		const header = this.headerEl;
+		if (!status || !header) return;
+		if (this.isPrototypeSurface()) {
+			if (status.parentElement !== header) header.appendChild(status);
+			return;
+		}
+		if (status.parentElement === header) header.after(status);
+	}
+
 	private renderNavigation(): void {
 		const navigation = this.navigationEl;
 		if (!navigation) return;
 		navigation.empty();
 		this.contentEl.dataset.dtfWorkbenchCurrentSurface = this.state.surface;
+		this.contentEl.toggleClass('is-workbench-prototype', this.isPrototypeSurface());
+		this.placeStatus();
 		if (this.panelEl) {
 			this.panelEl.dataset.dtfWorkbenchCurrentSurface = this.state.surface;
 			this.panelEl.setAttr('aria-labelledby', `dtf-workbench-tab-${this.state.surface}`);
 		}
+		if (this.isPrototypeSurface()) {
+			navigation.setAttr('aria-hidden', 'true');
+			return;
+		}
+		navigation.removeAttribute('aria-hidden');
 
-		const surfaces: Array<{ surface: WorkbenchSurface; label: string }> = [
-			{ surface: 'map', label: 'Map' },
-			{ surface: 'scope', label: 'Scope' },
-			{ surface: 'candidates', label: 'Candidates' },
+		const surfaces: Array<{
+			surface: WorkbenchSurface;
+			label: string;
+			shortLabel: string;
+		}> = [
+			{ surface: 'map', label: 'Explore your vault', shortLabel: 'Explore' },
+			{ surface: 'scope', label: 'Choose where rules apply', shortLabel: 'Choose' },
+			{ surface: 'candidates', label: 'Review proposed rules', shortLabel: 'Review' },
 		];
-		for (const [index, { surface, label }] of surfaces.entries()) {
-			const button = navigation.createEl('button', { text: label });
+		for (const [index, { surface, label, shortLabel }] of surfaces.entries()) {
+			const button = navigation.createEl('button');
+			button.createSpan({ cls: 'dtf-workbench-job-label-full', text: label });
+			button.createSpan({ cls: 'dtf-workbench-job-label-short', text: shortLabel });
+			button.setAttr('aria-label', label);
 			const active = this.state.surface === surface;
 			button.id = `dtf-workbench-tab-${surface}`;
 			button.dataset.dtfWorkbenchSurfaceButton = surface;
@@ -546,7 +706,7 @@ export class TaxonomyWorkbenchView extends ItemView {
 		this.renderSystemsSummary();
 		const container = this.deckEl;
 		const snapshot = this.snapshot;
-		if (!container || !snapshot) return;
+		if (!container || !snapshot || this.isPrototypeSurface()) return;
 
 		if (this.systemsDeck && this.ruleLayersSection) {
 			this.systemsDeck.update(snapshot);
@@ -558,11 +718,7 @@ export class TaxonomyWorkbenchView extends ItemView {
 		const systemsEl = container.createDiv();
 		const layersEl = container.createDiv();
 		this.systemsDeck = new OrganizationalSystemsDeck(systemsEl, snapshot, {
-			onSelectSystem: (occurrenceKey) => {
-				this.selectSystemInstance(occurrenceKey);
-				if (this.narrowLayout) this.setSystemsBrowserOpen(false);
-			},
-			onShowIncompleteChange: (show) => this.setShowIncompleteSystems(show),
+			onSelectSystem: (occurrenceKey) => this.selectSystemInstance(occurrenceKey),
 		});
 		this.ruleLayersSection = new RuleLayersSection(layersEl, snapshot);
 	}
@@ -583,12 +739,21 @@ export class TaxonomyWorkbenchView extends ItemView {
 		}
 		if (this.activePanelSurface === 'scope'
 			&& this.activePanel instanceof WorkbenchScopePanel) {
-			this.activePanel.update(snapshot, this.state.scope);
+			this.activePanel.update(
+				snapshot,
+				this.state.scope,
+				this.scopePresentationState,
+			);
 			return;
 		}
 		if (this.activePanelSurface === 'candidates'
 			&& this.activePanel instanceof WorkbenchCandidatePanel) {
 			this.activePanel.update(snapshot);
+			return;
+		}
+		if (this.activePanelSurface === 'outline'
+			&& this.activePanel instanceof WorkbenchOutlinePanel) {
+			this.activePanel.update(snapshot, this.state.scope);
 			return;
 		}
 
@@ -600,9 +765,15 @@ export class TaxonomyWorkbenchView extends ItemView {
 				onRefresh: () => this.collectSnapshot(),
 				onOpenSettings: (ruleId) => this.openPluginSettings(ruleId),
 				onChooseBranchInScope: (path) => this.chooseBranchInScope(path),
-				onPreviewEmittedTags: (path, tags) => this.previewEmittedTags(path, tags),
+				onOpenSystemsBrowser: () => this.setSystemsBrowserOpen(true),
 				onSelectSystem: (occurrenceKey) => this.selectSystemInstance(occurrenceKey),
-			});
+				onOpenSystemOccurrence: (occurrenceKey) => {
+					this.openSystemOccurrence(occurrenceKey);
+				},
+				onPresentationStateChange: (presentationState) => {
+					this.mapPresentationState = presentationState;
+				},
+			}, this.mapPresentationState);
 			this.activePanel.render(snapshot);
 			return;
 		}
@@ -611,6 +782,7 @@ export class TaxonomyWorkbenchView extends ItemView {
 			this.activePanel = new WorkbenchScopePanel(container, {
 				snapshot,
 				scope: this.state.scope,
+				presentationState: this.scopePresentationState,
 				onSelectedPathsChange: (selectedPaths) => {
 					this.acceptScopeState({ ...this.state.scope, selectedPaths });
 				},
@@ -624,6 +796,40 @@ export class TaxonomyWorkbenchView extends ItemView {
 					void this.collectSnapshot();
 				},
 				onSelectSystem: (occurrenceKey) => this.selectSystemInstance(occurrenceKey),
+				onPresentationStateChange: (presentationState) => {
+					this.scopePresentationState = presentationState;
+				},
+			});
+			return;
+		}
+
+		// The hidden annotated-outline prototype. Checked before the Candidates
+		// fallback and deliberately absent from the visible surface navigation.
+		if (this.state.surface === 'outline') {
+			this.activePanel = new WorkbenchOutlinePanel(container, {
+				snapshot,
+				scope: this.state.scope,
+				onSelectedPathsChange: (selectedPaths) => {
+					this.acceptScopeState({ ...this.state.scope, selectedPaths });
+					void this.collectSnapshot();
+				},
+				onOutlineStateChange: (outlineState) => {
+					this.acceptOutlineState(outlineState);
+				},
+				onInstall: async (selectedRules) => {
+					if (this.snapshotStale
+						|| this.snapshot?.sourceRevision
+							!== this.plugin.getWorkbenchSourceRevision()) {
+						await this.collectSnapshot();
+						throw new OutlineStaleReviewError('Reviewed rules were refreshed because the vault or rule settings changed.');
+					}
+					const result = await this.plugin.installWorkbenchRules(selectedRules);
+					await this.collectSnapshot();
+					return result;
+				},
+				onReviewRule: (ruleId) => this.openPluginSettings(ruleId),
+				isSnapshotStale: () => this.snapshotStale
+					|| this.snapshot?.sourceRevision !== this.plugin.getWorkbenchSourceRevision(),
 			});
 			return;
 		}
@@ -635,7 +841,7 @@ export class TaxonomyWorkbenchView extends ItemView {
 					|| this.snapshot?.sourceRevision
 						!== this.plugin.getWorkbenchSourceRevision()) {
 					await this.collectSnapshot();
-					throw new Error('Candidates were refreshed because the vault or rule settings changed. Review the updated plan before installing.');
+					throw new Error('Proposed rules were refreshed because the vault or rule settings changed. Review the updated plan before saving.');
 				}
 				const result = await this.plugin.installWorkbenchRules(selectedRules);
 				await this.collectSnapshot();
@@ -647,35 +853,44 @@ export class TaxonomyWorkbenchView extends ItemView {
 			onEditScope: () => this.navigateToSurface('scope'),
 			onRefresh: () => this.collectSnapshot(),
 			onReviewAddedRule: (ruleId) => this.openPluginSettings(ruleId),
+			onReviewInstalledRule: (ruleId) => this.openPluginSettings(ruleId),
 			onSelectSystem: (occurrenceKey) => this.selectSystemInstance(occurrenceKey),
 			isSnapshotStale: () => this.snapshotStale,
 		});
 	}
 
 	private selectSystemInstance(occurrenceKey: string | null): void {
-		const nextKey = occurrenceKey;
+		const preserveBrowserFocus = this.systemsBrowserEl?.contains(document.activeElement) ?? false;
 		const next = freezeWorkbenchState({
 			...cloneWorkbenchState(this.state),
-			selectedSystemInstanceKey: nextKey,
+			selectedSystemInstanceKey: occurrenceKey,
 		});
 		this.setLocalState(next);
 		this.updateSnapshotState(next);
 		this.renderActivePanel();
+		if (preserveBrowserFocus && occurrenceKey) {
+			requestAnimationFrame(() => {
+				this.systemsDeck?.revealSelected();
+				this.findSystemOccurrenceButton(occurrenceKey)?.focus({ preventScroll: true });
+			});
+		}
 	}
 
-	private setShowIncompleteSystems(showIncompleteSystems: boolean): void {
-		const selected = this.snapshot?.organizationalSystems.cards.find((card) =>
-			card.occurrenceKey === this.state.selectedSystemInstanceKey);
-		const next = freezeWorkbenchState({
-			...cloneWorkbenchState(this.state),
-			selectedSystemInstanceKey: !showIncompleteSystems && selected?.status === 'incomplete'
-				? null
-				: this.state.selectedSystemInstanceKey,
-			preferences: { showIncompleteSystems },
+	private openSystemOccurrence(occurrenceKey: string): void {
+		this.selectSystemInstance(occurrenceKey);
+		this.setSystemsBrowserOpen(true);
+		requestAnimationFrame(() => {
+			this.systemsDeck?.revealSelected();
+			this.findSystemOccurrenceButton(occurrenceKey)?.focus({ preventScroll: true });
 		});
-		this.setLocalState(next);
-		this.updateSnapshotState(next);
-		this.renderActivePanel();
+	}
+
+	private findSystemOccurrenceButton(occurrenceKey: string): HTMLButtonElement | null {
+		return Array.from(
+			this.systemsBrowserEl?.querySelectorAll<HTMLButtonElement>(
+				'[data-dtf-system-occurrence-key]',
+			) ?? [],
+		).find((button) => button.dataset.dtfSystemOccurrenceKey === occurrenceKey) ?? null;
 	}
 
 	private acceptPanelState(state: WorkbenchState): void {
@@ -690,6 +905,17 @@ export class TaxonomyWorkbenchView extends ItemView {
 			scope: {
 				selectedPaths: [...scope.selectedPaths],
 				signalFilter: scope.signalFilter ? { ...scope.signalFilter } : null,
+			},
+		});
+		this.setLocalState(next);
+		this.updateSnapshotState(next);
+	}
+
+	private acceptOutlineState(outlineState: WorkbenchOutlineState): void {
+		const next = freezeWorkbenchState({
+			...cloneWorkbenchState(this.state),
+			outline: {
+				excludedOccurrenceKeys: [...outlineState.excludedOccurrenceKeys],
 			},
 		});
 		this.setLocalState(next);
@@ -780,8 +1006,7 @@ export class TaxonomyWorkbenchView extends ItemView {
 		});
 		const occurrenceStats = {
 			...snapshot.occurrenceStats,
-			visibleCount: organizationalSystems.cards.filter((card) =>
-				next.preferences.showIncompleteSystems || card.status !== 'incomplete').length,
+			visibleCount: organizationalSystems.cards.length,
 		};
 
 		const updated: WorkbenchSessionSnapshot = {
@@ -801,6 +1026,13 @@ export class TaxonomyWorkbenchView extends ItemView {
 		next: WorkbenchState,
 	): boolean {
 		if (!this.snapshot) return true;
+		// The hidden outline prototype plans candidates from the same checked
+		// folders, so it recollects on the same conditions as scope-selection.
+		if (next.surface === 'outline') {
+			if (!this.snapshot.candidatePlan) return true;
+			if (previous.surface !== 'outline') return true;
+			return !sameScopeState(previous, next);
+		}
 		if (next.surface !== 'candidates') return false;
 		if (!this.snapshot.candidatePlan) return true;
 		if (previous.surface !== 'candidates') return true;
@@ -833,14 +1065,8 @@ export class TaxonomyWorkbenchView extends ItemView {
 		this.deckEl?.empty();
 	}
 
-	private previewEmittedTags(path: string, tags: readonly string[]): void {
-		const displayPath = path || '(vault root)';
-		if (tags.length > 0) new Notice(`${displayPath} → ${tags.join(', ')}`);
-		else new Notice(`No rule emits tags for ${displayPath}.`);
-	}
-
 	private openPluginSettings(ruleId?: string): void {
-		if (ruleId) this.plugin.focusRuleId = ruleId;
+		this.plugin.focusRuleId = ruleId || undefined;
 		const setting = (
 			this.app as unknown as {
 				setting?: { open: () => void; openTabById: (id: string) => unknown };
@@ -862,6 +1088,8 @@ function freezeWorkbenchState(state: WorkbenchState): WorkbenchState {
 	Object.freeze(clone.scope);
 	if (clone.candidates.selectedKeys) Object.freeze(clone.candidates.selectedKeys);
 	Object.freeze(clone.candidates);
+	Object.freeze(clone.outline.excludedOccurrenceKeys);
+	Object.freeze(clone.outline);
 	Object.freeze(clone.preferences);
 	return Object.freeze(clone);
 }
@@ -878,6 +1106,9 @@ function cloneWorkbenchState(state: WorkbenchState): WorkbenchState {
 			selectedKeys: state.candidates.selectedKeys === null
 				? null
 				: [...state.candidates.selectedKeys],
+		},
+		outline: {
+			excludedOccurrenceKeys: [...state.outline.excludedOccurrenceKeys],
 		},
 		preferences: { ...state.preferences },
 	};

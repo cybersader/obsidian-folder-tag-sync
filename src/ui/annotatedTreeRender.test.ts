@@ -1,6 +1,10 @@
 import { describe, expect, test } from 'bun:test';
 import type { AnnotatedHit } from '../engine/detectionTree';
-import { collectOccurrenceRelations } from './annotatedTreeRender';
+import {
+	collectOccurrenceRelations,
+	compactOccurrenceRelations,
+	type OccurrenceRelationDescriptor,
+} from './annotatedTreeRender';
 
 function hit(options: {
 	occurrenceKey?: string;
@@ -74,5 +78,56 @@ describe('collectOccurrenceRelations', () => {
 			hit({}),
 			hit({ occurrenceKey: 'para-at-work', anchorPath: 'Work' }),
 		])).toHaveLength(1);
+	});
+});
+
+describe('compactOccurrenceRelations', () => {
+	const relations: OccurrenceRelationDescriptor[] = [
+		{
+			occurrenceKey: 'jd-at-root',
+			relation: 'member',
+			packName: 'Johnny Decimal',
+			anchorPath: '',
+		},
+		{
+			occurrenceKey: 'enterprise-at-root',
+			relation: 'member',
+			packName: 'Enterprise JD vault',
+			anchorPath: '',
+		},
+		{
+			occurrenceKey: 'seacow-at-root',
+			relation: 'support',
+			packName: 'SEACOW',
+			anchorPath: '',
+		},
+	];
+
+	test('shows one exact relation plus a hidden-system count when collapsed', () => {
+		expect(compactOccurrenceRelations(relations, 1, false)).toEqual({
+			visible: [relations[0]],
+			hiddenCount: 2,
+		});
+	});
+
+	test('reveals every exact occurrence without changing source order', () => {
+		const display = compactOccurrenceRelations(relations, 1, true);
+		expect(display.hiddenCount).toBe(0);
+		expect(display.visible.map((relation) => relation.occurrenceKey)).toEqual([
+			'jd-at-root',
+			'enterprise-at-root',
+			'seacow-at-root',
+		]);
+	});
+
+	test('keeps the selected exact occurrence visible in a collapsed row', () => {
+		const display = compactOccurrenceRelations(
+			relations,
+			1,
+			false,
+			'enterprise-at-root',
+		);
+		expect(display.visible[0]?.occurrenceKey).toBe('enterprise-at-root');
+		expect(display.hiddenCount).toBe(2);
 	});
 });

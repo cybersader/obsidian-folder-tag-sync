@@ -18,6 +18,15 @@ export interface SemanticPathRenderOptions {
 	className?: string;
 }
 
+export interface FullPathRenderOptions {
+	/** Stable semantic role used by real-Obsidian regression tests. */
+	role: string;
+	/** One plain label for the complete vault-relative path. */
+	label: string;
+	/** Additional class for a surface-specific layout hook. */
+	className?: string;
+}
+
 /**
  * Separate a vault-relative path into structural context and the segment that
  * carries the current semantic meaning. Empty paths explicitly mean vault root.
@@ -70,6 +79,29 @@ export function renderSemanticPath(
 		renderPathPart(root, 'context', contextLabel, description.context);
 	}
 	renderPathPart(root, 'focus', options.focusLabel, description.focus);
+	return root;
+}
+
+/** Render a complete path under one understandable label without splitting context. */
+export function renderFullPath(
+	parent: HTMLElement,
+	path: string,
+	options: FullPathRenderOptions,
+): HTMLElement {
+	const value = path || 'Vault root';
+	const root = parent.createDiv({
+		cls: [
+			'dtf-semantic-path',
+			'is-full-path',
+			options.className ?? '',
+		].filter(Boolean).join(' '),
+	});
+	root.dataset.dtfSemanticPath = options.role;
+	root.setAttribute('aria-label', `${options.label}: ${value}.`);
+	root.title = value;
+	const part = root.createDiv({ cls: 'dtf-semantic-path-part is-full-path' });
+	part.createSpan({ cls: 'dtf-semantic-path-label', text: options.label });
+	part.createSpan({ cls: 'dtf-semantic-path-value', text: value });
 	return root;
 }
 

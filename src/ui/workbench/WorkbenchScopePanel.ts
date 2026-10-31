@@ -16,7 +16,17 @@ import {
 	type SignalFilterIdentity,
 	type WorkbenchScopeState,
 } from '../../workbench/workbenchState';
+import { describeOrganizationalSystemMarker } from './organizationalSystemMarker';
 import { renderSemanticPath } from './SemanticPath';
+import {
+	calculateWorkbenchScopeSplit,
+	cloneWorkbenchScopePresentationState,
+	createDefaultWorkbenchScopePresentationState,
+	normalizeWorkbenchScopeScrollOffset,
+	updateWorkbenchScopePresentationState,
+	WORKBENCH_SCOPE_SPLIT_METRICS,
+	type WorkbenchScopePresentationState,
+} from './workbenchScopePresentation';
 
 export interface WorkbenchScopePanelCallbacks {
 	onSelectedPathsChange(selectedPaths: string[]): void;
@@ -24,12 +34,16 @@ export interface WorkbenchScopePanelCallbacks {
 	onRouteToCandidates(plan: ScopePackPlan): void;
 	onRefresh(): void;
 	onSelectSystem?(occurrenceKey: string): void;
+	/** Keeps view-local split geometry and scroll place owned by the Workbench host. */
+	onPresentationStateChange?(state: WorkbenchScopePresentationState): void;
 }
 
 export interface WorkbenchScopePanelOptions extends WorkbenchScopePanelCallbacks {
 	snapshot: WorkbenchSessionSnapshot;
 	/** Pass the current WorkbenchState.scope so local interactions never mutate persisted state. */
 	scope: WorkbenchScopeState;
+	/** Transient split and scroll state. This is deliberately not persisted Workbench state. */
+	presentationState?: WorkbenchScopePresentationState;
 }
 
 /**
@@ -47,8 +61,15 @@ export class WorkbenchScopePanel {
 	private readonly callbacks: WorkbenchScopePanelCallbacks;
 	private selectedPaths: Set<string>;
 	private signalFilter: SignalFilterIdentity | null;
+	private presentationState: WorkbenchScopePresentationState;
 	private expandedPaths = new Set<string>();
 	private initializedExpansion = false;
+	private chooserScroller: HTMLElement | null = null;
+	private planScroller: HTMLElement | null = null;
+	private separatorEl: HTMLElement | null = null;
+	private splitWorkspace: HTMLElement | null = null;
+	private splitObserver: ResizeObserver | null = null;
+	private focusCheckboxAfterRenderPath: string | null = null;
 
 	constructor(
 		private readonly container: HTMLElement,
@@ -58,38 +79,61 @@ export class WorkbenchScopePanel {
 		this.scope = cloneScope(options.scope);
 		this.selectedPaths = new Set(this.scope.selectedPaths);
 		this.signalFilter = cloneSignalFilter(this.scope.signalFilter);
+		this.presentationState = cloneWorkbenchScopePresentationState(
+			options.presentationState ?? createDefaultWorkbenchScopePresentationState(),
+		);
 		this.callbacks = {
 			onSelectedPathsChange: options.onSelectedPathsChange,
 			onSignalFilterChange: options.onSignalFilterChange,
 			onRouteToCandidates: options.onRouteToCandidates,
 			onRefresh: options.onRefresh,
 			onSelectSystem: options.onSelectSystem,
+			onPresentationStateChange: options.onPresentationStateChange,
 		};
 		this.render();
 	}
 
 	/** Replace the immutable session inputs after the Workbench shell refreshes. */
-	update(snapshot: WorkbenchSessionSnapshot, scope: WorkbenchScopeState): void {
+	update(
+		snapshot: WorkbenchSessionSnapshot,
+		scope: WorkbenchScopeState,
+		presentationState?: WorkbenchScopePresentationState,
+	): void {
+		const hasRenderedPresentation = this.chooserScroller !== null || this.planScroller !== null;
+		this.capturePresentationState();
 		this.snapshot = snapshot;
 		this.scope = cloneScope(scope);
 		this.selectedPaths = new Set(this.scope.selectedPaths);
 		this.signalFilter = cloneSignalFilter(this.scope.signalFilter);
+		if (presentationState && !hasRenderedPresentation) {
+			this.presentationState = cloneWorkbenchScopePresentationState(presentationState);
+		}
 		this.render();
 	}
 
 	destroy(): void {
+		this.capturePresentationState();
+		this.disconnectSplitObserver();
 		this.container.empty();
+		this.clearRenderedElements();
 	}
 
 	render(): void {
+		this.capturePresentationState();
+		this.disconnectSplitObserver();
 		this.container.empty();
-		const root = this.container.createDiv();
+		this.clearRenderedElements();
+
+		const root = this.container.createDiv({
+			cls: 'dtf-workbench-scope-surface',
+		});
 		root.dataset.dtfWorkbenchScope = '1';
 		root.style.display = 'flex';
 		root.style.flexDirection = 'column';
 		root.style.gap = '0.65em';
 		root.style.height = '100%';
 		root.style.minHeight = '0';
+		root.style.overflow = 'hidden';
 
 		const displayHitsByPath = new Map<string, AnnotatedHit[]>();
 		for (const [path, hits] of this.snapshot.allEvidenceHitsByPath) {
@@ -107,49 +151,165 @@ export class WorkbenchScopePanel {
 		this.initializeExpansion(tree);
 		const plan = this.buildPlan();
 
-		this.renderHeader(root);
-		this.renderStats(root, tree, plan);
-		this.renderDetectionNotices(root);
-		this.renderSignalLegend(root);
-		this.renderToolbar(root, tree);
-		this.renderRootScopeControl(root, plan);
-		this.renderTree(root, tree, plan);
-		this.renderPlanSummary(root, plan);
-		this.renderActions(root, plan);
+		const fixedHeader = root.createDiv({ cls: 'dtf-scope-fixed-header' });
+		fixedHeader.dataset.dtfScopeFixedHeader = '1';
+		fixedHeader.style.flex = '0 0 auto';
+		fixedHeader.style.minWidth = '0';
+		this.renderHeader(fixedHeader, plan);
+		this.renderStats(fixedHeader, plan);
+
+		const workspace = root.createDiv({ cls: 'dtf-scope-split-workspace' });
+		workspace.dataset.dtfScopeSplitWorkspace = '1';
+		workspace.style.display = 'flex';
+		workspace.style.flex = '1 1 auto';
+		workspace.style.flexDirection = 'column';
+		workspace.style.minHeight = '0';
+		workspace.style.overflow = 'hidden';
+		this.splitWorkspace = workspace;
+
+		const chooser = workspace.createDiv({ cls: 'dtf-scope-chooser-scroller' });
+		chooser.dataset.dtfScopeChooserScroller = '1';
+		chooser.setAttr('role', 'region');
+		chooser.setAttr('aria-label', 'Choose folders to organize');
+		chooser.style.flex = '1 1 auto';
+		chooser.style.minHeight = '0';
+		chooser.style.overflow = 'auto';
+		chooser.style.paddingRight = '0.15em';
+		this.chooserScroller = chooser;
+		this.bindScroller(chooser, 'chooserScrollTop');
+		this.renderToolbar(chooser, tree);
+		this.renderRootScopeControl(chooser, plan);
+		this.renderTree(chooser, tree, plan);
+
+		this.separatorEl = this.renderSplitSeparator(workspace);
+
+		const planScroller = workspace.createDiv({ cls: 'dtf-scope-plan-scroller' });
+		planScroller.dataset.dtfScopePlanScroller = '1';
+		planScroller.setAttr('role', 'region');
+		planScroller.setAttr('aria-label', 'Scope plan and next actions');
+		planScroller.style.display = 'grid';
+		planScroller.style.alignContent = 'start';
+		planScroller.style.gap = '0.55em';
+		planScroller.style.flex = `0 0 ${WORKBENCH_SCOPE_SPLIT_METRICS.defaultPlanHeight}px`;
+		planScroller.style.minHeight = '0';
+		planScroller.style.overflow = 'auto';
+		planScroller.style.paddingRight = '0.15em';
+		this.planScroller = planScroller;
+		this.bindScroller(planScroller, 'planScrollTop');
+		this.renderPlanSummary(planScroller, plan);
+		this.renderActions(planScroller, plan);
+		this.renderDetectionDetails(planScroller, tree, plan);
+
+		this.observeSplitWorkspace();
+		this.restorePresentationState();
+		this.restoreCheckboxFocus();
 	}
 
-	private renderHeader(parent: HTMLElement): void {
-		const header = parent.createDiv();
+	private renderHeader(parent: HTMLElement, plan: ScopePackPlan): void {
+		const header = parent.createDiv({ cls: 'dtf-scope-header' });
 		header.style.display = 'flex';
-		header.style.alignItems = 'center';
+		header.style.alignItems = 'flex-start';
 		header.style.justifyContent = 'space-between';
 		header.style.gap = '0.5em';
 		header.style.flexWrap = 'wrap';
 
 		const headingWrap = header.createDiv();
-		const heading = headingWrap.createEl('h3', { text: 'Scope: choose what to include' });
+		headingWrap.style.flex = '1 1 20em';
+		headingWrap.style.minWidth = '0';
+		const heading = headingWrap.createEl('h3', { text: 'Choose where rules apply' });
 		heading.style.margin = '0';
 		headingWrap.createDiv({
 			cls: 'dtf-workbench-surface-intro',
-			text: 'Checked folders are inclusion boundaries. They include complete system occurrences beneath them, while each system keeps its own detected anchor.',
+			text: 'Select the highest folder you want Folder Tag Sync to organize. Ready organizational systems inside that folder and everything below it can propose rules.',
 		});
+		this.renderCurrentSystemContext(headingWrap, plan);
 
 		const refresh = header.createEl('button', { text: 'Refresh' });
 		refresh.setAttr('aria-label', 'Re-scan the vault');
 		refresh.addEventListener('click', () => this.callbacks.onRefresh());
 	}
 
-	private renderStats(parent: HTMLElement, tree: AnnotatedTree, plan: ScopePackPlan): void {
-		const statBar = parent.createDiv();
-		statBar.style.display = 'grid';
-		statBar.style.gridTemplateColumns = 'repeat(auto-fit, minmax(115px, 1fr))';
-		statBar.style.gap = '0.5em';
+	private renderCurrentSystemContext(parent: HTMLElement, plan: ScopePackPlan): void {
+		const selectedKey = this.snapshot.state.selectedSystemInstanceKey;
+		const selected = this.snapshot.organizationalSystems.cards.find((card) =>
+			card.occurrenceKey === selectedKey) ?? null;
+		const context = parent.createDiv({ cls: 'dtf-scope-focused-system' });
+		context.dataset.dtfScopeCurrentSystem = selected?.occurrenceKey ?? '';
+		context.style.display = 'grid';
+		context.style.gridTemplateColumns = '4px minmax(0, 1fr)';
+		context.style.gap = '0.5em';
+		context.style.alignItems = 'stretch';
 
-		this.makeStat(statBar, 'Folders matched', tree.totalHitFolders);
-		this.makeStat(statBar, 'Surfaced systems', this.snapshot.surfacedResults.length);
-		this.makeStat(statBar, 'Selected folders', this.selectedPaths.size);
-		this.makeStat(statBar, 'Inclusion boundaries', plan.scopePaths.length);
-		this.makeStat(statBar, 'System occurrences', plan.deployments.length);
+		const marker = context.createSpan({ cls: 'dtf-orgsys-occurrence-marker' });
+		if (selected) marker.dataset.dtfOrganizationalSystemMarker = selected.occurrenceKey;
+		marker.setAttr('aria-hidden', 'true');
+		marker.style.display = 'block';
+		marker.style.width = '4px';
+		marker.style.borderRadius = '999px';
+		marker.style.background = selected
+			? describeOrganizationalSystemMarker(selected.occurrenceKey).colorToken
+			: 'var(--background-modifier-border)';
+
+		const copy = context.createDiv();
+		copy.createDiv({
+			cls: 'dtf-scope-current-system-label',
+			text: 'Current organizational system',
+		}).style.fontWeight = '650';
+		if (!selected) {
+			copy.createDiv({
+				text: 'None selected. Checked folders are still the only input to the plan below.',
+			});
+			return;
+		}
+
+		const title = copy.createDiv({ cls: 'dtf-scope-current-system-title' });
+		title.createSpan({ text: selected.packName }).style.fontWeight = '650';
+		title.createSpan({ text: ' ' });
+		title.createSpan({
+			cls: `dtf-orgsys-status is-${selected.status}`,
+			text: selected.status === 'actionable' ? 'Ready' : 'More folders needed',
+		});
+		title.createSpan({ text: ` · ${selected.anchorPath || 'Vault root'}` });
+		const included = plan.deployments.some((deployment) =>
+			deployment.occurrenceKey === selected.occurrenceKey);
+		const explanation = selected.status !== 'actionable'
+			? `This organizational system needs more folders (${statusLabel(selected.status)}) before it can propose rules. It remains visible for context and does not change the plan.`
+			: included
+				? 'This organizational system is included by the checked folders and marked Current focus below. Checked folders still determine the complete plan.'
+				: 'The current organizational system is not included by the checked folders. The plan below still includes every organizational system selected by those folders.';
+		copy.createDiv({
+			cls: 'dtf-scope-current-system-explanation',
+			text: explanation,
+		});
+	}
+
+	private renderStats(parent: HTMLElement, plan: ScopePackPlan): void {
+		const summary = parent.createDiv({ cls: 'dtf-scope-task-summary' });
+		summary.dataset.dtfScopeTaskSummary = '1';
+		summary.setText(
+			`${plan.scopePaths.length} highest-level folder${plan.scopePaths.length === 1 ? '' : 's'} included · `
+				+ `${plan.deployments.length} Ready organizational system${plan.deployments.length === 1 ? '' : 's'} will continue`,
+		);
+	}
+
+	private renderDetectionDetails(
+		parent: HTMLElement,
+		tree: AnnotatedTree,
+		plan: ScopePackPlan,
+	): void {
+		const disclosure = parent.createEl('details', { cls: 'dtf-scope-detection-details' });
+		disclosure.dataset.dtfScopeDetectionDetails = '1';
+		disclosure.createEl('summary', {
+			text: 'Why Folder Tag Sync recognized these organizational systems',
+		});
+		const stats = disclosure.createDiv({ cls: 'dtf-scope-diagnostic-stats' });
+		this.makeStat(stats, 'Folders that identify them', tree.totalHitFolders);
+		this.makeStat(stats, 'Ready organizational systems', this.snapshot.surfacedResults.length);
+		this.makeStat(stats, 'Folders checked', this.selectedPaths.size);
+		this.makeStat(stats, 'Included areas', plan.scopePaths.length);
+		this.makeStat(stats, 'Organizational systems continuing', plan.deployments.length);
+		this.renderDetectionNotices(disclosure);
+		this.renderSignalLegend(disclosure);
 	}
 
 	private renderDetectionNotices(parent: HTMLElement): void {
@@ -165,10 +325,10 @@ export class WorkbenchScopePanel {
 					`${this.packName(packA)} ↔ ${this.packName(packB)}`,
 				)
 				.join(', ');
-			warning.createSpan({ text: `Conflicting systems detected: ${names}. ` })
+			warning.createSpan({ text: `Overlapping organizational systems: ${names}. ` })
 				.style.fontWeight = '600';
 			warning.createSpan({
-				text: 'An inclusion boundary containing both complete occurrences generates candidates for both.',
+				text: 'A checked folder containing both ready occurrences will propose rules from both.',
 			});
 		}
 
@@ -179,7 +339,7 @@ export class WorkbenchScopePanel {
 				this.snapshot.belowThresholdResults.map((result) =>
 					`${this.packName(result.packId)} (${result.signalsHit}/${result.minSignals} signals)`,
 				),
-				'These weak matches are shown for context only and cannot create deployments.',
+				'These weak matches are shown for context only and cannot propose rules.',
 			);
 		}
 
@@ -188,7 +348,7 @@ export class WorkbenchScopePanel {
 				parent,
 				'Suppressed detections',
 				this.snapshot.suppressedResults.map((result) => this.packName(result.packId)),
-				'The required parent system was not detected, so these matches are not actionable.',
+				'The required parent organizational system was not recognized, so these matches cannot propose rules.',
 			);
 		}
 	}
@@ -215,7 +375,7 @@ export class WorkbenchScopePanel {
 	}
 
 	private renderSignalLegend(parent: HTMLElement): void {
-		const label = parent.createDiv({ text: 'Detected signals (click to filter visually):' });
+		const label = parent.createDiv({ text: 'Highlight detection evidence:' });
 		label.style.fontSize = '0.85em';
 		label.style.color = 'var(--text-muted)';
 
@@ -233,7 +393,7 @@ export class WorkbenchScopePanel {
 		const allChip = this.makeSignalChip(
 			legend,
 			null,
-			'All signals',
+			'All evidence',
 			this.snapshot.hitMap.allEvidenceSignals.length,
 			activeKey === null,
 		);
@@ -253,13 +413,13 @@ export class WorkbenchScopePanel {
 		}
 
 		if (this.snapshot.hitMap.allEvidenceSignals.length === 0) {
-			const empty = legend.createSpan({ text: 'No surfaced signals' });
+			const empty = legend.createSpan({ text: 'No detection evidence is available' });
 			empty.style.color = 'var(--text-muted)';
 			empty.style.fontSize = '0.82em';
 		}
 
 		const note = parent.createDiv({
-			text: 'Filtering changes only the tree emphasis. It never changes the deployment calculation.',
+			text: 'These highlights explain the scan. They do not change the folders you chose.',
 		});
 		note.style.fontSize = '0.78em';
 		note.style.color = 'var(--text-muted)';
@@ -272,8 +432,9 @@ export class WorkbenchScopePanel {
 		label: string,
 		count: number,
 		selected: boolean,
-	): HTMLElement {
-		const chip = parent.createSpan();
+	): HTMLButtonElement {
+		const chip = parent.createEl('button', { cls: 'dtf-scope-signal-chip' });
+		chip.setAttr('aria-pressed', String(selected));
 		chip.style.display = 'inline-flex';
 		chip.style.alignItems = 'center';
 		chip.style.gap = '0.3em';
@@ -310,16 +471,9 @@ export class WorkbenchScopePanel {
 		toolbar.style.display = 'flex';
 		toolbar.style.gap = '0.4em';
 		toolbar.style.flexWrap = 'wrap';
+		toolbar.style.marginBottom = '0.5em';
 
-		const selectAll = toolbar.createEl('button', { text: 'Select all hits' });
-		selectAll.disabled = this.snapshot.hitMap.hitsByPath.size === 0;
-		selectAll.addEventListener('click', () => {
-			this.selectedPaths = new Set(this.snapshot.hitMap.hitsByPath.keys());
-			this.emitSelectedPaths();
-			this.render();
-		});
-
-		const selectNone = toolbar.createEl('button', { text: 'Select none' });
+		const selectNone = toolbar.createEl('button', { text: 'Clear choices' });
 		selectNone.disabled = this.selectedPaths.size === 0;
 		selectNone.addEventListener('click', () => {
 			this.selectedPaths.clear();
@@ -346,35 +500,39 @@ export class WorkbenchScopePanel {
 		const rootColor = rootIsScope
 			? scopeColorForIndex(plan.scopePaths.indexOf(''))
 			: 'var(--interactive-accent)';
-		const row = parent.createDiv();
+		const row = parent.createDiv({ cls: 'dtf-scope-root-row' });
 		row.style.display = 'flex';
 		row.style.alignItems = 'center';
-		row.style.gap = '0.5em';
+		row.style.gap = '0.35em';
+		row.style.marginBottom = '0.5em';
 		row.style.padding = '0.45em 0.6em';
 		row.style.background = rootIsScope
 			? colorWithAlpha(rootColor, 0.20)
 			: 'var(--background-secondary)';
 		row.style.borderRadius = '6px';
-		row.style.borderLeft = rootIsScope
-			? `4px solid ${rootColor}`
-			: '4px solid transparent';
 
-		const checkbox = row.createEl('input', { type: 'checkbox' });
+		this.renderRowRail(row, rootIsScope ? 'scope' : 'none', rootColor);
+		const checkboxSlot = this.createRowSlot(row, 'checkbox');
+		const checkbox = checkboxSlot.createEl('input', { type: 'checkbox' });
+		checkbox.dataset.dtfScopeCheckboxPath = '';
 		checkbox.checked = rootSelected;
 		checkbox.disabled = this.snapshot.hitMap.hitsByPath.size === 0;
-		checkbox.setAttr('aria-label', 'Scope the entire vault');
+		checkbox.setAttr('aria-label', 'Organize the whole vault');
 		checkbox.addEventListener('change', () => {
 			if (checkbox.checked) this.selectedPaths.add('');
 			else this.selectedPaths.delete('');
+			this.focusCheckboxAfterRenderPath = '';
 			this.emitSelectedPaths();
 			this.render();
 		});
+		this.createRowSlot(row, 'disclosure');
 
 		const text = row.createDiv();
 		text.style.flex = '1 1 auto';
-		text.createDiv({ text: 'Vault root' }).style.fontWeight = '600';
+		text.style.minWidth = '0';
+		text.createDiv({ text: 'Organize the whole vault' }).style.fontWeight = '600';
 		const description = text.createDiv({
-			text: 'Select this inclusion boundary to include every complete system occurrence in the vault. Each system keeps its own anchor.',
+			text: 'Include every Ready organizational system in the vault. Each organizational system still starts from the folder where it was detected.',
 		});
 		description.style.fontSize = '0.78em';
 		description.style.color = 'var(--text-muted)';
@@ -383,11 +541,10 @@ export class WorkbenchScopePanel {
 	}
 
 	private renderTree(parent: HTMLElement, tree: AnnotatedTree, plan: ScopePackPlan): void {
-		const treeContainer = parent.createDiv();
+		const treeContainer = parent.createDiv({ cls: 'dtf-scope-folder-tree' });
 		treeContainer.dataset.dtfDetectTree = '1';
-		treeContainer.style.flex = '1 1 auto';
-		treeContainer.style.minHeight = '12em';
-		treeContainer.style.overflow = 'auto';
+		treeContainer.style.minHeight = '0';
+		treeContainer.style.overflow = 'visible';
 		treeContainer.style.background = 'var(--background-secondary)';
 		treeContainer.style.padding = '0.5em 0.6em';
 		treeContainer.style.borderRadius = '6px';
@@ -398,9 +555,9 @@ export class WorkbenchScopePanel {
 			empty.style.padding = '1.25em 1em';
 			empty.style.textAlign = 'center';
 			empty.style.color = 'var(--text-muted)';
-			empty.createDiv({ text: 'No surfaced organizational patterns were detected.' });
+			empty.createDiv({ text: 'No Ready organizational systems were detected.' });
 			empty.createDiv({
-				text: 'Refresh after the vault contains enough signals for a known system.',
+				text: 'Refresh after the vault contains enough required folders for a known organizational system.',
 			}).style.fontSize = '0.84em';
 			return;
 		}
@@ -423,7 +580,7 @@ export class WorkbenchScopePanel {
 		}
 		if (tree.root.elidedChildCount > 0) {
 			const elision = treeContainer.createDiv({
-				text: `… ${tree.root.elidedChildCount} top-level folder(s) with no surfaced matches`,
+				text: `… ${tree.root.elidedChildCount} top-level folder(s) with no recognition evidence`,
 			});
 			elision.style.fontSize = '0.78em';
 			elision.style.color = 'var(--text-faint)';
@@ -458,7 +615,7 @@ export class WorkbenchScopePanel {
 				? colorWithAlpha(scopeColor, 0.07)
 				: '';
 
-		const row = parent.createDiv();
+		const row = parent.createDiv({ cls: 'dtf-scope-folder-row' });
 		row.dataset.dtfScopeFolderPath = node.fullPath;
 		row.dataset.dtfScopeActionable = String(hasActionableEvidence);
 		row.style.display = 'flex';
@@ -471,14 +628,7 @@ export class WorkbenchScopePanel {
 		row.style.userSelect = 'none';
 		row.style.background = baseBackground;
 		if (!filterMatchesBranch) row.style.opacity = '0.4';
-		if (isScopePoint) {
-			row.style.borderLeft = `4px solid ${scopeColor}`;
-			row.style.paddingLeft = `${depth * 1.0 + 0.1}em`;
-		} else if (isAbsorbed) {
-			row.style.borderLeft = `2px dashed ${scopeColor}`;
-			row.style.paddingLeft = `${depth * 1.0 + 0.15}em`;
-			row.style.opacity = '0.55';
-		}
+		if (isAbsorbed) row.style.opacity = '0.55';
 		row.addEventListener('mouseenter', () => {
 			row.style.background = baseBackground
 				? colorWithAlpha(scopeColor, 0.32)
@@ -488,31 +638,56 @@ export class WorkbenchScopePanel {
 			row.style.background = baseBackground;
 		});
 
+		this.renderRowRail(
+			row,
+			isScopePoint ? 'scope' : isAbsorbed ? 'absorbed' : 'none',
+			scopeColor,
+		);
+
 		// Every rendered node is either a surfaced direct hit or an ancestor of
 		// one, so both kinds are valid hierarchy-first scope choices.
-		const checkbox = row.createEl('input', { type: 'checkbox' });
+		const checkboxSlot = this.createRowSlot(row, 'checkbox');
+		const checkbox = checkboxSlot.createEl('input', { type: 'checkbox' });
+		checkbox.dataset.dtfScopeCheckboxPath = node.fullPath;
 		checkbox.checked = this.selectedPaths.has(node.fullPath);
 		checkbox.disabled = !hasActionableEvidence;
 		checkbox.title = !hasActionableEvidence
-			? 'This branch contains only incomplete or suppressed evidence and is inspect-only.'
+			? 'This folder contains only organizational systems needing more folders and cannot continue to proposed rules.'
 			: isDirectHit
-				? 'Include the complete system occurrence containing this folder.'
-				: 'Include complete system occurrences at or below this branch.';
+				? 'Include the Ready organizational system containing this folder.'
+				: 'Include Ready organizational systems in this folder and everything below it.';
+		checkbox.setAttr('aria-label', `Organize ${node.fullPath}`);
 		checkbox.addEventListener('click', (event) => event.stopPropagation());
 		checkbox.addEventListener('change', () => {
 			if (checkbox.checked) this.selectedPaths.add(node.fullPath);
 			else this.selectedPaths.delete(node.fullPath);
+			this.focusCheckboxAfterRenderPath = node.fullPath;
 			this.emitSelectedPaths();
 			this.render();
 		});
 
 		const expanded = this.expandedPaths.has(node.fullPath);
-		const arrow = row.createSpan({
-			text: node.children.size > 0 ? (expanded ? '▾' : '▸') : ' ',
-		});
-		arrow.style.minWidth = '0.8em';
-		arrow.style.fontSize = '0.8em';
-		arrow.style.color = 'var(--text-muted)';
+		const disclosureSlot = this.createRowSlot(row, 'disclosure');
+		if (node.children.size > 0) {
+			const disclosure = disclosureSlot.createEl('button', {
+				cls: 'dtf-scope-folder-disclosure',
+				text: expanded ? '▾' : '▸',
+			});
+			disclosure.setAttr('aria-label', `${expanded ? 'Collapse' : 'Expand'} ${node.fullPath}`);
+			disclosure.setAttr('aria-expanded', String(expanded));
+			disclosure.style.width = '1.2em';
+			disclosure.style.height = '1.2em';
+			disclosure.style.minHeight = '0';
+			disclosure.style.padding = '0';
+			disclosure.style.border = '0';
+			disclosure.style.background = 'transparent';
+			disclosure.style.boxShadow = 'none';
+			disclosure.style.color = 'var(--text-muted)';
+			disclosure.addEventListener('click', (event) => {
+				event.stopPropagation();
+				this.toggleExpandedPath(node.fullPath);
+			});
+		}
 
 		row.createSpan({ text: '📁' }).style.fontSize = '0.92em';
 		const name = row.createSpan({ text: node.name });
@@ -525,16 +700,16 @@ export class WorkbenchScopePanel {
 				text: 'Inspect only',
 			});
 			inspectOnly.dataset.dtfScopeInspectOnly = '1';
-			inspectOnly.title = 'This branch contains only incomplete or suppressed evidence and cannot create candidates.';
+			inspectOnly.title = 'This folder contains only organizational systems needing more folders and cannot create proposed rules.';
 		}
 		if (isScopePoint) this.makeScopeBadge(row, scopeColor, node.fullPath);
 		else if (isAbsorbed) {
-			const badge = row.createSpan({ text: 'Covered by parent boundary' });
+			const badge = row.createSpan({ text: 'Already included by a parent folder' });
 			badge.style.fontSize = '0.65em';
 			badge.style.color = 'var(--text-muted)';
 			badge.style.marginLeft = '0.35em';
 			badge.style.fontStyle = 'italic';
-			badge.title = 'A selected ancestor is already the inclusion boundary for this folder.';
+			badge.title = 'A checked parent folder already includes this folder and everything below it.';
 		}
 
 		if (isDirectHit) this.renderFolderSignalChips(row, node.hits);
@@ -554,7 +729,7 @@ export class WorkbenchScopePanel {
 		}
 		if (node.elidedChildCount > 0) {
 			const elision = childWrap.createDiv({
-				text: `… ${node.elidedChildCount} other folder(s), no surfaced matches`,
+				text: `… ${node.elidedChildCount} other folder(s), no recognition evidence`,
 			});
 			elision.style.paddingLeft = `${(depth + 1) * 1.0}em`;
 			elision.style.fontSize = '0.76em';
@@ -563,11 +738,7 @@ export class WorkbenchScopePanel {
 		}
 
 		if (node.children.size > 0) {
-			row.addEventListener('click', () => {
-				if (this.expandedPaths.has(node.fullPath)) this.expandedPaths.delete(node.fullPath);
-				else this.expandedPaths.add(node.fullPath);
-				this.render();
-			});
+			row.addEventListener('click', () => this.toggleExpandedPath(node.fullPath));
 		}
 	}
 
@@ -594,16 +765,31 @@ export class WorkbenchScopePanel {
 			chip.dataset.dtfSignalPackId = signal.packId;
 			chip.dataset.dtfRelation = relation;
 			if (hit.occurrenceKey) chip.dataset.dtfOccurrenceKey = hit.occurrenceKey;
-			chip.style.borderColor = colorForSignalIndex(signal.globalIndex);
+			const occurrenceMarker = hit.occurrenceKey
+				? describeOrganizationalSystemMarker(hit.occurrenceKey)
+				: null;
+			chip.style.borderColor = occurrenceMarker?.colorToken
+				?? colorForSignalIndex(signal.globalIndex);
 			chip.style.opacity = activeKey !== null
 				&& activeKey !== signalFilterIdentityKey(identityForSignal(signal))
 				? '0.35'
 				: '1';
 			const fullAnchor = hit.occurrenceAnchorPath || 'vault root';
+			if (occurrenceMarker) {
+				const marker = chip.createSpan({ cls: 'dtf-orgsys-occurrence-marker' });
+				marker.dataset.dtfOrganizationalSystemMarker = hit.occurrenceKey!;
+				marker.setAttr('aria-hidden', 'true');
+				marker.style.display = 'inline-block';
+				marker.style.flex = '0 0 4px';
+				marker.style.width = '4px';
+				marker.style.height = '1.1em';
+				marker.style.borderRadius = '999px';
+				marker.style.background = occurrenceMarker.colorToken;
+			}
 			if (hit.occurrenceKey) {
 				chip.createSpan({
 					cls: 'dtf-folder-occurrence-relation',
-					text: relation === 'support' ? 'Support for' : 'Member of',
+					text: relation === 'support' ? 'Supports' : 'Identifies',
 				});
 				chip.createSpan({
 					cls: 'dtf-folder-occurrence-system',
@@ -611,12 +797,12 @@ export class WorkbenchScopePanel {
 				});
 				renderSemanticPath(chip, hit.occurrenceAnchorPath || '', {
 					role: 'scope-occurrence-anchor',
-					focusLabel: 'System anchor',
+					focusLabel: 'Rules start here',
 					variant: 'compact',
 				});
 				chip.setAttr(
 					'aria-label',
-					`${relation === 'support' ? 'Support' : 'Member'} evidence for ${signal.packName}. System anchor: ${fullAnchor}.`,
+					`${relation === 'support' ? 'Supports' : 'Identifies'} ${signal.packName} organizational system. Recognized at ${fullAnchor}.`,
 				);
 			} else {
 				chip.setText(`Signal · ${signal.label}`);
@@ -641,13 +827,13 @@ export class WorkbenchScopePanel {
 		summary.dataset.dtfScopePlanSummary = '1';
 		summary.createDiv({
 			cls: 'dtf-scope-plan-title',
-			text: 'Selection plan',
+			text: 'What happens next',
 		});
 
 		if (plan.deployments.length === 0) {
 			summary.createDiv({
 				cls: 'dtf-workbench-consequence',
-				text: 'Select a complete system occurrence or one of its ancestor branches. Incomplete and suppressed evidence remains inspect only.',
+				text: 'Choose a folder containing at least one Ready organizational system. Organizational systems needing more folders remain available for inspection but cannot continue.',
 			});
 			return;
 		}
@@ -655,12 +841,12 @@ export class WorkbenchScopePanel {
 		const boundaries = summary.createDiv({ cls: 'dtf-scope-plan-section' });
 		boundaries.createDiv({
 			cls: 'dtf-scope-plan-section-title',
-			text: `Inclusion boundaries (${plan.scopePaths.length})`,
+			text: `Folders included (${plan.scopePaths.length})`,
 		});
 		for (const path of plan.scopePaths) {
 			renderSemanticPath(boundaries, path, {
 				role: 'scope-inclusion-boundary',
-				focusLabel: 'Selected branch',
+				focusLabel: 'Starts here',
 				variant: 'stacked',
 			});
 		}
@@ -668,20 +854,50 @@ export class WorkbenchScopePanel {
 		const deployments = summary.createDiv({ cls: 'dtf-scope-plan-section' });
 		deployments.createDiv({
 			cls: 'dtf-scope-plan-section-title',
-			text: `System anchors that will generate candidates (${plan.deployments.length})`,
+			text: `Organizational systems that will propose rules (${plan.deployments.length})`,
 		});
+		const currentKey = this.snapshot.state.selectedSystemInstanceKey;
 		for (const deployment of plan.deployments) {
 			const row = deployments.createDiv({ cls: 'dtf-scope-deployment-row' });
 			row.dataset.dtfScopeDeployment = deployment.occurrenceKey;
-			row.createDiv({
-				cls: 'dtf-scope-deployment-system',
-				text: this.packName(deployment.packId),
-			});
-			renderSemanticPath(row, deployment.anchorPath, {
+			row.style.display = 'flex';
+			row.style.alignItems = 'stretch';
+			const isCurrentFocus = deployment.occurrenceKey === currentKey;
+			if (isCurrentFocus) row.dataset.dtfScopeCurrentFocus = '1';
+			const occurrenceMarker = describeOrganizationalSystemMarker(deployment.occurrenceKey);
+			const rail = row.createSpan({ cls: 'dtf-orgsys-occurrence-marker' });
+			rail.dataset.dtfOrganizationalSystemMarker = deployment.occurrenceKey;
+			rail.setAttr('aria-hidden', 'true');
+			rail.style.flex = '0 0 4px';
+			rail.style.width = '4px';
+			rail.style.minHeight = '2.2em';
+			rail.style.borderRadius = '999px';
+			rail.style.background = occurrenceMarker.colorToken;
+			const content = row.createDiv({ cls: 'dtf-scope-deployment-content' });
+			content.style.display = 'flex';
+			content.style.flex = '1 1 auto';
+			content.style.flexWrap = 'wrap';
+			content.style.gap = '0.5em';
+			content.style.minWidth = '0';
+			const system = content.createDiv({ cls: 'dtf-scope-deployment-system' });
+			system.style.flex = '1 1 9em';
+			system.createSpan({ text: this.packName(deployment.packId) });
+			if (isCurrentFocus) {
+				const current = system.createSpan({
+					cls: 'dtf-scope-current-focus-badge',
+					text: 'Current focus',
+				});
+				current.style.marginLeft = '0.45em';
+				current.style.fontSize = '0.72em';
+				current.style.color = occurrenceMarker.colorToken;
+			}
+			const path = renderSemanticPath(content, deployment.anchorPath, {
 				role: 'scope-system-anchor',
-				focusLabel: 'System anchor',
+				focusLabel: 'Rules start here',
 				variant: 'stacked',
 			});
+			path.style.flex = '2 1 14em';
+			path.style.minWidth = '0';
 		}
 	}
 
@@ -694,14 +910,250 @@ export class WorkbenchScopePanel {
 
 		const draft = actions.createEl('button', {
 			text: plan.deployments.length === 0
-				? 'Review candidates (no complete systems included)'
-				: `Review candidates from ${plan.deployments.length} system occurrence${plan.deployments.length === 1 ? '' : 's'}`,
+				? 'Review proposed rules (choose a Ready organizational system first)'
+				: `Review proposed rules for ${plan.deployments.length} organizational system${plan.deployments.length === 1 ? '' : 's'}`,
 		});
 		draft.addClass('mod-cta');
 		draft.disabled = plan.deployments.length === 0;
 		draft.addEventListener('click', () => {
 			if (plan.deployments.length > 0) this.callbacks.onRouteToCandidates(plan);
 		});
+	}
+
+	private renderSplitSeparator(parent: HTMLElement): HTMLElement {
+		const separator = parent.createDiv({ cls: 'dtf-scope-split-separator' });
+		separator.dataset.dtfScopeSeparator = '1';
+		separator.setAttr('role', 'separator');
+		separator.setAttr('aria-label', 'Resize folder chooser and plan');
+		separator.setAttr('aria-orientation', 'horizontal');
+		separator.tabIndex = 0;
+		separator.style.display = 'flex';
+		separator.style.flex = `0 0 ${WORKBENCH_SCOPE_SPLIT_METRICS.separatorThickness}px`;
+		separator.style.alignItems = 'center';
+		separator.style.justifyContent = 'center';
+		separator.style.cursor = 'row-resize';
+		separator.style.touchAction = 'none';
+		separator.style.userSelect = 'none';
+
+		const handle = separator.createSpan({ cls: 'dtf-scope-split-handle' });
+		handle.setAttr('aria-hidden', 'true');
+		handle.style.display = 'block';
+		handle.style.width = '3.5em';
+		handle.style.height = '2px';
+		handle.style.borderRadius = '999px';
+		handle.style.background = 'var(--background-modifier-border)';
+
+		let pointerId: number | null = null;
+		let startClientY = 0;
+		let startPlanHeight = 0;
+		separator.addEventListener('pointerdown', (event) => {
+			if (event.button !== 0) return;
+			const split = this.currentSplit();
+			if (!split || split.minPlanHeight === split.maxPlanHeight) return;
+			event.preventDefault();
+			pointerId = event.pointerId;
+			startClientY = event.clientY;
+			startPlanHeight = split.planHeight;
+			separator.setPointerCapture(event.pointerId);
+		});
+		separator.addEventListener('pointermove', (event) => {
+			if (pointerId !== event.pointerId) return;
+			this.setPreferredPlanHeight(startPlanHeight - (event.clientY - startClientY));
+		});
+		const endPointerResize = (event: PointerEvent): void => {
+			if (pointerId !== event.pointerId) return;
+			if (separator.hasPointerCapture(event.pointerId)) {
+				separator.releasePointerCapture(event.pointerId);
+			}
+			pointerId = null;
+		};
+		separator.addEventListener('pointerup', endPointerResize);
+		separator.addEventListener('pointercancel', endPointerResize);
+		separator.addEventListener('lostpointercapture', () => {
+			pointerId = null;
+		});
+		separator.addEventListener('keydown', (event) => {
+			const split = this.currentSplit();
+			if (!split) return;
+			const step = event.shiftKey ? 40 : 10;
+			let nextHeight: number | null | undefined;
+			switch (event.key) {
+				case 'ArrowUp':
+					nextHeight = split.planHeight + step;
+					break;
+				case 'ArrowDown':
+					nextHeight = split.planHeight - step;
+					break;
+				case 'Home':
+					nextHeight = split.minPlanHeight;
+					break;
+				case 'End':
+					nextHeight = split.maxPlanHeight;
+					break;
+				default:
+					return;
+			}
+			event.preventDefault();
+			this.setPreferredPlanHeight(nextHeight);
+		});
+		separator.addEventListener('dblclick', (event) => {
+			event.preventDefault();
+			this.setPreferredPlanHeight(null);
+		});
+		return separator;
+	}
+
+	private bindScroller(
+		scroller: HTMLElement,
+		key: 'chooserScrollTop' | 'planScrollTop',
+	): void {
+		scroller.addEventListener('scroll', () => {
+			const nextOffset = normalizeWorkbenchScopeScrollOffset(scroller.scrollTop);
+			if (this.presentationState[key] === nextOffset) return;
+			this.presentationState = updateWorkbenchScopePresentationState(
+				this.presentationState,
+				{ [key]: nextOffset },
+			);
+			this.emitPresentationState();
+		});
+	}
+
+	private setPreferredPlanHeight(preferredPlanHeight: number | null): void {
+		const split = this.currentSplit();
+		const normalizedHeight = preferredPlanHeight === null || !split
+			? preferredPlanHeight
+			: Math.min(
+				Math.max(preferredPlanHeight, split.minPlanHeight),
+				split.maxPlanHeight,
+			);
+		this.presentationState = updateWorkbenchScopePresentationState(
+			this.presentationState,
+			{ preferredPlanHeight: normalizedHeight },
+		);
+		this.emitPresentationState();
+		this.applySplit();
+	}
+
+	private currentSplit(): ReturnType<typeof calculateWorkbenchScopeSplit> | null {
+		const availableHeight = this.splitWorkspace?.clientHeight ?? 0;
+		return availableHeight > 0
+			? calculateWorkbenchScopeSplit(availableHeight, this.presentationState)
+			: null;
+	}
+
+	private applySplit(): void {
+		const split = this.currentSplit();
+		if (!split || !this.chooserScroller || !this.planScroller || !this.separatorEl) return;
+		this.chooserScroller.style.flex = `0 0 ${split.chooserHeight}px`;
+		this.planScroller.style.flex = `0 0 ${split.planHeight}px`;
+		this.separatorEl.style.flexBasis = `${split.separatorThickness}px`;
+		this.separatorEl.setAttr('aria-valuemin', String(Math.round(split.minPlanHeight)));
+		this.separatorEl.setAttr('aria-valuemax', String(Math.round(split.maxPlanHeight)));
+		this.separatorEl.setAttr('aria-valuenow', String(Math.round(split.planHeight)));
+		this.separatorEl.setAttr('aria-valuetext', `Plan height ${Math.round(split.planHeight)} pixels`);
+		this.separatorEl.setAttr(
+			'aria-disabled',
+			String(split.minPlanHeight === split.maxPlanHeight),
+		);
+	}
+
+	private observeSplitWorkspace(): void {
+		this.applySplit();
+		if (!this.splitWorkspace || typeof ResizeObserver === 'undefined') return;
+		this.splitObserver = new ResizeObserver(() => this.applySplit());
+		this.splitObserver.observe(this.splitWorkspace);
+	}
+
+	private disconnectSplitObserver(): void {
+		this.splitObserver?.disconnect();
+		this.splitObserver = null;
+	}
+
+	private capturePresentationState(): void {
+		if (!this.chooserScroller && !this.planScroller) return;
+		const next = updateWorkbenchScopePresentationState(this.presentationState, {
+			chooserScrollTop: normalizeWorkbenchScopeScrollOffset(
+				this.chooserScroller?.scrollTop ?? this.presentationState.chooserScrollTop,
+			),
+			planScrollTop: normalizeWorkbenchScopeScrollOffset(
+				this.planScroller?.scrollTop ?? this.presentationState.planScrollTop,
+			),
+		});
+		if (samePresentationState(next, this.presentationState)) return;
+		this.presentationState = next;
+		this.emitPresentationState();
+	}
+
+	private restorePresentationState(): void {
+		if (this.chooserScroller) {
+			this.chooserScroller.scrollTop = this.presentationState.chooserScrollTop;
+		}
+		if (this.planScroller) {
+			this.planScroller.scrollTop = this.presentationState.planScrollTop;
+		}
+	}
+
+	private restoreCheckboxFocus(): void {
+		const path = this.focusCheckboxAfterRenderPath;
+		if (path === null) return;
+		this.focusCheckboxAfterRenderPath = null;
+		requestAnimationFrame(() => {
+			const checkbox = Array.from(
+				this.container.querySelectorAll<HTMLInputElement>('[data-dtf-scope-checkbox-path]'),
+			).find((candidate) => candidate.dataset.dtfScopeCheckboxPath === path);
+			checkbox?.focus({ preventScroll: true });
+		});
+	}
+
+	private emitPresentationState(): void {
+		this.callbacks.onPresentationStateChange?.(
+			cloneWorkbenchScopePresentationState(this.presentationState),
+		);
+	}
+
+	private clearRenderedElements(): void {
+		this.chooserScroller = null;
+		this.planScroller = null;
+		this.separatorEl = null;
+		this.splitWorkspace = null;
+	}
+
+	private createRowSlot(
+		parent: HTMLElement,
+		kind: 'checkbox' | 'disclosure',
+	): HTMLElement {
+		const slot = parent.createSpan({ cls: `dtf-scope-row-${kind}-slot` });
+		slot.dataset.dtfScopeRowSlot = kind;
+		slot.style.display = 'inline-flex';
+		slot.style.flex = '0 0 1.35em';
+		slot.style.width = '1.35em';
+		slot.style.alignItems = 'center';
+		slot.style.justifyContent = 'center';
+		return slot;
+	}
+
+	private renderRowRail(
+		parent: HTMLElement,
+		state: 'scope' | 'absorbed' | 'none',
+		color: string,
+	): void {
+		const rail = parent.createSpan({ cls: 'dtf-scope-row-rail-slot' });
+		rail.dataset.dtfScopeRowSlot = 'rail';
+		rail.setAttr('aria-hidden', 'true');
+		rail.style.display = 'block';
+		rail.style.alignSelf = 'stretch';
+		rail.style.flex = '0 0 4px';
+		rail.style.width = '4px';
+		rail.style.minHeight = '1.2em';
+		rail.style.borderRadius = '999px';
+		if (state === 'scope') rail.style.background = color;
+		else if (state === 'absorbed') rail.style.borderLeft = `2px dashed ${color}`;
+	}
+
+	private toggleExpandedPath(path: string): void {
+		if (this.expandedPaths.has(path)) this.expandedPaths.delete(path);
+		else this.expandedPaths.add(path);
+		this.render();
 	}
 
 	private makeStat(parent: HTMLElement, label: string, value: number): void {
@@ -719,7 +1171,7 @@ export class WorkbenchScopePanel {
 	}
 
 	private makeScopeBadge(parent: HTMLElement, color: string, path: string): void {
-		const badge = parent.createSpan({ text: 'Inclusion boundary' });
+		const badge = parent.createSpan({ text: 'Starts here' });
 		badge.style.fontSize = '0.65em';
 		badge.style.padding = '0.05em 0.4em';
 		badge.style.background = color;
@@ -729,8 +1181,8 @@ export class WorkbenchScopePanel {
 		badge.style.fontWeight = '600';
 		badge.style.letterSpacing = '0.02em';
 		badge.title = path === ''
-			? 'Includes every complete system occurrence in the vault. Each system keeps its own anchor.'
-			: `Includes complete system occurrences at or below "${path}". Each system keeps its own detected anchor.`;
+			? 'Includes every Ready organizational system in the vault. Each organizational system keeps its own detected starting folder.'
+			: `Includes Ready organizational systems at or below "${path}". Each organizational system keeps its own detected starting folder.`;
 	}
 
 	private branchHasActionableEvidence(path: string): boolean {
@@ -864,6 +1316,21 @@ function colorWithAlpha(color: string, alpha: number): string {
 		return color.replace('hsl(', 'hsla(').replace(')', `, ${alpha})`);
 	}
 	return `rgba(var(--interactive-accent-rgb, 84, 132, 255), ${alpha})`;
+}
+
+function samePresentationState(
+	a: WorkbenchScopePresentationState,
+	b: WorkbenchScopePresentationState,
+): boolean {
+	return a.preferredPlanHeight === b.preferredPlanHeight
+		&& a.chooserScrollTop === b.chooserScrollTop
+		&& a.planScrollTop === b.planScrollTop;
+}
+
+function statusLabel(status: 'actionable' | 'incomplete' | 'suppressed'): string {
+	if (status === 'incomplete') return 'more folders needed';
+	if (status === 'suppressed') return 'required parent organizational system not ready';
+	return 'Ready';
 }
 
 function compareCodePoints(a: string, b: string): number {

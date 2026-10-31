@@ -102,8 +102,18 @@ describe('Support bundle — production diagnostics and privacy', function () {
 		await browser.pause(500);
 	});
 
+	// Teardown runs as four short, individually awaited steps instead of one long
+	// script. The single-script version could exceed WebDriver's 30s script
+	// timeout; WebDriver then retries the same `execute/sync`, so the whole hook
+	// body ran more than once and the second pass hit
+	// `ENOENT ... lstat '<vault>/SupportPrivateFolder_SENTINEL'` -- the vault's
+	// cache still held a TFolder for a directory the first pass had already
+	// removed. Splitting the work keeps each script well inside the timeout, and
+	// the fixture removal below is idempotent for this spec's own fixture only.
 	after(async function () {
-		await browser.executeObsidian(async ({ app }, folder) => {
+		// 1. Close this spec's UI (support-bundle modals in either document, then
+		//    the Settings dialog) before touching settings or the vault.
+		await browser.executeObsidian(({ app }) => {
 			const settingsDocument = (globalThis as unknown as {
 				__dtfSupportSettingsDocument?: Document;
 			}).__dtfSupportSettingsDocument;
@@ -123,15 +133,66 @@ describe('Support bundle — production diagnostics and privacy', function () {
 			}).__dtfSupportSettingsDocument;
 			const setting = (app as unknown as { setting?: { close: () => void } }).setting;
 			setting?.close();
+		});
 
+		// 2. Silence the debug logger and clear the log it wrote. Done before the
+		//    fixture delete so removing the folder cannot re-enter the logger.
+		await browser.executeObsidian(async ({ app }) => {
 			const plugin = (app as unknown as {
 				plugins: { plugins: Record<string, {
-					settings: { rules: unknown[]; options: { debugMode: boolean; showNotifications: boolean; syncOnCreate: boolean } };
+					settings: { options: { debugMode: boolean } };
 					saveSettings: () => Promise<void>;
 					debugLogger: {
 						clear: () => Promise<void>;
 						setEnabled: (enabled: boolean) => void;
 					};
+				}> };
+			}).plugins.plugins['folder-tag-sync'];
+			plugin.debugLogger.setEnabled(true);
+			await plugin.debugLogger.clear();
+			plugin.settings.options.debugMode = false;
+			plugin.debugLogger.setEnabled(false);
+			await plugin.saveSettings();
+		});
+
+		// 3. Remove exactly this spec's synthetic fixture, and only while the
+		//    spec's own sentinel rule is still the active rule set -- restoring the
+		//    user's rules first would let them react to the deletion.
+		//
+		//    `getAbstractFileByPath` can hand back a cached TFolder for a directory
+		//    an earlier retry already deleted, and `vault.delete` then throws
+		//    ENOENT. Asking the adapter whether the path is really on disk makes
+		//    this idempotent for the owned fixture without swallowing anything
+		//    else: any other failure still propagates.
+		const removal = await browser.executeObsidian(async ({ app }, folder) => {
+			const adapter = app.vault.adapter;
+			if (!(await adapter.exists(folder))) return 'already-absent';
+			const fixture = app.vault.getAbstractFileByPath(folder);
+			if (fixture) {
+				await app.vault.delete(fixture, true);
+			} else {
+				// On disk but missing from the vault cache: remove the owned path directly.
+				await adapter.rmdir(folder, true);
+			}
+			return 'removed';
+		}, FOLDER);
+		expect(['removed', 'already-absent']).toContain(removal);
+
+		await browser.waitUntil(
+			async () => browser.executeObsidian(
+				async ({ app }, folder) => !(await app.vault.adapter.exists(folder)),
+				FOLDER,
+			),
+			{ timeout: 10_000, timeoutMsg: `Support bundle fixture ${FOLDER} was not removed` },
+		);
+
+		// 4. Only now put the user's settings back.
+		await browser.executeObsidian(async ({ app }) => {
+			const plugin = (app as unknown as {
+				plugins: { plugins: Record<string, {
+					settings: { rules: unknown[]; options: { debugMode: boolean; showNotifications: boolean; syncOnCreate: boolean } };
+					saveSettings: () => Promise<void>;
+					debugLogger: { setEnabled: (enabled: boolean) => void };
 				}> };
 			}).plugins.plugins['folder-tag-sync'];
 			const state = globalThis as unknown as {
@@ -143,16 +204,11 @@ describe('Support bundle — production diagnostics and privacy', function () {
 			if (state.__supportPrevRules) plugin.settings.rules = state.__supportPrevRules;
 			plugin.settings.options.showNotifications = state.__supportPrevNotifications ?? true;
 			plugin.settings.options.syncOnCreate = state.__supportPrevSyncOnCreate ?? true;
-			plugin.debugLogger.setEnabled(true);
-			await plugin.debugLogger.clear();
 			const previousDebug = state.__supportPrevDebug ?? false;
 			plugin.settings.options.debugMode = previousDebug;
 			plugin.debugLogger.setEnabled(previousDebug);
 			await plugin.saveSettings();
-
-			const fixture = app.vault.getAbstractFileByPath(folder);
-			if (fixture) await app.vault.delete(fixture, true);
-		}, FOLDER);
+		});
 	});
 
 	it('registers the support command with the expected user-facing name', async function () {

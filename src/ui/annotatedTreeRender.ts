@@ -31,6 +31,7 @@
 
 import type { AnnotatedHit, AnnotatedTree, AnnotatedTreeNode } from '../engine/detectionTree';
 import type { FolderRuleEntry } from '../engine/folderRuleView';
+import { describeOrganizationalSystemMarker } from './workbench/organizationalSystemMarker';
 import { renderSemanticPath } from './workbench/SemanticPath';
 
 /** Which annotation layer(s) the rows paint. */
@@ -63,14 +64,49 @@ export function collectOccurrenceRelations(
 	return [...relations.values()];
 }
 
+export interface OccurrenceRelationDisplay {
+	visible: OccurrenceRelationDescriptor[];
+	hiddenCount: number;
+}
+
+/** Preserve exact source order while deriving a compact collapsed subset. */
+export function compactOccurrenceRelations(
+	relations: readonly OccurrenceRelationDescriptor[],
+	maxVisible: number,
+	expanded: boolean,
+	preferredOccurrenceKey: string | null = null,
+): OccurrenceRelationDisplay {
+	const ordered = [...relations];
+	const preferredIndex = preferredOccurrenceKey === null
+		? -1
+		: ordered.findIndex((relation) =>
+			relation.occurrenceKey === preferredOccurrenceKey);
+	if (preferredIndex > 0) {
+		const [preferred] = ordered.splice(preferredIndex, 1);
+		if (preferred) ordered.unshift(preferred);
+	}
+	if (expanded) return { visible: ordered, hiddenCount: 0 };
+	const limit = Math.max(1, Math.floor(maxVisible));
+	return {
+		visible: ordered.slice(0, limit),
+		hiddenCount: Math.max(0, ordered.length - limit),
+	};
+}
+
 export interface AnnotatedTreeRenderOptions {
 	/**
 	 * Depth (0-based) up to which nodes start expanded. Nodes deeper than this
 	 * render collapsed by default. Default 1 (top level + its children open).
 	 */
 	expandToDepth?: number;
-	/** Legacy chip cap retained so existing callers compile. */
+	/** Number of exact occurrence relations shown before a compact disclosure. */
 	maxChipsPerFolder?: number;
+	/** Controlled folder expansion paths. Falls back to expandToDepth when omitted. */
+	expandedPaths?: ReadonlySet<string>;
+	onFolderExpansionChange?: (path: string, expanded: boolean) => void;
+	/** Controlled paths whose compact occurrence relations are fully disclosed. */
+	expandedRelationPaths?: ReadonlySet<string>;
+	onRelationExpansionChange?: (path: string, expanded: boolean) => void;
 	/**
 	 * Per-folder "my rules" overlay keyed by full folder path. When provided
 	 * (and the mode shows rules), covered folders get a neutral emission result
@@ -85,27 +121,33 @@ export interface AnnotatedTreeRenderOptions {
 	onFolderContextMenu?: (fullPath: string, name: string, evt: MouseEvent) => void;
 	/** Cross-surface organizational-system selection shown on typed relation chips. */
 	selectedOccurrenceKey?: string | null;
-	onOccurrenceClick?: (occurrenceKey: string) => void;
+	/** Focuses and opens the exact occurrence represented by an activated relation. */
+	onOccurrenceActivate?: (occurrenceKey: string) => void;
 }
 
 interface RenderCtx {
 	expandToDepth: number;
+	maxChipsPerFolder: number;
+	expandedPaths?: ReadonlySet<string>;
+	onFolderExpansionChange?: (path: string, expanded: boolean) => void;
+	expandedRelationPaths?: ReadonlySet<string>;
+	onRelationExpansionChange?: (path: string, expanded: boolean) => void;
 	folderRuleView?: Map<string, FolderRuleEntry>;
 	showDetection: boolean;
 	showRules: boolean;
 	onFolderClick?: (fullPath: string, name: string, evt: MouseEvent) => void;
 	onFolderContextMenu?: (fullPath: string, name: string, evt: MouseEvent) => void;
 	selectedOccurrenceKey?: string | null;
-	onOccurrenceClick?: (occurrenceKey: string) => void;
+	onOccurrenceActivate?: (occurrenceKey: string) => void;
 }
 
 /**
  * Render the full annotated tree into `container`. Clears the container first.
  * Folders that matched a detection signal (or, in "rules" mode, that a rule
  * covers) read in full weight; ancestor-only folders are dimmed structure.
- * Non-hit branches are elided into "(N more, no matches)" badges. Folders with
- * children toggle open/closed on click; clicking any row also fires
- * `onFolderClick` so the view can open the folder's drill-in detail.
+ * Non-hit branches are elided into "(N more, no matches)" badges. Disclosure
+ * buttons and keyboard arrows own expansion; folder-row activation only fires
+ * `onFolderClick`, so opening detail cannot also rearrange the hierarchy.
  */
 export function renderAnnotatedTree(
 	container: HTMLElement,
@@ -113,23 +155,31 @@ export function renderAnnotatedTree(
 	options: AnnotatedTreeRenderOptions = {},
 ): void {
 	container.empty();
+	container.setAttr('role', 'tree');
+	container.setAttr('aria-label', 'Vault folder hierarchy');
 	const mode = options.annotationMode ?? 'detected';
 	const showDetection = mode !== 'rules';
 	const ctx: RenderCtx = {
 		expandToDepth: options.expandToDepth ?? 1,
+		maxChipsPerFolder: options.maxChipsPerFolder ?? 1,
+		expandedPaths: options.expandedPaths,
+		onFolderExpansionChange: options.onFolderExpansionChange,
+		expandedRelationPaths: options.expandedRelationPaths,
+		onRelationExpansionChange: options.onRelationExpansionChange,
 		folderRuleView: options.folderRuleView,
 		showDetection,
 		showRules: mode !== 'detected',
 		onFolderClick: options.onFolderClick,
 		onFolderContextMenu: options.onFolderContextMenu,
 		selectedOccurrenceKey: options.selectedOccurrenceKey,
-		onOccurrenceClick: options.onOccurrenceClick,
+		onOccurrenceActivate: options.onOccurrenceActivate,
 	};
 
 	const childKeys = [...tree.root.children.keys()].sort();
 	for (const key of childKeys) {
 		renderNode(container, tree.root.children.get(key)!, 0, ctx);
 	}
+	container.querySelector<HTMLElement>('[role="treeitem"]')?.setAttr('tabindex', '0');
 
 	if (tree.root.elidedChildCount > 0) {
 		const elision = container.createDiv();
@@ -150,101 +200,129 @@ function renderNode(
 	const isDetectionHit = node.hits.length > 0;
 	const ruleEntry = ctx.showRules ? ctx.folderRuleView?.get(node.fullPath) : undefined;
 	const hasRuleWinner = Boolean(ruleEntry?.winnerRuleId);
-	// A row reads in full weight if either annotation layer marks it.
 	const emphasize = (ctx.showDetection && isDetectionHit) || hasRuleWinner;
-	const interactive = node.children.size > 0 || Boolean(ctx.onFolderClick);
+	const hasChildren = node.children.size > 0;
+	let expanded = hasChildren && (ctx.expandedPaths
+		? ctx.expandedPaths.has(node.fullPath)
+		: depth < ctx.expandToDepth);
 
-	const row = parent.createDiv();
-	row.classList.add('dtf-folder-row');
-	row.dataset.dtfFolderPath = node.fullPath;
-	row.style.display = 'flex';
-	row.style.alignItems = 'stretch';
-	row.style.cursor = interactive ? 'pointer' : 'default';
-	row.style.userSelect = 'none';
+	const item = parent.createDiv({ cls: 'dtf-tree-item' });
+	item.dataset.dtfFolderPath = node.fullPath;
+	item.setAttr('role', 'treeitem');
+	item.setAttr('aria-level', String(depth + 1));
+	item.tabIndex = -1;
+	item.addEventListener('focus', () => {
+		const tree = item.closest<HTMLElement>('[role="tree"]');
+		if (!tree) return;
+		for (const treeItem of Array.from(
+			tree.querySelectorAll<HTMLElement>('[role="treeitem"]'),
+		)) {
+			treeItem.tabIndex = treeItem === item ? 0 : -1;
+		}
+	});
+	if (hasChildren) item.setAttr('aria-expanded', String(expanded));
 
-	// ─── Neutral row content ───────────────────────────────────────────────
-	const content = row.createDiv();
+	const content = item.createDiv({ cls: 'dtf-folder-row' });
 	content.dataset.dtfFolderRowContent = '1';
-	content.style.flex = '1 1 auto';
-	content.style.minWidth = '0';
-	content.style.display = 'flex';
-	content.style.alignItems = 'center';
-	content.style.gap = '0.35em';
-	content.style.padding = '0.18em 0.3em';
 	content.style.paddingLeft = `${depth * 1.0 + 0.2}em`;
-	row.addEventListener('mouseenter', () => {
-		content.style.background = 'var(--background-modifier-hover)';
-	});
-	row.addEventListener('mouseleave', () => {
-		content.style.background = '';
-	});
+	content.style.cursor = ctx.onFolderClick ? 'pointer' : 'default';
 
-	// Expansion arrow (blank when leaf, for alignment).
-	const startsExpanded = depth < ctx.expandToDepth;
-	const arrow = content.createSpan({ text: node.children.size > 0 ? (startsExpanded ? '▾' : '▸') : ' ' });
-	arrow.style.flex = '0 0 auto';
-	arrow.style.minWidth = '0.8em';
-	arrow.style.fontSize = '0.8em';
-	arrow.style.color = 'var(--text-muted)';
+	const childWrap = item.createDiv({ cls: 'dtf-tree-children' });
+	childWrap.dataset.dtfTreeContainer = '1';
+	childWrap.setAttr('role', 'group');
+	childWrap.style.display = expanded ? '' : 'none';
 
-	// Folder icon.
-	const icon = content.createSpan({ text: '📁' });
-	icon.style.flex = '0 0 auto';
-	icon.style.fontSize = '0.92em';
+	const setExpanded = (open: boolean): void => {
+		if (!hasChildren || expanded === open) return;
+		expanded = open;
+		childWrap.style.display = open ? '' : 'none';
+		item.setAttr('aria-expanded', String(open));
+		if (disclosure) {
+			disclosure.setText(open ? '▾' : '▸');
+			disclosure.setAttr('aria-label', `${open ? 'Collapse' : 'Expand'} ${node.name}`);
+			disclosure.setAttr('aria-expanded', String(open));
+		}
+		ctx.onFolderExpansionChange?.(node.fullPath, open);
+	};
 
-	// Name — annotated folders read in full weight, ancestor structure is dimmed.
-	const nameSpan = content.createSpan({ text: node.name });
+	let disclosure: HTMLButtonElement | null = null;
+	if (hasChildren) {
+		disclosure = content.createEl('button', {
+			cls: 'dtf-folder-disclosure',
+			text: expanded ? '▾' : '▸',
+			attr: {
+				'aria-label': `${expanded ? 'Collapse' : 'Expand'} ${node.name}`,
+				'aria-expanded': String(expanded),
+			},
+		});
+		disclosure.addEventListener('click', (event) => {
+			event.stopPropagation();
+			setExpanded(!expanded);
+		});
+	} else {
+		content.createSpan({ cls: 'dtf-folder-disclosure-spacer', text: ' ' });
+	}
+
+	content.createSpan({ cls: 'dtf-folder-icon', text: '📁' });
+	const nameSpan = content.createSpan({ cls: 'dtf-folder-name', text: node.name });
 	nameSpan.style.fontWeight = emphasize ? '600' : '400';
 	if (!emphasize) nameSpan.style.color = 'var(--text-muted)';
-	nameSpan.style.flex = '1 1 auto';
-	nameSpan.style.minWidth = '0';
-	nameSpan.style.whiteSpace = 'nowrap';
-	nameSpan.style.overflow = 'hidden';
-	nameSpan.style.textOverflow = 'ellipsis';
 
 	if (ctx.showDetection && node.hits.length > 0) {
 		renderOccurrenceRelationChips(content, node, ctx);
 	}
-
-	// ─── "My rules" emission (single winning rule, right-aligned) ─────────
 	if (hasRuleWinner && ruleEntry) {
 		renderRuleEmission(content, ruleEntry);
 	}
 
-	// Children container — `data-dtf-tree-container` lets an "expand/collapse
-	// all" affordance flip every subtree at once (same hook the modal uses).
-	const childWrap = parent.createDiv();
-	if (!startsExpanded) childWrap.style.display = 'none';
-	childWrap.dataset.dtfTreeContainer = '1';
 	const childKeys = [...node.children.keys()].sort();
 	for (const key of childKeys) {
 		renderNode(childWrap, node.children.get(key)!, depth + 1, ctx);
 	}
 	if (node.elidedChildCount > 0) {
-		const elision = childWrap.createDiv();
+		const elision = childWrap.createDiv({ cls: 'dtf-tree-elision' });
 		elision.style.paddingLeft = `${(depth + 1) * 1.0 + 0.2}em`;
-		elision.style.fontSize = '0.76em';
-		elision.style.color = 'var(--text-faint)';
-		elision.style.fontStyle = 'italic';
 		elision.setText(`… ${node.elidedChildCount} more, no matches`);
 	}
 
-	// Single row click handler: toggle expansion (folders with children) AND
-	// open the drill-in detail. The two are orthogonal — expansion changes the
-	// tree while the detail panel reports on the clicked folder.
-	row.addEventListener('click', (e) => {
-		if (node.children.size > 0) {
-			const open = childWrap.style.display === 'none';
-			childWrap.style.display = open ? '' : 'none';
-			arrow.setText(open ? '▾' : '▸');
+	item.addEventListener('click', (event) => {
+		const target = event.target;
+		if (target !== item && (!(target instanceof Node) || !content.contains(target))) return;
+		item.focus();
+		ctx.onFolderClick?.(node.fullPath, node.name, event);
+	});
+	item.addEventListener('keydown', (event) => {
+		if (event.target !== item) return;
+		if (event.key === 'ArrowRight' && hasChildren) {
+			event.preventDefault();
+			if (!expanded) setExpanded(true);
+			else childWrap.querySelector<HTMLElement>('[role="treeitem"]')?.focus();
+			return;
 		}
-		ctx.onFolderClick?.(node.fullPath, node.name, e);
+		if (event.key === 'ArrowLeft') {
+			event.preventDefault();
+			if (hasChildren && expanded) setExpanded(false);
+			else item.parentElement?.closest<HTMLElement>('[role="treeitem"]')?.focus();
+			return;
+		}
+		if (event.key === 'ArrowDown' || event.key === 'ArrowUp'
+			|| event.key === 'Home' || event.key === 'End') {
+			event.preventDefault();
+			focusVisibleTreeItem(item, event.key);
+			return;
+		}
+		if (event.key === 'Enter' || event.key === ' ') {
+			event.preventDefault();
+			ctx.onFolderClick?.(node.fullPath, node.name, event as unknown as MouseEvent);
+		}
 	});
 
 	if (ctx.onFolderContextMenu) {
-		row.addEventListener('contextmenu', (e) => {
-			e.preventDefault();
-			ctx.onFolderContextMenu!(node.fullPath, node.name, e);
+		item.addEventListener('contextmenu', (event) => {
+			const target = event.target;
+			if (target !== item && (!(target instanceof Node) || !content.contains(target))) return;
+			event.preventDefault();
+			ctx.onFolderContextMenu!(node.fullPath, node.name, event);
 		});
 	}
 }
@@ -257,8 +335,18 @@ function renderOccurrenceRelationChips(
 	const relations = collectOccurrenceRelations(node.hits);
 	if (relations.length === 0) return;
 
+	const expanded = ctx.expandedRelationPaths?.has(node.fullPath) ?? false;
+	const display = compactOccurrenceRelations(
+		relations,
+		ctx.maxChipsPerFolder,
+		expanded,
+		ctx.selectedOccurrenceKey ?? null,
+	);
 	const wrap = parent.createSpan({ cls: 'dtf-folder-occurrence-relations' });
-	for (const descriptor of relations) {
+	wrap.dataset.dtfOccurrenceRelationsExpanded = String(expanded);
+	if (!expanded) wrap.addClass('is-compact');
+
+	for (const descriptor of display.visible) {
 		const { occurrenceKey, relation } = descriptor;
 		const chip = wrap.createEl('button', { cls: 'dtf-folder-occurrence-chip' });
 		chip.dataset.dtfOccurrenceKey = occurrenceKey;
@@ -266,9 +354,19 @@ function renderOccurrenceRelationChips(
 		chip.setAttr('aria-pressed', String(ctx.selectedOccurrenceKey === occurrenceKey));
 		if (ctx.selectedOccurrenceKey === occurrenceKey) chip.addClass('is-selected');
 		const fullAnchor = descriptor.anchorPath || 'vault root';
+		const markerPresentation = describeOrganizationalSystemMarker(occurrenceKey);
+		const marker = chip.createSpan({ cls: 'dtf-organizational-system-marker' });
+		marker.dataset.dtfOrganizationalSystemMarker = markerPresentation.occurrenceKey;
+		marker.setAttr('aria-hidden', 'true');
+		marker.style.display = 'inline-block';
+		marker.style.width = '0.6em';
+		marker.style.height = '0.6em';
+		marker.style.flex = '0 0 auto';
+		marker.style.borderRadius = '999px';
+		marker.style.backgroundColor = markerPresentation.colorToken;
 		chip.createSpan({
 			cls: 'dtf-folder-occurrence-relation',
-			text: relation === 'support' ? 'Support for' : 'Member of',
+			text: relation === 'support' ? 'Supports' : 'Identifies',
 		});
 		chip.createSpan({
 			cls: 'dtf-folder-occurrence-system',
@@ -276,19 +374,70 @@ function renderOccurrenceRelationChips(
 		});
 		renderSemanticPath(chip, descriptor.anchorPath, {
 			role: 'map-occurrence-anchor',
-			focusLabel: 'System anchor',
+			focusLabel: 'Recognized here',
 			variant: 'compact',
 		});
 		chip.setAttr(
 			'aria-label',
-			`${relation === 'support' ? 'Support' : 'Member'} evidence for ${descriptor.packName}. System anchor: ${fullAnchor}.`,
+			`${relation === 'support' ? 'Supports' : 'Identifies'} ${descriptor.packName}. `
+			+ `Organizational system recognized here: ${fullAnchor}.`,
 		);
-		chip.title = `${descriptor.packName} occurrence at ${fullAnchor}`;
+		chip.title = `${descriptor.packName} organizational system recognized at ${fullAnchor}`;
 		chip.addEventListener('click', (event) => {
 			event.stopPropagation();
-			ctx.onOccurrenceClick?.(occurrenceKey);
+			ctx.onOccurrenceActivate?.(occurrenceKey);
 		});
 	}
+
+	if (relations.length > ctx.maxChipsPerFolder) {
+		const toggle = wrap.createEl('button', {
+			cls: 'dtf-folder-occurrence-more',
+			text: expanded
+				? 'Show fewer'
+				: `+${display.hiddenCount} organizational system${display.hiddenCount === 1 ? '' : 's'}`,
+		});
+		toggle.dataset.dtfOccurrenceRelationsToggle = node.fullPath;
+		toggle.setAttr('aria-expanded', String(expanded));
+		toggle.setAttr('aria-label', expanded
+			? `Show fewer organizational systems for ${node.name}`
+			: `Show ${display.hiddenCount} more organizational system${display.hiddenCount === 1 ? '' : 's'} for ${node.name}`);
+		toggle.addEventListener('click', (event) => {
+			event.stopPropagation();
+			ctx.onRelationExpansionChange?.(node.fullPath, !expanded);
+		});
+	}
+}
+
+function focusVisibleTreeItem(
+	current: HTMLElement,
+	key: 'ArrowDown' | 'ArrowUp' | 'Home' | 'End',
+): void {
+	const tree = current.closest<HTMLElement>('[role="tree"]');
+	if (!tree) return;
+	const items = Array.from(tree.querySelectorAll<HTMLElement>('[role="treeitem"]'))
+		.filter((item) => isVisibleTreeItem(item, tree));
+	if (items.length === 0) return;
+	const currentIndex = items.indexOf(current);
+	const targetIndex = key === 'Home'
+		? 0
+		: key === 'End'
+			? items.length - 1
+			: Math.max(0, Math.min(
+				items.length - 1,
+				currentIndex + (key === 'ArrowDown' ? 1 : -1),
+			));
+	items[targetIndex]?.focus();
+}
+
+function isVisibleTreeItem(item: HTMLElement, tree: HTMLElement): boolean {
+	let parent = item.parentElement;
+	while (parent && parent !== tree) {
+		if (parent.dataset.dtfTreeContainer === '1' && parent.style.display === 'none') {
+			return false;
+		}
+		parent = parent.parentElement;
+	}
+	return true;
 }
 
 /**

@@ -196,6 +196,9 @@ describe('WorkbenchSession snapshot', () => {
 		}, createDefaultWorkbenchState(), { yieldControl: async () => {} });
 
 		expect(snapshot.sourceRevision).toBe(7);
+		expect(snapshot.installedRules).toEqual(installed);
+		expect(snapshot.installedRules).not.toBe(installed);
+		expect(Object.isFrozen(snapshot.installedRules)).toBe(true);
 		expect(snapshot.folderPaths).toEqual(['Areas', 'Nested', 'Projects', 'Projects/Web']);
 		expect(snapshot.surfacedResults.map((result) => result.packId)).toEqual(['alpha', 'beta']);
 		expect(snapshot.belowThresholdResults.map((result) => result.packId)).toEqual(['weak']);
@@ -244,7 +247,7 @@ describe('WorkbenchSession snapshot', () => {
 		});
 	});
 
-	test('clears a selected incomplete occurrence when the local preference hides it', async () => {
+	test('preserves a selected possible occurrence after the retired preference is normalized', async () => {
 		const state = createDefaultWorkbenchState();
 		state.selectedSystemInstanceKey = detectionOccurrenceKey('weak', '');
 		state.preferences.showIncompleteSystems = false;
@@ -256,11 +259,12 @@ describe('WorkbenchSession snapshot', () => {
 			repository: baseRepository(),
 		}, state, { yieldControl: async () => {} });
 
-		expect(snapshot.state.selectedSystemInstanceKey).toBeNull();
+		expect(snapshot.state.selectedSystemInstanceKey).toBe(detectionOccurrenceKey('weak', ''));
+		expect(snapshot.state.preferences.showIncompleteSystems).toBe(true);
 		expect(snapshot.occurrenceStats).toMatchObject({
 			totalCount: 4,
 			incompleteCount: 1,
-			visibleCount: 3,
+			visibleCount: 4,
 		});
 		expect(snapshot.organizationalSystems.cards.some((card) =>
 			card.occurrenceKey === detectionOccurrenceKey('weak', '')

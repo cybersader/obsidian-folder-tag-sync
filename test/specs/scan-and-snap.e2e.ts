@@ -302,7 +302,7 @@ describe('Taxonomy Workbench Candidates — embedded catalog and safe install', 
 			const rows = Array.from(panel?.querySelectorAll<HTMLElement>('[data-dtf-candidate-row="1"]') ?? []);
 			const checkboxes = rows.map((row) => row.querySelector<HTMLInputElement>('input[type="checkbox"]'));
 			const installButton = Array.from(panel?.querySelectorAll('button') ?? []).find((button) =>
-				/^Add \d+ selected disabled draft/.test(button.textContent ?? ''),
+				/^Save \d+ draft rule/.test(button.textContent ?? ''),
 			);
 			const groupNoiseRanks = Array.from(
 				panel?.querySelectorAll<HTMLElement>('[data-dtf-candidate-occurrence-key]') ?? [],
@@ -319,6 +319,12 @@ describe('Taxonomy Workbench Candidates — embedded catalog and safe install', 
 				Boolean(row.querySelector('[data-dtf-coverage-unavailable="inverse-only"]')),
 			);
 			return {
+				heading: panel?.querySelector('h3')?.textContent ?? null,
+				taskSummary: panel?.querySelector('[data-dtf-candidate-task-summary="1"]')?.textContent ?? null,
+				toolbarLabels: Array.from(panel?.querySelectorAll<HTMLButtonElement>('button') ?? [])
+					.map((button) => button.textContent?.trim() ?? '')
+					.filter((label) => ['Include all', 'Clear selection'].includes(label)),
+				saveLabel: installButton?.textContent?.trim() ?? null,
 				rowCount: rows.length,
 				checkboxCount: checkboxes.filter(Boolean).length,
 				allSelected: checkboxes.every((checkbox) => checkbox?.checked === true),
@@ -332,8 +338,26 @@ describe('Taxonomy Workbench Candidates — embedded catalog and safe install', 
 				fabricatedInverseEmissions: inverseRows.filter((row) =>
 					(row.textContent ?? '').includes(' → #'),
 				).length,
-				bijectivityRows: rows.filter((row) => /Round trip: (?:lossy|1:1|conditional)/.test(row.textContent ?? '')).length,
-				selectedCount: Number((installButton?.textContent ?? '').match(/Add (\d+) selected/)?.[1] ?? -1),
+				directionStatuses: rows.map((row) => {
+					const status = row.querySelector<HTMLElement>('[data-dtf-candidate-direction-status]');
+					const toggle = status?.querySelector<HTMLButtonElement>('[data-dtf-candidate-direction-toggle]');
+					const details = status?.querySelector<HTMLElement>('.dtf-candidate-direction-details');
+					return {
+						summary: toggle?.textContent?.trim() ?? '',
+						toggleTag: toggle?.tagName ?? null,
+						expanded: toggle?.getAttribute('aria-expanded') ?? null,
+						controls: toggle?.getAttribute('aria-controls') ?? null,
+						detailsId: details?.id ?? null,
+						detailsHidden: details?.hidden ?? null,
+						directions: Array.from(details?.querySelectorAll<HTMLElement>('[data-dtf-candidate-direction]') ?? [])
+							.map((direction) => ({
+								kind: direction.dataset.dtfCandidateDirection ?? '',
+								text: direction.textContent?.trim() ?? '',
+							})),
+						inverseOnly: Boolean(row.querySelector('[data-dtf-coverage-unavailable="inverse-only"]')),
+					};
+				}),
+				selectedCount: Number((installButton?.textContent ?? '').match(/Save (\d+) draft/)?.[1] ?? -1),
 				groupNoiseRanks,
 				intro: panel?.querySelector('.dtf-workbench-surface-intro')?.textContent ?? null,
 				groupKinds: Array.from(panel?.querySelectorAll<HTMLElement>('[data-dtf-candidate-group-header="1"]') ?? [])
@@ -349,6 +373,10 @@ describe('Taxonomy Workbench Candidates — embedded catalog and safe install', 
 			};
 		});
 
+		expect(initial.heading).toBe('Review proposed rules');
+		expect(initial.taskSummary).toMatch(/^\d+ proposed rules? · \d+ source organizational systems? · \d+ overlap warnings?$/);
+		expect(initial.toolbarLabels).toEqual(['Include all', 'Clear selection']);
+		expect(initial.saveLabel).toBe(`Save ${initial.rowCount} draft rule${initial.rowCount === 1 ? '' : 's'}`);
 		expect(initial.rowCount).toBeGreaterThan(0);
 		expect(initial.checkboxCount).toBe(initial.rowCount);
 		expect(initial.allSelected).toBe(true);
@@ -359,15 +387,64 @@ describe('Taxonomy Workbench Candidates — embedded catalog and safe install', 
 		expect(initial.inverseRows).toBeGreaterThan(0);
 		expect(initial.inverseConflictWarnings).toBe(initial.inverseRows);
 		expect(initial.fabricatedInverseEmissions).toBe(0);
+		expect(initial.directionStatuses).toHaveLength(initial.rowCount);
+		const directionLabel = '(?:Exact|Available|Conditional|Lossy|Unavailable|Not configured|Uncertain)';
+		const directionIcon = '(?:✓|△|!|—|\\?)';
+		for (const status of initial.directionStatuses) {
+			expect(status.summary).toMatch(new RegExp(
+				`^Folder → tag ${directionIcon} ${directionLabel} · Tag → folder ${directionIcon} ${directionLabel}$`,
+			));
+			expect(status.toggleTag).toBe('BUTTON');
+			expect(status.expanded).toBe('false');
+			expect(status.controls).toBe(status.detailsId);
+			expect(status.detailsHidden).toBe(true);
+			expect(status.directions.map((direction) => direction.kind)).toEqual([
+				'folder-to-tag',
+				'tag-to-folder',
+			]);
+			expect(status.directions[0]?.text).toMatch(new RegExp(`^Folder → tag: ${directionLabel}\\.`));
+			expect(status.directions[1]?.text).toMatch(new RegExp(`^Tag → folder: ${directionLabel}\\.`));
+			if (status.inverseOnly) expect(status.summary).toMatch(/^Folder → tag — Not configured · Tag → folder /);
+		}
 		expect(initial.groupNoiseRanks.length).toBeGreaterThan(0);
-		expect(initial.intro).toContain('disabled rule draft');
-		expect(initial.groupKinds.every((kind) => kind === 'System occurrence')).toBe(true);
+		expect(initial.intro).toBe('Safe to save: checked proposals become disabled drafts. Saving does not run sync or change files, folders, tags, or frontmatter.');
+		expect(initial.groupKinds.every((kind) => kind === 'Suggested from')).toBe(true);
 		expect(initial.groupHeaderHeights.every((height) => height <= 100)).toBe(true);
-		expect(initial.groupAnchorLabels.every((label) => label.includes('System anchor:'))).toBe(true);
-		expect(initial.rowKinds.every((kind) => kind === 'Candidate rule')).toBe(true);
+		expect(initial.groupAnchorLabels.every((label) => label.includes('Organizational system found here:'))).toBe(true);
+		expect(initial.rowKinds.every((kind) => kind === 'Proposed rule')).toBe(true);
 		expect(initial.checkboxLabels.every((label) => label?.includes('disabled rule draft'))).toBe(true);
 		expect(initial.sampleHeadings.every((heading) => heading === 'Examples: folder → tag')).toBe(true);
 		for (const ranks of initial.groupNoiseRanks) expectNondecreasing(ranks);
+
+		const directionDisclosure = await browser.executeObsidian(() => {
+			const panel = document.querySelector<HTMLElement>('[data-dtf-workbench-candidates="1"]');
+			const checkedKeys = () => Array.from(
+				panel?.querySelectorAll<HTMLElement>('[data-dtf-candidate-row="1"]') ?? [],
+			).filter((row) => row.querySelector<HTMLInputElement>('input[type="checkbox"]')?.checked)
+				.map((row) => row.dataset.dtfCandidateKey ?? '');
+			const toggle = panel?.querySelector<HTMLButtonElement>('[data-dtf-candidate-direction-toggle]');
+			const details = toggle?.closest('[data-dtf-candidate-direction-status]')
+				?.querySelector<HTMLElement>('.dtf-candidate-direction-details');
+			const before = checkedKeys();
+			toggle?.click();
+			const expanded = toggle?.getAttribute('aria-expanded') ?? null;
+			const visible = details?.hidden === false;
+			const afterOpen = checkedKeys();
+			toggle?.click();
+			return {
+				found: Boolean(toggle && details),
+				before,
+				afterOpen,
+				expanded,
+				visible,
+				collapsedAgain: toggle?.getAttribute('aria-expanded') === 'false' && details?.hidden === true,
+			};
+		});
+		expect(directionDisclosure.found).toBe(true);
+		expect(directionDisclosure.expanded).toBe('true');
+		expect(directionDisclosure.visible).toBe(true);
+		expect(directionDisclosure.afterOpen).toEqual(directionDisclosure.before);
+		expect(directionDisclosure.collapsedAgain).toBe(true);
 
 		// Add one temporary, broad installed rule in memory so conflict sorting has
 		// a real candidate-vs-installed collision to triage. Remove it again before
@@ -408,20 +485,103 @@ describe('Taxonomy Workbench Candidates — embedded catalog and safe install', 
 		});
 		await browser.pause(350);
 
-		const conflictRanks = await browser.executeObsidian(() =>
-			Array.from(document.querySelectorAll<HTMLElement>('[data-dtf-candidate-occurrence-key]'))
-				.map((group) =>
-					Array.from(group.querySelectorAll<HTMLElement>('[data-dtf-candidate-row="1"]'))
-						.map((row) => {
-							const text = row.textContent ?? '';
-							if (text.includes('Overlaps an existing rule')) return 0;
-							if (text.includes('Overlaps another candidate')) return 1;
-							return 2;
-						}),
-				),
-		);
-		for (const ranks of conflictRanks) expectNondecreasing(ranks);
-		expect(conflictRanks.flat().some((rank) => rank === 0)).toBe(true);
+		const conflictDetails = await browser.executeObsidian(() => {
+			const panel = document.querySelector<HTMLElement>('[data-dtf-workbench-candidates="1"]');
+			const rows = Array.from(panel?.querySelectorAll<HTMLElement>('[data-dtf-candidate-row="1"]') ?? []);
+			const checkedKeys = () => rows
+				.filter((row) => row.querySelector<HTMLInputElement>('input[type="checkbox"]')?.checked)
+				.map((row) => row.dataset.dtfCandidateKey ?? '');
+			const candidateName = (candidateKey: string): string => {
+				const targetRow = rows.find((row) => row.dataset.dtfCandidateKey === candidateKey);
+				const label = targetRow?.querySelector<HTMLInputElement>('input[type="checkbox"]')
+					?.getAttribute('aria-label') ?? '';
+				return label
+					.replace(/^Queue /, '')
+					.replace(/ as a disabled rule draft$/, '')
+					.replace(/^Rule /, '')
+					.replace(/ is already installed$/, '');
+			};
+			const groupRanks = Array.from(
+				panel?.querySelectorAll<HTMLElement>('[data-dtf-candidate-occurrence-key]') ?? [],
+			).map((group) =>
+				Array.from(group.querySelectorAll<HTMLElement>('[data-dtf-candidate-row="1"]'))
+					.map((row) => {
+						if (row.querySelector('[data-dtf-conflict-installed-target]')) return 0;
+						if (row.querySelector('[data-dtf-conflict-candidate-target]')) return 1;
+						return 2;
+					}),
+			);
+			const installedTargets = Array.from(
+				panel?.querySelectorAll<HTMLButtonElement>('[data-dtf-conflict-installed-target]') ?? [],
+			).map((button) => ({
+				ruleId: button.dataset.dtfConflictInstalledTarget ?? '',
+				name: button.textContent?.trim() ?? '',
+				ariaLabel: button.getAttribute('aria-label') ?? '',
+				kind: button.closest('.dtf-candidate-conflict-target')
+					?.querySelector('.dtf-workbench-object-kind')?.textContent?.trim() ?? '',
+			}));
+			const proposedButtons = Array.from(
+				panel?.querySelectorAll<HTMLButtonElement>('[data-dtf-conflict-candidate-target]') ?? [],
+			);
+			const proposedTargets = proposedButtons.map((button) => {
+				const candidateKey = button.dataset.dtfConflictCandidateTarget ?? '';
+				return {
+					candidateKey,
+					name: button.textContent?.trim() ?? '',
+					rowName: candidateName(candidateKey),
+					kind: button.closest('.dtf-candidate-conflict-target')
+						?.querySelector('.dtf-workbench-object-kind')?.textContent?.trim() ?? '',
+				};
+			});
+			const winners = Array.from(
+				panel?.querySelectorAll<HTMLElement>('.dtf-candidate-predicted-winner') ?? [],
+			).map((winner) => ({
+				text: winner.textContent?.trim() ?? '',
+				hasTargetHook: Boolean(winner.querySelector(
+					'[data-dtf-conflict-installed-target], [data-dtf-conflict-candidate-target]',
+				)),
+			}));
+			const selectedBeforeFocus = checkedKeys();
+			const focusTarget = proposedButtons[0];
+			focusTarget?.click();
+			const focusedKey = rows.find((row) => row.dataset.dtfConflictTargetFocused === '1')
+				?.dataset.dtfCandidateKey ?? '';
+			return {
+				groupRanks,
+				installedTargets,
+				proposedTargets,
+				winners,
+				focusTargetKey: focusTarget?.dataset.dtfConflictCandidateTarget ?? '',
+				focusedKey,
+				selectedBeforeFocus,
+				selectedAfterFocus: checkedKeys(),
+			};
+		});
+		for (const ranks of conflictDetails.groupRanks) expectNondecreasing(ranks);
+		expect(conflictDetails.groupRanks.flat().some((rank) => rank === 0)).toBe(true);
+		expect(conflictDetails.installedTargets.length).toBeGreaterThan(0);
+		for (const target of conflictDetails.installedTargets) {
+			expect(target).toEqual({
+				ruleId: 'e2e-temporary-conflict',
+				name: 'E2E temporary conflict',
+				ariaLabel: 'Review installed rule E2E temporary conflict in Settings',
+				kind: 'Installed rule',
+			});
+		}
+		expect(conflictDetails.proposedTargets.length).toBeGreaterThan(0);
+		for (const target of conflictDetails.proposedTargets) {
+			expect(target.candidateKey).not.toBe('');
+			expect(target.name).toBe(target.rowName);
+			expect(target.kind).toBe('Proposed rule');
+		}
+		expect(conflictDetails.winners.length).toBeGreaterThan(0);
+		for (const winner of conflictDetails.winners) {
+			expect(winner.text).toMatch(/^Predicted winner at (?:Vault root|.+): .+$/);
+			expect(winner.hasTargetHook).toBe(false);
+		}
+		expect(conflictDetails.focusTargetKey).not.toBe('');
+		expect(conflictDetails.focusedKey).toBe(conflictDetails.focusTargetKey);
+		expect(conflictDetails.selectedAfterFocus).toEqual(conflictDetails.selectedBeforeFocus);
 
 		await browser.executeObsidian(({ app }) => {
 			const plugin = (app as unknown as {
@@ -442,23 +602,23 @@ describe('Taxonomy Workbench Candidates — embedded catalog and safe install', 
 		await snap('workbench-candidates');
 	});
 
-	it('updates the selected count through select-all, select-none, and row toggles, then leaves one safe candidate', async function () {
+	it('updates the selected count through Include all, Clear selection, and row toggles, then leaves one safe proposal', async function () {
 		const counts = await browser.executeObsidian(() => {
 			const panel = document.querySelector<HTMLElement>('[data-dtf-workbench-candidates="1"]');
 			if (!panel) return { total: -1, none: -1, all: -1, afterDeselect: -1, restored: -1, key: '' };
 			const selectedCount = () => {
 				const button = Array.from(panel.querySelectorAll('button')).find((candidate) =>
-					/^Add \d+ selected disabled draft/.test(candidate.textContent ?? ''),
+					/^Save \d+ draft rule/.test(candidate.textContent ?? ''),
 				);
-				return Number((button?.textContent ?? '').match(/Add (\d+) selected/)?.[1] ?? 0);
+				return Number((button?.textContent ?? '').match(/Save (\d+) draft/)?.[1] ?? 0);
 			};
 			const click = (label: string) => Array.from(panel.querySelectorAll('button'))
 				.find((button) => (button.textContent ?? '').trim() === label)?.click();
 
 			const total = panel.querySelectorAll('[data-dtf-candidate-row="1"]').length;
-			click('Select none');
+			click('Clear selection');
 			const none = selectedCount();
-			click('Select all');
+			click('Include all');
 			const all = selectedCount();
 
 			const installable = Array.from(panel.querySelectorAll<HTMLElement>('[data-dtf-candidate-row="1"]'))
@@ -478,7 +638,7 @@ describe('Taxonomy Workbench Candidates — embedded catalog and safe install', 
 			}
 			const restored = selectedCount();
 
-			click('Select none');
+			click('Clear selection');
 			const oneRow = Array.from(panel.querySelectorAll<HTMLElement>('[data-dtf-candidate-row="1"]'))
 				.find((row) => {
 					const candidateCheckbox = row.querySelector<HTMLInputElement>('input[type="checkbox"]');
@@ -516,7 +676,7 @@ describe('Taxonomy Workbench Candidates — embedded catalog and safe install', 
 		await browser.executeObsidian(() => {
 			const panel = document.querySelector<HTMLElement>('[data-dtf-workbench-candidates="1"]');
 			const install = Array.from(panel?.querySelectorAll('button') ?? []).find((button) =>
-				(button.textContent ?? '').trim() === 'Add 1 selected disabled draft',
+				(button.textContent ?? '').trim() === 'Save 1 draft rule',
 			);
 			install?.click();
 		});
@@ -525,10 +685,10 @@ describe('Taxonomy Workbench Candidates — embedded catalog and safe install', 
 			const panel = document.querySelector<HTMLElement>('[data-dtf-workbench-candidates="1"]');
 			const text = panel?.textContent ?? '';
 			return {
-				title: text.includes('Confirm adding disabled drafts'),
+				title: text.includes('Save disabled draft rules?'),
 				safety: text.includes('New drafts are added disabled. No files, folders, tags, or frontmatter will change.'),
 				hasConfirm: Array.from(panel?.querySelectorAll('button') ?? [])
-					.some((button) => (button.textContent ?? '').trim() === 'Confirm 1 disabled draft'),
+					.some((button) => (button.textContent ?? '').trim() === 'Save 1 disabled draft'),
 			};
 		});
 		expect(confirmation.title).toBe(true);
@@ -538,7 +698,7 @@ describe('Taxonomy Workbench Candidates — embedded catalog and safe install', 
 		await browser.executeObsidian(() => {
 			const panel = document.querySelector<HTMLElement>('[data-dtf-workbench-candidates="1"]');
 			const confirm = Array.from(panel?.querySelectorAll('button') ?? []).find((button) =>
-				(button.textContent ?? '').trim() === 'Confirm 1 disabled draft',
+				(button.textContent ?? '').trim() === 'Save 1 disabled draft',
 			);
 			confirm?.click();
 		});
@@ -562,7 +722,7 @@ describe('Taxonomy Workbench Candidates — embedded catalog and safe install', 
 		const persisted = await browser.executeObsidian(async ({ app }, candidateKey) => {
 			const plugin = (app as unknown as {
 				plugins: {
-					plugins: Record<string, { settings: { rules: Array<{ id: string; enabled: boolean }> } }>;
+					plugins: Record<string, { settings: { rules: Array<{ id: string; enabled: boolean; name: string }> } }>;
 				};
 			}).plugins.plugins['folder-tag-sync'];
 			const rules = plugin.settings.rules;
@@ -575,6 +735,7 @@ describe('Taxonomy Workbench Candidates — embedded catalog and safe install', 
 			const checkbox = row?.querySelector<HTMLInputElement>('input[type="checkbox"]');
 			return {
 				rules,
+				installedRuleName: rules[0]?.name ?? null,
 				persistedRules: raw.rules ?? [],
 				automaticallyRecollected: Boolean(row),
 				installedBadge: (row?.textContent ?? '').includes('Already installed'),
@@ -585,6 +746,7 @@ describe('Taxonomy Workbench Candidates — embedded catalog and safe install', 
 
 		expect(persisted.rules).toHaveLength(1);
 		expect(persisted.rules[0].enabled).toBe(false);
+		expect(persisted.installedRuleName).not.toBeNull();
 		expect(persisted.persistedRules).toHaveLength(1);
 		expect(persisted.persistedRules[0].id).toBe(persisted.rules[0].id);
 		expect(persisted.persistedRules[0].enabled).toBe(false);
@@ -597,6 +759,109 @@ describe('Taxonomy Workbench Candidates — embedded catalog and safe install', 
 		const afterInstallFixture = await fixtureSnapshot();
 		expect(afterInstallFixture).toEqual(initialFixtureSnapshot);
 		await snap('workbench-candidates-post-install');
+
+		const preparedHandoff = await browser.executeObsidian(({ app }, ruleId) => {
+			const plugin = (app as unknown as {
+				plugins: { plugins: Record<string, {
+					settings: { rules: Array<Record<string, unknown> & { id: string; name?: string }> };
+				}> };
+			}).plugins.plugins['folder-tag-sync'];
+			const installed = plugin.settings.rules.find((rule) => rule.id === ruleId);
+			if (!installed) return false;
+			plugin.settings.rules = [
+				...plugin.settings.rules,
+				{
+					...installed,
+					id: 'e2e-candidate-settings-non-target',
+					name: 'E2E candidate settings non-target',
+				},
+			];
+			const setting = (app as unknown as {
+				setting: { open(): void; openTabById(id: string): unknown; close(): void };
+			}).setting;
+			setting.open();
+			setting.openTabById('editor');
+			setting.close();
+			return true;
+		}, installedRuleId);
+		expect(preparedHandoff).toBe(true);
+		await browser.pause(100);
+
+		const postSaveAction = await browser.executeObsidian(() => {
+			const buttons = Array.from(document.querySelectorAll<HTMLButtonElement>('[data-dtf-review-saved-draft]'));
+			const button = buttons[0];
+			const label = button?.textContent?.trim() ?? null;
+			button?.click();
+			return { buttonCount: buttons.length, label, clicked: Boolean(button) };
+		});
+		expect(postSaveAction).toEqual({
+			buttonCount: 1,
+			label: 'Review saved draft in Settings',
+			clicked: true,
+		});
+
+		await browser.waitUntil(async () => browser.executeObsidian(({ app }, ruleId) => {
+			const container = (app as unknown as {
+				setting?: { activeTab?: { containerEl?: HTMLElement } };
+			}).setting?.activeTab?.containerEl;
+			return Boolean(Array.from(container?.querySelectorAll<HTMLElement>('[data-dtf-rule-id]') ?? [])
+				.find((row) => row.dataset.dtfRuleId === ruleId && row.dataset.dtfRuleFocus === 'active'));
+		}, installedRuleId), { timeout: 5_000, timeoutMsg: 'Saved draft Settings row was not focused' });
+
+		const settingsHandoff = await browser.executeObsidian(({ app }, ruleId) => {
+			const plugin = (app as unknown as {
+				plugins: { plugins: Record<string, { focusRuleId?: string }> };
+			}).plugins.plugins['folder-tag-sync'];
+			const container = (app as unknown as {
+				setting?: { activeTab?: { containerEl?: HTMLElement } };
+			}).setting?.activeTab?.containerEl;
+			const target = Array.from(container?.querySelectorAll<HTMLElement>('[data-dtf-rule-id]') ?? [])
+				.find((row) => row.dataset.dtfRuleId === ruleId);
+			const nonTarget = container?.querySelector<HTMLElement>('[data-dtf-rule-id="e2e-candidate-settings-non-target"]');
+			const targetRect = target?.getBoundingClientRect();
+			return {
+				pendingFocusRuleId: plugin.focusRuleId ?? null,
+				targetId: target?.dataset.dtfRuleId ?? null,
+				targetName: target?.querySelector('.dtf-rule-name')?.textContent ?? null,
+				targetFocused: target?.dataset.dtfRuleFocus ?? null,
+				targetHighlighted: target?.classList.contains('is-dtf-rule-focus') ?? false,
+				targetVisible: Boolean(target?.offsetParent && targetRect && targetRect.width > 0 && targetRect.height > 0),
+				targetInWindow: Boolean(targetRect && targetRect.top >= 0 && targetRect.bottom <= window.innerHeight),
+				targetCentered: Boolean(targetRect
+					&& Math.abs((targetRect.top + targetRect.bottom) / 2 - window.innerHeight / 2)
+						< window.innerHeight * 0.4),
+				nonTargetPresent: Boolean(nonTarget),
+				nonTargetFocused: nonTarget?.hasAttribute('data-dtf-rule-focus') ?? false,
+				nonTargetHighlighted: nonTarget?.classList.contains('is-dtf-rule-focus') ?? false,
+				activeFocusRows: container?.querySelectorAll('[data-dtf-rule-focus="active"]').length ?? 0,
+			};
+		}, installedRuleId);
+		expect(settingsHandoff).toEqual({
+			pendingFocusRuleId: null,
+			targetId: installedRuleId,
+			targetName: persisted.installedRuleName,
+			targetFocused: 'active',
+			targetHighlighted: true,
+			targetVisible: true,
+			targetInWindow: true,
+			targetCentered: true,
+			nonTargetPresent: true,
+			nonTargetFocused: false,
+			nonTargetHighlighted: false,
+			activeFocusRows: 1,
+		});
+
+		await browser.executeObsidian(({ app }) => {
+			(app as unknown as { setting: { close(): void } }).setting.close();
+			const plugin = (app as unknown as {
+				plugins: { plugins: Record<string, {
+					settings: { rules: Array<{ id: string }> };
+				}> };
+			}).plugins.plugins['folder-tag-sync'];
+			plugin.settings.rules = plugin.settings.rules.filter((rule) =>
+				rule.id !== 'e2e-candidate-settings-non-target');
+		});
+		await browser.pause(100);
 	});
 
 	it('reinstall adds zero, skips the existing ID, and keeps the installed row non-selectable', async function () {

@@ -13,6 +13,10 @@ audit-confidence-formula.md
 coverage/
 .nyc_output/
 
+# Local E2E screenshot artifacts (inspect locally; never publish)
+test/screenshots/
+test/*.png
+
 # OS files
 .DS_Store
 Thumbs.db

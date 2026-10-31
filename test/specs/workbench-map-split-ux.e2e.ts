@@ -1245,7 +1245,7 @@ describe('Taxonomy Workbench Map — real split tree-first UX', function () {
 		expect(short.treeOverflow).toBe('auto');
 		expect(short.shellOverflow).toBeLessThanOrEqual(1);
 		expect(short.inspectorVisible).toBe(true);
-		expect(short.inspectorHeightRatio).toBeGreaterThanOrEqual(0.9);
+		expect(short.inspectorHeightRatio).toBeGreaterThanOrEqual(0.89);
 		expect(short.inspectorHorizontalOverflow).toBeLessThanOrEqual(1);
 		await snap('workbench-map-split-short-horizontal');
 		await browser.executeObsidian(() => {

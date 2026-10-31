@@ -88,8 +88,8 @@ Transforms handle naming differences between the two sides: case, emoji, Johnny 
 
 Folder Tag Sync is in **beta**, distributed through GitHub Releases and BRAT.
 
-- **Stable:** `0.1.41`, which is GitHub's "Latest". Use this one.
-- **Test builds:** `0.1.41-workbench-outline.N`, marked pre-release. Each one previews Workbench work in progress. Pin an exact version in BRAT, and use one only with a backup or a dedicated test vault.
+- **Stable:** `0.1.42`, which is GitHub's "Latest". Use this one. It brings the Explore → Choose → Review Workbench journey, reviewed saving of detected systems, and per-note previews in the rule editor.
+- **Test builds:** `X.Y.Z-workbench-outline.N`, marked pre-release. Each one previews Workbench work in progress. Pin an exact version in BRAT, and use one only with a backup or a dedicated test vault.
 - **Next:** deployment tracking (the *Maintain* row above), then integrated custom-system journeys, then a UI pass across the Workbench.
 
 The [roadmap](https://cybersader.github.io/obsidian-folder-tag-sync/about/roadmap/) has the full picture.
